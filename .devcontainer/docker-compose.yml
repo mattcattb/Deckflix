@@ -38,7 +38,15 @@ services:
       timeout: 5s
       retries: 5
 
-  
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    profiles: ["redis"]
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
 
 volumes:
   devcontainer-home-config:

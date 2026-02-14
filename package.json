@@ -1,16 +1,14 @@
 {
-  "name": "dose",
+  "name": "matty-stack",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev": "bun run --filter '*' dev",
-    "dev:api": "bun run --filter @nicflow/api dev",
-    "dev:web": "bun run --filter @nicflow/web dev",
-    "dev:mobile": "bun run --filter @nicflow/mobile dev:expo",
+    "dev:server": "bun run --filter @matty-stack/server dev",
+    "dev:web": "bun run --filter @matty-stack/web dev",
     "build": "bun run --filter '*' build",
-    "build:mobile": "bun run --filter @nicflow/mobile build:expo",
-    "db:generate": "bun run --filter api db:generate",
-    "db:migrate": "bun run --filter api db:migrate",
-    "db:studio": "bun run --filter api db:studio"
+    "db:generate": "bun run --filter @matty-stack/server db:generate",
+    "db:migrate": "bun run --filter @matty-stack/server db:migrate",
+    "db:studio": "bun run --filter @matty-stack/server db:studio"
   }
 }

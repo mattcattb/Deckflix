@@ -1,9 +1,9 @@
 {
-  "name": "Dose",
+  "name": "matty-stack",
   "dockerComposeFile": "docker-compose.yml",
   "service": "devcontainer",
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-  "forwardPorts": [3000, 5173, 5432, 8081, 19000, 19001, 19002],
+  "forwardPorts": [3000, 5173, 5432, 6379],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -25,9 +25,6 @@
       "version": "latest"
     }
   },
-  "containerEnv": {
-    "SQLITE_DB_PATH": "/workspaces/${localWorkspaceFolderBasename}/apps/mobile/.sqlite/dev.sqlite"
-  },
   "remoteUser": "node",
-  "postCreateCommand": "mkdir -p apps/mobile/.sqlite && bun install"
+  "postCreateCommand": "bun install"
 }
