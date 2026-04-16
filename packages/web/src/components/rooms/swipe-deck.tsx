@@ -74,19 +74,19 @@ export function SwipeDeck({
 
   if (!activeItem) {
     return (
-      <div className="rounded-3xl border border-border/70 bg-surface p-6 text-sm text-muted-foreground">
+      <div className="flex h-[300px] items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] text-sm text-muted-foreground">
         No remaining movies in this deck.
       </div>
     );
   }
 
   return (
-    <div className="relative mx-auto w-full max-w-md">
+    <div className="relative mx-auto w-full">
       {nextItem ? (
         <MovieCard
           movie={nextItem.movie}
           votes={nextItem.votes}
-          className="absolute inset-0 translate-y-3 scale-[0.96] opacity-70"
+          className="absolute inset-0 translate-y-2 scale-[0.97] opacity-50"
         />
       ) : null}
       <div
@@ -106,7 +106,13 @@ export function SwipeDeck({
           }}
         />
         {swipeHint ? (
-          <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-md border border-white/70 bg-black/40 px-3 py-1 text-xs font-semibold tracking-[0.2em] text-white">
+          <div
+            className={`pointer-events-none absolute top-6 z-20 rounded-xl border-2 px-4 py-2 text-sm font-bold tracking-[0.15em] ${
+              swipeHint === "LIKE"
+                ? "left-6 border-success text-success rotate-[-12deg]"
+                : "right-6 border-danger text-danger rotate-[12deg]"
+            }`}
+          >
             {swipeHint}
           </div>
         ) : null}

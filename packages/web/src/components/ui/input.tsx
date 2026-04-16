@@ -4,10 +4,11 @@ import { cn } from "../../lib/cn";
 
 const inputStyles = tv({
   base: [
-    "flex w-full rounded-md border border-border bg-surface/60 px-3 py-2 text-sm text-foreground",
-    "placeholder:text-muted-foreground",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-    "disabled:cursor-not-allowed disabled:opacity-60",
+    "flex w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-sm text-foreground",
+    "placeholder:text-muted-foreground/60",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/40",
+    "disabled:cursor-not-allowed disabled:opacity-50",
+    "transition-all duration-200",
   ],
   variants: {
     size: {

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "../components/ui";
+import { Button, Card, CardContent, Input, Label } from "../components/ui";
 import { signIn } from "../lib/auth";
 
 export const Route = createFileRoute("/login")({
@@ -19,10 +19,7 @@ function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn.email({
-      email,
-      password,
-    });
+    const result = await signIn.email({ email, password });
 
     if (result.error) {
       setError(result.error.message ?? "Login failed");
@@ -33,33 +30,25 @@ function LoginPage() {
   };
 
   return (
-    <div className="mx-auto mt-16 w-full max-w-md px-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <Link to="/" className="transition hover:text-foreground">
-              ← Back
-            </Link>
-            <Link
-              to="/signup"
-              className="transition hover:text-foreground"
-            >
-              Create account
-            </Link>
+    <div className="flex flex-1 flex-col items-center justify-center px-5 py-16">
+      <Link to="/" className="mb-10 text-2xl font-bold tracking-tight font-display enter-rise">
+        Deck<span className="text-primary">flix</span>
+      </Link>
+      <Card className="enter-rise enter-delay-1 w-full max-w-sm">
+        <CardContent className="space-y-5 p-6">
+          <div>
+            <h2 className="text-xl font-semibold font-display">Sign in</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Welcome back to Deckflix.
+            </p>
           </div>
-          <CardTitle className="text-center text-2xl">Sign In</CardTitle>
-          <p className="text-center text-sm text-muted-foreground">
-            Welcome back. Sign in to your workspace.
-          </p>
-        </CardHeader>
-        <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              <div className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {error}
               </div>
             )}
-            <div className="field-grid">
+            <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -70,7 +59,7 @@ function LoginPage() {
                 required
               />
             </div>
-            <div className="field-grid">
+            <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
@@ -87,15 +76,15 @@ function LoginPage() {
               className="w-full"
               effect="glow"
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? "Signing in..." : "Sign in"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              New here?{" "}
-              <Link to="/signup" className="text-foreground hover:underline">
-                Create an account
-              </Link>
-            </p>
           </form>
+          <p className="text-center text-sm text-muted-foreground">
+            New here?{" "}
+            <Link to="/signup" className="text-primary hover:underline">
+              Create an account
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

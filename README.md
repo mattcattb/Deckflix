@@ -38,8 +38,11 @@ docker compose up -d
 If `DATABASE_URL` or `REDIS_URL` are unset, the server defaults to:
 
 ```
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
-REDIS_URL=redis://localhost:16379
+DATABASE_URL=postgresql://postgres:postgres@localhost:15432/postgres
+REDIS_URL=redis://localhost:16380
+PORT=3100
+VITE_API_URL=http://localhost:3100
+VITE_PORT=4173
 ```
 
 3. Install dependencies:
@@ -54,7 +57,22 @@ bun install
 bun run dev
 ```
 
-The server runs on `http://localhost:3000` and the web app on `http://localhost:5173`.
+The server runs on `http://localhost:3100` and the web app on `http://localhost:4173`.
+
+If another project is already using those ports too, override them in `.env` before
+you start anything:
+
+```
+POSTGRES_PORT=25432
+REDIS_PORT=26380
+DATABASE_URL=postgresql://postgres:postgres@localhost:25432/postgres
+REDIS_URL=redis://localhost:26380
+PORT=3200
+VITE_API_URL=http://localhost:3200
+VITE_PORT=4273
+BETTER_AUTH_URL=http://localhost:4273
+CORS_ORIGINS=http://localhost:4273
+```
 
 ## Auth Routes
 
@@ -92,6 +110,7 @@ creating an account.
   - `{ "type": "ping" }`
 - Server messages:
   - `room.snapshot` - full room state after joins/swipes/connect changes
+  - `room.card_complete` - emitted when every current member has voted on a movie
   - `room.match_found` - emitted when likes hit the room threshold
   - `room.error` - validation/session errors
 

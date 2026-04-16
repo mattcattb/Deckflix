@@ -1,7 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 
 const DEFAULT_DATABASE_URL =
-  "postgresql://postgres:postgres@localhost:5432/postgres";
+  "postgresql://postgres:postgres@localhost:15432/postgres";
 
 export default defineConfig({
   schema: "./src/db/schema.ts",

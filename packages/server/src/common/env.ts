@@ -1,12 +1,12 @@
 import {z} from "zod";
 
 export const DEFAULT_DATABASE_URL =
-  "postgresql://postgres:postgres@localhost:5432/postgres";
-export const DEFAULT_REDIS_URL = "redis://localhost:16379";
+  "postgresql://postgres:postgres@localhost:15432/postgres";
+export const DEFAULT_REDIS_URL = "redis://localhost:16380";
 
 const betterAuthSchema = z.object({
-  BETTER_AUTH_SECRET: z.string(),
-  BETTER_AUTH_URL: z.string(),
+  BETTER_AUTH_SECRET: z.string().default("deckflix-local-dev-secret-change-me"),
+  BETTER_AUTH_URL: z.string().default("http://localhost:4173"),
 });
 
 const googleEnvSchema = z.object({
@@ -44,6 +44,15 @@ const appEnvSchema = z.object({
       return Number(value);
     }
     return value;
-  }, z.number().int().positive().default(3000)),
+  }, z.number().int().positive().default(3100)),
 });
+
+if (!process.env.BETTER_AUTH_SECRET) {
+  process.env.BETTER_AUTH_SECRET = "deckflix-local-dev-secret-change-me";
+}
+
+if (!process.env.BETTER_AUTH_URL) {
+  process.env.BETTER_AUTH_URL = "http://localhost:4173";
+}
+
 export const appEnv = appEnvSchema.parse(process.env);

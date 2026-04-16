@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "../components/ui";
+import { Button, Card, CardContent, Input, Label } from "../components/ui";
 import { signUp } from "../lib/auth";
 
 export const Route = createFileRoute("/signup")({
@@ -20,11 +20,7 @@ function SignupPage() {
     setError("");
     setLoading(true);
 
-    const result = await signUp.email({
-      name,
-      email,
-      password,
-    });
+    const result = await signUp.email({ name, email, password });
 
     if (result.error) {
       setError(result.error.message ?? "Signup failed");
@@ -35,44 +31,36 @@ function SignupPage() {
   };
 
   return (
-    <div className="mx-auto mt-16 w-full max-w-md px-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <Link to="/" className="transition hover:text-foreground">
-              ← Back
-            </Link>
-            <Link
-              to="/login"
-              className="transition hover:text-foreground"
-            >
-              Sign in
-            </Link>
+    <div className="flex flex-1 flex-col items-center justify-center px-5 py-16">
+      <Link to="/" className="mb-10 text-2xl font-bold tracking-tight font-display enter-rise">
+        Deck<span className="text-primary">flix</span>
+      </Link>
+      <Card className="enter-rise enter-delay-1 w-full max-w-sm">
+        <CardContent className="space-y-5 p-6">
+          <div>
+            <h2 className="text-xl font-semibold font-display">Create account</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sign up to save your movie picks.
+            </p>
           </div>
-          <CardTitle className="text-center text-2xl">Create Account</CardTitle>
-          <p className="text-center text-sm text-muted-foreground">
-            Create an account to start a new project.
-          </p>
-        </CardHeader>
-        <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              <div className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {error}
               </div>
             )}
-            <div className="field-grid">
+            <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
                 id="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Name"
+                placeholder="Your name"
                 required
               />
             </div>
-            <div className="field-grid">
+            <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
@@ -83,7 +71,7 @@ function SignupPage() {
                 required
               />
             </div>
-            <div className="field-grid">
+            <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
@@ -101,15 +89,15 @@ function SignupPage() {
               className="w-full"
               effect="glow"
             >
-              {loading ? "Creating account..." : "Sign Up"}
+              {loading ? "Creating account..." : "Sign up"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link to="/login" className="text-foreground hover:underline">
-                Sign in
-              </Link>
-            </p>
           </form>
+          <p className="text-center text-sm text-muted-foreground">
+            Already have an account?{" "}
+            <Link to="/login" className="text-primary hover:underline">
+              Sign in
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>
