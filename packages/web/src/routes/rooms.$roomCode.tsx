@@ -7,6 +7,7 @@ import type {
   RoomSnapshot,
   SwipeRoomPayload,
   SwipeChoice,
+  MovieVoteSummary,
 } from "@deckflix/shared";
 import { Button, Card, CardContent, CardHeader, CardTitle } from "../components/ui";
 import { SwipeControls } from "../components/rooms/swipe-controls";
@@ -31,6 +32,7 @@ function RoomPage() {
   );
   const [roomError, setRoomError] = useState<string | null>(null);
   const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(null);
+  const [latestCompletedCard, setLatestCompletedCard] = useState<MovieVoteSummary | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const roomSession = useMemo(() => getRoomSession(roomCode), [roomCode]);
   const swipeMutation = useMutation({
@@ -113,6 +115,11 @@ function RoomPage() {
       return;
     }
 
+    if (message.type === "room.card_complete") {
+      setLatestCompletedCard(message.payload);
+      return;
+    }
+
     if (message.type === "room.match_found") {
       setLatestMatchMovieId(message.payload.movieId);
       return;
@@ -130,6 +137,8 @@ function RoomPage() {
   const currentDeckItem: RoomDeckItem | null = snapshot?.deck.items[currentIndex] ?? null;
   const currentMovie = currentDeckItem?.movie ?? null;
   const matchMovie = snapshot?.movies.find((movie) => movie.id === latestMatchMovieId) ?? null;
+  const completedMovie =
+    snapshot?.movies.find((movie) => movie.id === latestCompletedCard?.movieId) ?? null;
 
   const swipe = (choice: SwipeChoice, movieId?: string) => {
     if (!currentMovie || !roomSession) return;
@@ -193,6 +202,18 @@ function RoomPage() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             {matchMovie.overview}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {latestCompletedCard && completedMovie ? (
+        <Card className="border-border/80">
+          <CardHeader>
+            <CardTitle>Everyone Swiped: {completedMovie.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {latestCompletedCard.totalVotes} vote
+            {latestCompletedCard.totalVotes === 1 ? "" : "s"} recorded.
           </CardContent>
         </Card>
       ) : null}

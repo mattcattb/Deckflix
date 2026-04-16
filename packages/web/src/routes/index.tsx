@@ -14,16 +14,14 @@ function HomePage() {
       <section className="grid gap-6 lg:grid-cols-[1.3fr_1fr] lg:items-center">
         <div className="space-y-4">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            matty-stack starter
+            deckflix mvp
           </p>
           <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-            Launch with Better Auth, Drizzle, and a clean, reusable web +
-            server setup.
+            Spin up anonymous movie rooms and swipe to a group pick.
           </h1>
           <p className="text-base text-muted-foreground md:text-lg">
-            This boilerplate keeps the essentials: Bun + Hono API, Drizzle
-            schema, Better Auth with the Drizzle adapter, and a lightweight
-            React app.
+            The MVP is room-first: anonymous joins, Redis-backed room state,
+            HTTP writes, and websocket room updates.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link to="/rooms">
@@ -35,11 +33,8 @@ function HomePage() {
               </Link>
             ) : (
               <>
-                <Link to="/signup">
-                  <Button effect="glow">Create account</Button>
-                </Link>
                 <Link to="/login">
-                  <Button variant="outline">Sign in</Button>
+                  <Button variant="outline">Optional sign in</Button>
                 </Link>
               </>
             )}
@@ -50,8 +45,9 @@ function HomePage() {
             <div className="text-sm text-muted-foreground">Stack overview</div>
             <ul className="space-y-2 text-sm">
               <li>Server: Bun + Hono</li>
+              <li>Room state: Redis</li>
               <li>Database: Postgres + Drizzle ORM</li>
-              <li>Auth: Better Auth + Drizzle adapter</li>
+              <li>Auth: optional, later-facing</li>
               <li>Web: React + TanStack Router + Tailwind</li>
             </ul>
           </CardContent>

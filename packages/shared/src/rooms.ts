@@ -125,6 +125,10 @@ export const roomServerMessageSchema = z.discriminatedUnion("type", [
     payload: roomSnapshotSchema,
   }),
   z.object({
+    type: z.literal("room.card_complete"),
+    payload: movieVoteSummarySchema,
+  }),
+  z.object({
     type: z.literal("room.match_found"),
     payload: z.object({
       movieId: z.string().min(1),

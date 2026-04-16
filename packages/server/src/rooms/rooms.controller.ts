@@ -8,7 +8,6 @@ import {
   swipeRoomPayloadSchema,
 } from "@deckflix/shared";
 import {createRouter} from "../common/hono";
-import {optionalAuthMiddleware} from "../auth/auth.middleware";
 import {ensureSocketPubSub} from "../lib/redis";
 import * as RoomService from "./rooms.service";
 import {
@@ -31,13 +30,11 @@ const publishSnapshot = (server: Parameters<typeof ensureSocketPubSub>[0], roomC
 };
 
 export const roomsController = createRouter()
-  .use("*", optionalAuthMiddleware)
   .post("/", zValidator("json", createRoomPayloadSchema), async (c) => {
     const input = c.req.valid("json");
     const result = await RoomService.createRoom({
       displayName: input.displayName,
       settings: input.settings,
-      userId: c.get("userId"),
     });
     return c.json(result, 201);
   })
@@ -47,7 +44,6 @@ export const roomsController = createRouter()
     const result = await RoomService.joinRoom({
       roomCode,
       displayName: input.displayName,
-      userId: c.get("userId"),
     });
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
@@ -66,6 +62,13 @@ export const roomsController = createRouter()
     });
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
+
+    if (result.cardCompleted) {
+      publishRoomMessage(server, roomCode, {
+        type: "room.card_complete",
+        payload: result.cardSummary,
+      });
+    }
 
     if (result.justMatched) {
       publishRoomMessage(server, roomCode, {

@@ -26,7 +26,6 @@ type RoomMemberInternal = {
   id: string;
   displayName: string;
   role: "host" | "guest";
-  userId?: string;
   joinedAt: string;
   sessionToken: string;
 };
@@ -49,7 +48,6 @@ const roomMemberSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().min(1),
   role: z.enum(["host", "guest"]),
-  userId: z.string().optional(),
   joinedAt: z.string().datetime(),
   sessionToken: z.string().min(1),
 });
@@ -188,6 +186,15 @@ const computeVoteCounts = (room: RoomInternal, movieId: string) => {
   return counts;
 };
 
+const getMovieVoteSummary = (room: RoomInternal, movieId: string) => {
+  const counts = computeVoteCounts(room, movieId);
+  return {
+    movieId,
+    ...counts,
+    matched: room.matchedMovieIds.includes(movieId),
+  };
+};
+
 const allMembersCompleted = (room: RoomInternal) =>
   Object.keys(room.members).every((memberId) => {
     const cursor = room.memberCursorById[memberId] ?? 0;
@@ -210,7 +217,6 @@ const verifySession = async (input: {
 
 export const createRoom = async (input: {
   displayName: string;
-  userId?: string;
   settings?: RoomSettingsInput;
 }): Promise<CreateRoomResult> => {
   const roomCode = await createUniqueRoomCode();
@@ -233,7 +239,6 @@ export const createRoom = async (input: {
         id: memberId,
         displayName: input.displayName,
         role: "host",
-        userId: input.userId,
         joinedAt: createdAt,
         sessionToken,
       },
@@ -260,7 +265,6 @@ export const createRoom = async (input: {
 export const joinRoom = async (input: {
   roomCode: string;
   displayName: string;
-  userId?: string;
 }): Promise<JoinRoomResult> => {
   const room = await getRoomOrThrow(input.roomCode);
   const memberId = randomUUID();
@@ -271,7 +275,6 @@ export const joinRoom = async (input: {
     id: memberId,
     displayName: input.displayName,
     role: "guest",
-    userId: input.userId,
     joinedAt,
     sessionToken,
   };
@@ -306,9 +309,7 @@ export const getRoomSnapshot = async (roomCode: string): Promise<RoomSnapshot> =
   }));
 
   const voteSummary = room.movies.map((movie) => ({
-    movieId: movie.id,
-    ...computeVoteCounts(room, movie.id),
-    matched: room.matchedMovieIds.includes(movie.id),
+    ...getMovieVoteSummary(room, movie.id),
   }));
 
   return {
@@ -410,14 +411,17 @@ export const recordSwipe = async (input: {
 
   const voteCounts = computeVoteCounts(room, input.movieId);
   const likes = voteCounts.like + voteCounts.superLike;
+  const memberCount = Object.keys(room.members).length;
+  const cardCompleted = voteCounts.totalVotes === memberCount;
   const justMatched =
     likes >= room.settings.minLikesToMatch &&
     !room.matchedMovieIds.includes(input.movieId);
 
   if (justMatched) {
     room.matchedMovieIds.push(input.movieId);
-    room.status = "completed";
-  } else if (allMembersCompleted(room)) {
+  }
+
+  if (allMembersCompleted(room)) {
     room.status = "completed";
   } else if (Object.keys(room.members).length >= 2) {
     room.status = "swiping";
@@ -427,7 +431,9 @@ export const recordSwipe = async (input: {
 
   return {
     movieId: input.movieId,
+    cardCompleted,
     justMatched,
+    cardSummary: getMovieVoteSummary(room, input.movieId),
     snapshot: await getRoomSnapshot(room.code),
   };
 };

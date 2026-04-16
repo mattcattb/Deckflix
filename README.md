@@ -58,12 +58,7 @@ The server runs on `http://localhost:3000` and the web app on `http://localhost:
 
 ## Auth Routes
 
-Better Auth is mounted at `/api/auth` and supports:
-
-- `POST /api/auth/sign-up/email`
-- `POST /api/auth/sign-in/email`
-- `POST /api/auth/sign-out`
-- `GET /api/auth/session`
+Better Auth is still available at `/api/auth`, but movie rooms are anonymous-first for MVP.
 
 ## Example API (Projects)
 
@@ -74,8 +69,9 @@ Authenticated routes (require session cookie):
 
 ## Movie Rooms (Core MVP)
 
-Current room features are intentionally in-memory so you can iterate quickly
-before deciding on DB schema/auth strategy.
+Movie rooms are anonymous-first for MVP. A browser keeps a room-local
+session (`memberId` + `sessionToken`) so users can reconnect without
+creating an account.
 
 ### Room REST API
 
@@ -85,6 +81,8 @@ before deciding on DB schema/auth strategy.
 - `POST /api/rooms/:roomCode/join` - join room
   - body: `{ "displayName": "Friend" }`
   - returns room snapshot + member session
+- `POST /api/rooms/:roomCode/swipes` - record swipe
+  - body: `{ "memberId": "...", "sessionToken": "...", "movieId": "movie-dune", "choice": "like" }`
 - `GET /api/rooms/:roomCode` - fetch room snapshot
 
 ### Room WebSocket
@@ -92,7 +90,6 @@ before deciding on DB schema/auth strategy.
 - `GET /api/rooms/:roomCode/ws?memberId=...&sessionToken=...`
 - Client messages:
   - `{ "type": "ping" }`
-  - `{ "type": "movie.swipe", "payload": { "movieId": "movie-dune", "choice": "like" } }`
 - Server messages:
   - `room.snapshot` - full room state after joins/swipes/connect changes
   - `room.match_found` - emitted when likes hit the room threshold
@@ -101,8 +98,8 @@ before deciding on DB schema/auth strategy.
 ### Notes
 
 - Rooms currently use demo movie cards, not TMDB yet.
-- State resets when server restarts.
-- Auth is optional for rooms; logged-in users can still create/join.
+- Room state is stored in Redis.
+- Better Auth remains in the repo for later account-based features, but rooms do not require accounts.
 
 ### Web Routes
 
