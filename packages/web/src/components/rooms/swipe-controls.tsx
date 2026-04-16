@@ -1,4 +1,4 @@
-import type { SwipeChoice } from "@matty-stack/shared";
+import type { SwipeChoice } from "@deckflix/shared";
 import { Button } from "../ui";
 
 type SwipeControlsProps = {

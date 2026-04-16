@@ -1,5 +1,9 @@
 import {z} from "zod";
 
+export const DEFAULT_DATABASE_URL =
+  "postgresql://postgres:postgres@localhost:5432/postgres";
+export const DEFAULT_REDIS_URL = "redis://localhost:16379";
+
 const betterAuthSchema = z.object({
   BETTER_AUTH_SECRET: z.string(),
   BETTER_AUTH_URL: z.string(),
@@ -20,7 +24,8 @@ const appEnvSchema = z.object({
   ...betterAuthSchema.shape,
   ...googleEnvSchema.shape,
   ...githubEnvSchema.shape,
-  DATABASE_URL: z.string(),
+  DATABASE_URL: z.string().default(DEFAULT_DATABASE_URL),
+  REDIS_URL: z.string().default(DEFAULT_REDIS_URL),
 
   LOG_LEVEL: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),

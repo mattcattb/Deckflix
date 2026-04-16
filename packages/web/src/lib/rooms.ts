@@ -1,8 +1,4 @@
-import type {
-  RoomClientMessage,
-  RoomServerMessage,
-  RoomSession,
-} from "@matty-stack/shared";
+import {parseRoomServerMessage, roomSessionSchema, type RoomSession} from "@deckflix/shared";
 import { API_BASE_URL } from "./api";
 
 const roomSessionKey = (roomCode: string) =>
@@ -17,10 +13,7 @@ export const getRoomSession = (roomCode: string): RoomSession | null => {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<RoomSession>;
-    if (!parsed.memberId || !parsed.sessionToken || !parsed.roomCode) {
-      return null;
-    }
+    const parsed = roomSessionSchema.parse(JSON.parse(raw));
     return {
       roomCode: parsed.roomCode.toUpperCase(),
       memberId: parsed.memberId,
@@ -39,19 +32,4 @@ export const createRoomWebSocketUrl = (session: RoomSession) => {
   return url.toString();
 };
 
-export const parseRoomServerMessage = (raw: string): RoomServerMessage | null => {
-  try {
-    const parsed = JSON.parse(raw) as { type?: string };
-    if (!parsed.type) return null;
-    if (parsed.type === "room.snapshot") return parsed as RoomServerMessage;
-    if (parsed.type === "room.match_found") return parsed as RoomServerMessage;
-    if (parsed.type === "room.error") return parsed as RoomServerMessage;
-    if (parsed.type === "pong") return parsed as RoomServerMessage;
-    return null;
-  } catch {
-    return null;
-  }
-};
-
-export const encodeRoomClientMessage = (message: RoomClientMessage) =>
-  JSON.stringify(message);
+export {parseRoomServerMessage};

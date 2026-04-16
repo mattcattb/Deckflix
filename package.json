@@ -1,14 +1,17 @@
 {
-  "name": "matty-stack",
+  "name": "deckflix",
   "private": true,
+  "catalog": {
+    "zod": "^3.24.0"
+  },
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "bun run --filter '*' dev",
-    "dev:server": "bun run --filter @matty-stack/server dev",
-    "dev:web": "bun run --filter @matty-stack/web dev",
+    "dev:server": "bun run --filter @deckflix/server dev",
+    "dev:web": "bun run --filter @deckflix/web dev",
     "build": "bun run --filter '*' build",
-    "db:generate": "bun run --filter @matty-stack/server db:generate",
-    "db:migrate": "bun run --filter @matty-stack/server db:migrate",
-    "db:studio": "bun run --filter @matty-stack/server db:studio"
+    "db:generate": "bun run --filter @deckflix/server db:generate",
+    "db:migrate": "bun run --filter @deckflix/server db:migrate",
+    "db:studio": "bun run --filter @deckflix/server db:studio"
   }
 }

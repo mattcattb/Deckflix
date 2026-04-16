@@ -29,13 +29,26 @@ cp .env.example .env
 cp packages/server/.env.example packages/server/.env
 ```
 
-2. Install dependencies:
+2. Start Postgres and Redis:
+
+```
+docker compose up -d
+```
+
+If `DATABASE_URL` or `REDIS_URL` are unset, the server defaults to:
+
+```
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres
+REDIS_URL=redis://localhost:16379
+```
+
+3. Install dependencies:
 
 ```
 bun install
 ```
 
-3. Start dev servers:
+4. Start dev servers:
 
 ```
 bun run dev
@@ -109,15 +122,6 @@ Provider behavior:
 - If `TMDB_API_KEY` is set, server uses TMDB.
 - If TMDB is not configured (or fails), server falls back to an in-memory mock catalog.
 - You can force mock mode with `MOVIE_PROVIDER=mock`.
-
-## Devcontainer Notes
-
-- Postgres runs on port `5432`.
-- Redis is available via the optional compose profile:
-
-```
-COMPOSE_PROFILES=redis
-```
 
 ## Scripts
 

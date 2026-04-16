@@ -1,8 +1,11 @@
 {
-  "name": "@matty-stack/shared",
+  "name": "@deckflix/shared",
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./rooms": "./src/rooms.ts"

@@ -1,4 +1,4 @@
-import type { MovieDetails, MovieSummary } from "@matty-stack/shared";
+import type { MovieDetails, MovieSummary } from "@deckflix/shared";
 
 const MOCK_MOVIES: MovieDetails[] = [
   {

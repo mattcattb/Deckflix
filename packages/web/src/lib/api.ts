@@ -1,5 +1,5 @@
 import { hc } from "hono/client";
-import type { AppType } from "@matty-stack/server/app";
+import type { AppType } from "@deckflix/server/app";
 
 const rawBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
 

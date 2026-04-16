@@ -2,6 +2,7 @@ import { websocket } from "hono/bun";
 import { appEnv } from "./common/env";
 import { logger } from "./common/logger";
 import { app } from "./app";
+import {ensureSocketPubSub} from "./lib/redis";
 export { app, protectedApiRoutes } from "./app";
 export type { AppType, ApiRoutesType } from "./app";
 
@@ -10,6 +11,11 @@ logger.info(`Server running on http://localhost:${port}`);
 
 export default {
   port,
-  fetch: app.fetch,
+  fetch(request: Request, server?: unknown) {
+    if (server) {
+      void ensureSocketPubSub(server as Parameters<typeof ensureSocketPubSub>[0]);
+    }
+    return app.fetch(request, server);
+  },
   websocket,
 };

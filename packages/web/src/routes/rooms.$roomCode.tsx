@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
   RoomDeckItem,
-  RoomClientMessage,
   RoomServerMessage,
   RoomSnapshot,
+  SwipeRoomPayload,
   SwipeChoice,
-} from "@matty-stack/shared";
+} from "@deckflix/shared";
 import { Button, Card, CardContent, CardHeader, CardTitle } from "../components/ui";
 import { SwipeControls } from "../components/rooms/swipe-controls";
 import { SwipeDeck } from "../components/rooms/swipe-deck";
 import { api } from "../lib/api";
 import {
   createRoomWebSocketUrl,
-  encodeRoomClientMessage,
   getRoomSession,
   parseRoomServerMessage,
 } from "../lib/rooms";
@@ -34,6 +33,23 @@ function RoomPage() {
   const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const roomSession = useMemo(() => getRoomSession(roomCode), [roomCode]);
+  const swipeMutation = useMutation({
+    mutationFn: async (payload: SwipeRoomPayload) => {
+      const response = await api.api.rooms[":roomCode"].swipes.$post({
+        param: { roomCode },
+        json: payload,
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      return response.json();
+    },
+    onError: (error) => {
+      setRoomError(
+        error instanceof Error ? error.message : "Unable to record swipe",
+      );
+    },
+  });
 
   const roomQuery = useQuery({
     queryKey: ["room", roomCode],
@@ -107,14 +123,6 @@ function RoomPage() {
     }
   };
 
-  const sendMessage = (message: RoomClientMessage) => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      setRoomError("Socket not connected");
-      return;
-    }
-    socketRef.current.send(encodeRoomClientMessage(message));
-  };
-
   const myProgress = snapshot?.deck.memberProgress.find(
     (progress) => progress.memberId === roomSession?.memberId,
   );
@@ -124,13 +132,13 @@ function RoomPage() {
   const matchMovie = snapshot?.movies.find((movie) => movie.id === latestMatchMovieId) ?? null;
 
   const swipe = (choice: SwipeChoice, movieId?: string) => {
-    if (!currentMovie) return;
-    sendMessage({
-      type: "movie.swipe",
-      payload: {
-        movieId: movieId ?? currentMovie.id,
-        choice,
-      },
+    if (!currentMovie || !roomSession) return;
+    setRoomError(null);
+    swipeMutation.mutate({
+      memberId: roomSession.memberId,
+      sessionToken: roomSession.sessionToken,
+      movieId: movieId ?? currentMovie.id,
+      choice,
     });
   };
 
@@ -201,11 +209,11 @@ function RoomPage() {
                   items={snapshot?.deck.items ?? []}
                   currentIndex={currentIndex}
                   onSwipe={(choice, movieId) => swipe(choice, movieId)}
-                  disabled={socketState !== "open"}
+                  disabled={swipeMutation.isPending}
                 />
                 <SwipeControls
                   onSwipe={(choice) => swipe(choice)}
-                  disabled={socketState !== "open"}
+                  disabled={swipeMutation.isPending}
                   allowMaybe={snapshot?.settings.allowMaybe}
                   allowSuperLike={snapshot?.settings.allowSuperLike}
                 />

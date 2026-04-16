@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import type { RoomDeckItem, SwipeChoice } from "@matty-stack/shared";
+import type { RoomDeckItem, SwipeChoice } from "@deckflix/shared";
 import { MovieCard } from "./movie-card";
 
 type SwipeDeckProps = {

@@ -6,7 +6,7 @@ import type {
   CreateRoomResult,
   JoinRoomPayload,
   JoinRoomResult,
-} from "@matty-stack/shared";
+} from "@deckflix/shared";
 import {
   Button,
   Card,

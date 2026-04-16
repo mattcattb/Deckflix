@@ -1,0 +1,9 @@
+{
+  "folders": [
+    {"path": "."},
+    {"path": "packages/server"},
+    {"path": "packages/web"},
+    {"path": "packages/shared"},
+  ],
+  "settings": {},
+}

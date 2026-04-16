@@ -1,26 +1,25 @@
 import { zValidator } from "@hono/zod-validator";
 import { createRouter } from "../common/hono";
-import { moviePopularQuerySchema, movieSearchQuerySchema } from "./movies.schema";
-import { moviesService } from "./movies.service";
+import * as MoviesService from "./movies.service";
 
 export const moviesController = createRouter()
-  .get("/search", zValidator("query", movieSearchQuerySchema), async (c) => {
+  .get("/search", zValidator("query", MoviesService.movieSearchQuerySchema), async (c) => {
     const query = c.req.valid("query");
-    const result = await moviesService.searchMovies({
+    const result = await MoviesService.searchMovies({
       query: query.q,
       page: query.page,
     });
     return c.json(result);
   })
-  .get("/popular", zValidator("query", moviePopularQuerySchema), async (c) => {
+  .get("/popular", zValidator("query", MoviesService.moviePopularQuerySchema), async (c) => {
     const query = c.req.valid("query");
-    const result = await moviesService.getPopularMovies({
+    const result = await MoviesService.getPopularMovies({
       page: query.page,
     });
     return c.json(result);
   })
   .get("/:movieId", async (c) => {
     const movieId = c.req.param("movieId");
-    const movie = await moviesService.getMovieById(movieId);
+    const movie = await MoviesService.getMovieById(movieId);
     return c.json(movie);
   });

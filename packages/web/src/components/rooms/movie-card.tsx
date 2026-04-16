@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { MovieCandidate, MovieVoteSummary } from "@matty-stack/shared";
+import type { MovieCandidate, MovieVoteSummary } from "@deckflix/shared";
 import { cn } from "../../lib/cn";
 
 type MovieCardProps = {

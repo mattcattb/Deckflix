@@ -1,5 +1,5 @@
 {
-  "name": "@matty-stack/web",
+  "name": "@deckflix/web",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -10,17 +10,19 @@
     "start": "vite"
   },
   "dependencies": {
-    "@matty-stack/server": "workspace:*",
-    "@matty-stack/shared": "workspace:*",
+    "@base-ui/react": "^1.4.0",
+    "@deckflix/server": "workspace:*",
+    "@deckflix/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
     "@tanstack/react-router": "^1.93.0",
     "better-auth": "^1.2.0",
+    "clsx": "^2.1.1",
     "hono": "^4.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^2.5.5",
-    "tailwind-variants": "^0.2.1"
+    "tailwind-variants": "^0.2.1",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@tanstack/router-plugin": "^1.93.0",
