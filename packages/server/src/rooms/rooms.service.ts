@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {z} from "zod";
 import type {
   CreateRoomResult,
   JoinRoomResult,
@@ -13,6 +14,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
+import {ensureRedis, redis} from "../lib/redis";
 import * as MoviesService from "../movies/movies.service";
 
 type SocketLike = {
@@ -37,11 +39,49 @@ type RoomInternal = {
   hostMemberId: string;
   settings: RoomSettings;
   movies: MovieCandidate[];
-  members: Map<string, RoomMemberInternal>;
-  memberCursorById: Map<string, number>;
-  votesByMovieId: Map<string, Map<string, SwipeChoice>>;
-  matchedMovieIds: Set<string>;
+  members: Record<string, RoomMemberInternal>;
+  memberCursorById: Record<string, number>;
+  votesByMovieId: Record<string, Record<string, SwipeChoice>>;
+  matchedMovieIds: string[];
 };
+
+const roomMemberSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  role: z.enum(["host", "guest"]),
+  userId: z.string().optional(),
+  joinedAt: z.string().datetime(),
+  sessionToken: z.string().min(1),
+});
+
+const roomStateSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  status: z.enum(["lobby", "swiping", "completed"]),
+  createdAt: z.string().datetime(),
+  hostMemberId: z.string().min(1),
+  settings: z.object({
+    minLikesToMatch: z.number().int(),
+    maxMovies: z.number().int(),
+    allowMaybe: z.boolean(),
+    allowSuperLike: z.boolean(),
+  }),
+  movies: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string(),
+    year: z.number().int(),
+    overview: z.string(),
+    posterUrl: z.string(),
+    rating: z.number(),
+  })),
+  members: z.record(z.string(), roomMemberSchema),
+  memberCursorById: z.record(z.string(), z.number().int().min(0)),
+  votesByMovieId: z.record(
+    z.string(),
+    z.record(z.string(), z.enum(["like", "dislike", "maybe", "super_like", "skip"])),
+  ),
+  matchedMovieIds: z.array(z.string()),
+});
 
 const DEFAULT_SETTINGS: RoomSettings = {
   minLikesToMatch: 2,
@@ -50,8 +90,10 @@ const DEFAULT_SETTINGS: RoomSettings = {
   allowSuperLike: true,
 };
 
-const roomsByCode = new Map<string, RoomInternal>();
+const ROOM_TTL_SECONDS = 60 * 60 * 24;
 const socketsByRoomCode = new Map<string, Map<string, Set<SocketLike>>>();
+
+const getRoomKey = (roomCode: string) => `room:${roomCode.trim().toUpperCase()}`;
 
 const generateRoomCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -68,24 +110,46 @@ const mergeSettings = (settings?: RoomSettingsInput): RoomSettings => ({
   ...settings,
 });
 
-const createUniqueRoomCode = () => {
+const saveRoom = async (room: RoomInternal) => {
+  await ensureRedis();
+  await redis.set(getRoomKey(room.code), JSON.stringify(room), {
+    EX: ROOM_TTL_SECONDS,
+  });
+};
+
+const getRoomOrThrow = async (roomCode: string) => {
+  await ensureRedis();
+  const normalized = roomCode.trim().toUpperCase();
+  const raw = await redis.get(getRoomKey(normalized));
+  if (!raw) {
+    throw new NotFoundException(`Room ${normalized} not found`);
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch {
+    throw new NotFoundException(`Room ${normalized} not found`);
+  }
+
+  const parsed = roomStateSchema.safeParse(parsedJson);
+  if (!parsed.success) {
+    throw new NotFoundException(`Room ${normalized} not found`);
+  }
+
+  return parsed.data satisfies RoomInternal;
+};
+
+const createUniqueRoomCode = async () => {
+  await ensureRedis();
   for (let i = 0; i < 20; i += 1) {
     const candidate = generateRoomCode();
-    if (!roomsByCode.has(candidate)) {
+    if (!(await redis.exists(getRoomKey(candidate)))) {
       return candidate;
     }
   }
 
   throw new BadRequestException("Unable to generate room code");
-};
-
-const getRoomOrThrow = (roomCode: string) => {
-  const normalized = roomCode.trim().toUpperCase();
-  const room = roomsByCode.get(normalized);
-  if (!room) {
-    throw new NotFoundException(`Room ${normalized} not found`);
-  }
-  return room;
 };
 
 const buildRoomDeck = async (maxMovies: number): Promise<MovieCandidate[]> => {
@@ -100,7 +164,7 @@ const buildRoomDeck = async (maxMovies: number): Promise<MovieCandidate[]> => {
 };
 
 const computeVoteCounts = (room: RoomInternal, movieId: string) => {
-  const votes = room.votesByMovieId.get(movieId);
+  const votes = room.votesByMovieId[movieId];
   const counts = {
     like: 0,
     dislike: 0,
@@ -112,7 +176,7 @@ const computeVoteCounts = (room: RoomInternal, movieId: string) => {
 
   if (!votes) return counts;
 
-  for (const choice of votes.values()) {
+  for (const choice of Object.values(votes)) {
     counts.totalVotes += 1;
     if (choice === "like") counts.like += 1;
     if (choice === "dislike") counts.dislike += 1;
@@ -124,32 +188,24 @@ const computeVoteCounts = (room: RoomInternal, movieId: string) => {
   return counts;
 };
 
-const allMembersCompleted = (room: RoomInternal) => {
-  for (const member of room.members.values()) {
-    const cursor = room.memberCursorById.get(member.id) ?? 0;
-    if (cursor < room.movies.length) {
-      return false;
-    }
-  }
+const allMembersCompleted = (room: RoomInternal) =>
+  Object.keys(room.members).every((memberId) => {
+    const cursor = room.memberCursorById[memberId] ?? 0;
+    return cursor >= room.movies.length;
+  });
 
-  return true;
-};
-
-const verifySession = (input: {
+const verifySession = async (input: {
   roomCode: string;
   memberId: string;
   sessionToken: string;
 }) => {
-  const room = getRoomOrThrow(input.roomCode);
-  const member = room.members.get(input.memberId);
+  const room = await getRoomOrThrow(input.roomCode);
+  const member = room.members[input.memberId];
   if (!member || member.sessionToken !== input.sessionToken) {
     throw new UnauthorizedException("Invalid room session");
   }
 
-  return {
-    room,
-    member,
-  };
+  return {room, member};
 };
 
 export const createRoom = async (input: {
@@ -157,14 +213,14 @@ export const createRoom = async (input: {
   userId?: string;
   settings?: RoomSettingsInput;
 }): Promise<CreateRoomResult> => {
-  const roomCode = createUniqueRoomCode();
+  const roomCode = await createUniqueRoomCode();
   const memberId = randomUUID();
   const sessionToken = randomUUID();
   const createdAt = new Date().toISOString();
   const settings = mergeSettings(input.settings);
   const movies = await buildRoomDeck(settings.maxMovies);
 
-  roomsByCode.set(roomCode, {
+  const room: RoomInternal = {
     id: randomUUID(),
     code: roomCode,
     status: "lobby",
@@ -172,26 +228,27 @@ export const createRoom = async (input: {
     hostMemberId: memberId,
     settings,
     movies,
-    members: new Map([
-      [
-        memberId,
-        {
-          id: memberId,
-          displayName: input.displayName,
-          role: "host",
-          userId: input.userId,
-          joinedAt: createdAt,
-          sessionToken,
-        },
-      ],
-    ]),
-    memberCursorById: new Map([[memberId, 0]]),
-    votesByMovieId: new Map(),
-    matchedMovieIds: new Set(),
-  });
+    members: {
+      [memberId]: {
+        id: memberId,
+        displayName: input.displayName,
+        role: "host",
+        userId: input.userId,
+        joinedAt: createdAt,
+        sessionToken,
+      },
+    },
+    memberCursorById: {
+      [memberId]: 0,
+    },
+    votesByMovieId: {},
+    matchedMovieIds: [],
+  };
+
+  await saveRoom(room);
 
   return {
-    room: getRoomSnapshot(roomCode),
+    room: await getRoomSnapshot(roomCode),
     session: {
       roomCode,
       memberId,
@@ -200,32 +257,34 @@ export const createRoom = async (input: {
   };
 };
 
-export const joinRoom = (input: {
+export const joinRoom = async (input: {
   roomCode: string;
   displayName: string;
   userId?: string;
-}): JoinRoomResult => {
-  const room = getRoomOrThrow(input.roomCode);
+}): Promise<JoinRoomResult> => {
+  const room = await getRoomOrThrow(input.roomCode);
   const memberId = randomUUID();
   const sessionToken = randomUUID();
   const joinedAt = new Date().toISOString();
 
-  room.members.set(memberId, {
+  room.members[memberId] = {
     id: memberId,
     displayName: input.displayName,
     role: "guest",
     userId: input.userId,
     joinedAt,
     sessionToken,
-  });
-  room.memberCursorById.set(memberId, 0);
+  };
+  room.memberCursorById[memberId] = 0;
 
-  if (room.members.size >= 2 && room.status === "lobby") {
+  if (Object.keys(room.members).length >= 2 && room.status === "lobby") {
     room.status = "swiping";
   }
 
+  await saveRoom(room);
+
   return {
-    room: getRoomSnapshot(room.code),
+    room: await getRoomSnapshot(room.code),
     session: {
       roomCode: room.code,
       memberId,
@@ -234,11 +293,11 @@ export const joinRoom = (input: {
   };
 };
 
-export const getRoomSnapshot = (roomCode: string): RoomSnapshot => {
-  const room = getRoomOrThrow(roomCode);
+export const getRoomSnapshot = async (roomCode: string): Promise<RoomSnapshot> => {
+  const room = await getRoomOrThrow(roomCode);
   const liveSockets = socketsByRoomCode.get(room.code);
 
-  const members = Array.from(room.members.values()).map((member) => ({
+  const members = Object.values(room.members).map((member) => ({
     id: member.id,
     displayName: member.displayName,
     role: member.role,
@@ -249,7 +308,7 @@ export const getRoomSnapshot = (roomCode: string): RoomSnapshot => {
   const voteSummary = room.movies.map((movie) => ({
     movieId: movie.id,
     ...computeVoteCounts(room, movie.id),
-    matched: room.matchedMovieIds.has(movie.id),
+    matched: room.matchedMovieIds.includes(movie.id),
   }));
 
   return {
@@ -269,7 +328,7 @@ export const getRoomSnapshot = (roomCode: string): RoomSnapshot => {
         votes: voteSummary[index],
       })),
       memberProgress: members.map((member) => {
-        const currentIndex = room.memberCursorById.get(member.id) ?? 0;
+        const currentIndex = room.memberCursorById[member.id] ?? 0;
         return {
           memberId: member.id,
           currentIndex,
@@ -281,13 +340,13 @@ export const getRoomSnapshot = (roomCode: string): RoomSnapshot => {
   };
 };
 
-export const connectMember = (input: {
+export const connectMember = async (input: {
   roomCode: string;
   memberId: string;
   sessionToken: string;
   socket: SocketLike;
 }) => {
-  const {room} = verifySession(input);
+  const {room} = await verifySession(input);
   const roomSockets =
     socketsByRoomCode.get(room.code) ?? new Map<string, Set<SocketLike>>();
   const memberSockets = roomSockets.get(input.memberId) ?? new Set<SocketLike>();
@@ -301,7 +360,8 @@ export const disconnectMember = (input: {
   memberId: string;
   socket: SocketLike;
 }) => {
-  const roomSockets = socketsByRoomCode.get(input.roomCode);
+  const normalized = input.roomCode.trim().toUpperCase();
+  const roomSockets = socketsByRoomCode.get(normalized);
   if (!roomSockets) return;
 
   const memberSockets = roomSockets.get(input.memberId);
@@ -313,18 +373,18 @@ export const disconnectMember = (input: {
   }
 
   if (roomSockets.size === 0) {
-    socketsByRoomCode.delete(input.roomCode);
+    socketsByRoomCode.delete(normalized);
   }
 };
 
-export const recordSwipe = (input: {
+export const recordSwipe = async (input: {
   roomCode: string;
   memberId: string;
   sessionToken: string;
   movieId: string;
   choice: SwipeChoice;
 }) => {
-  const {room} = verifySession(input);
+  const {room} = await verifySession(input);
 
   if (!room.settings.allowMaybe && input.choice === "maybe") {
     throw new BadRequestException("Maybe swipes are disabled in this room");
@@ -334,7 +394,7 @@ export const recordSwipe = (input: {
     throw new BadRequestException("Super like swipes are disabled in this room");
   }
 
-  const cursor = room.memberCursorById.get(input.memberId) ?? 0;
+  const cursor = room.memberCursorById[input.memberId] ?? 0;
   const currentMovie = room.movies[cursor];
   if (!currentMovie) {
     throw new BadRequestException("No remaining movies in deck");
@@ -344,30 +404,30 @@ export const recordSwipe = (input: {
     throw new BadRequestException("Swipe does not match member deck position");
   }
 
-  const votesForMovie =
-    room.votesByMovieId.get(input.movieId) ?? new Map<string, SwipeChoice>();
-  votesForMovie.set(input.memberId, input.choice);
-  room.votesByMovieId.set(input.movieId, votesForMovie);
-  room.memberCursorById.set(input.memberId, cursor + 1);
+  room.votesByMovieId[input.movieId] ??= {};
+  room.votesByMovieId[input.movieId][input.memberId] = input.choice;
+  room.memberCursorById[input.memberId] = cursor + 1;
 
   const voteCounts = computeVoteCounts(room, input.movieId);
   const likes = voteCounts.like + voteCounts.superLike;
   const justMatched =
     likes >= room.settings.minLikesToMatch &&
-    !room.matchedMovieIds.has(input.movieId);
+    !room.matchedMovieIds.includes(input.movieId);
 
   if (justMatched) {
-    room.matchedMovieIds.add(input.movieId);
+    room.matchedMovieIds.push(input.movieId);
     room.status = "completed";
   } else if (allMembersCompleted(room)) {
     room.status = "completed";
-  } else if (room.members.size >= 2) {
+  } else if (Object.keys(room.members).length >= 2) {
     room.status = "swiping";
   }
+
+  await saveRoom(room);
 
   return {
     movieId: input.movieId,
     justMatched,
-    snapshot: getRoomSnapshot(room.code),
+    snapshot: await getRoomSnapshot(room.code),
   };
 };

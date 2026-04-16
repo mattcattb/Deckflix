@@ -31,11 +31,13 @@ const onRedisError = (error: unknown) => {
 redis.on("error", onRedisError);
 redisSubscriber.on("error", onRedisError);
 
-const connectRedisClient = async (client: typeof redis) => {
+export const connectRedisClient = async (client: typeof redis) => {
   if (!client.isOpen) {
     await client.connect();
   }
 };
+
+export const ensureRedis = () => connectRedisClient(redis);
 
 const forwardRedisSocketMessage = (rawMessage: string) => {
   if (!socketServer) return;

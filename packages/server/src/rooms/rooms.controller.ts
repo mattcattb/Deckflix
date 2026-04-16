@@ -18,14 +18,16 @@ import {
 } from "../ws/topics";
 
 const publishSnapshot = (server: Parameters<typeof ensureSocketPubSub>[0], roomCode: string) => {
-  try {
-    publishRoomMessage(server, roomCode, {
-      type: "room.snapshot",
-      payload: RoomService.getRoomSnapshot(roomCode),
+  void RoomService.getRoomSnapshot(roomCode)
+    .then((snapshot) => {
+      publishRoomMessage(server, roomCode, {
+        type: "room.snapshot",
+        payload: snapshot,
+      });
+    })
+    .catch(() => {
+      // Ignore missing-room broadcasts during disconnect races.
     });
-  } catch {
-    // Ignore missing-room broadcasts during disconnect races.
-  }
 };
 
 export const roomsController = createRouter()
@@ -42,7 +44,7 @@ export const roomsController = createRouter()
   .post("/:roomCode/join", zValidator("json", joinRoomPayloadSchema), async (c) => {
     const roomCode = c.req.param("roomCode");
     const input = c.req.valid("json");
-    const result = RoomService.joinRoom({
+    const result = await RoomService.joinRoom({
       roomCode,
       displayName: input.displayName,
       userId: c.get("userId"),
@@ -55,7 +57,7 @@ export const roomsController = createRouter()
   .post("/:roomCode/swipes", zValidator("json", swipeRoomPayloadSchema), async (c) => {
     const roomCode = c.req.param("roomCode");
     const input = c.req.valid("json");
-    const result = RoomService.recordSwipe({
+    const result = await RoomService.recordSwipe({
       roomCode,
       memberId: input.memberId,
       sessionToken: input.sessionToken,
@@ -83,7 +85,7 @@ export const roomsController = createRouter()
   })
   .get("/:roomCode", async (c) => {
     const roomCode = c.req.param("roomCode");
-    return c.json(RoomService.getRoomSnapshot(roomCode));
+    return c.json(await RoomService.getRoomSnapshot(roomCode));
   })
   .get(
     "/:roomCode/ws",
@@ -102,22 +104,23 @@ export const roomsController = createRouter()
 
       return {
         onOpen: (_, ws) => {
-          try {
-            RoomService.connectMember({
-              roomCode,
-              memberId,
-              sessionToken,
-              socket: ws,
+          void RoomService.connectMember({
+            roomCode,
+            memberId,
+            sessionToken,
+            socket: ws,
+          })
+            .then(async () => {
+              ws.send(encodeRoomServerMessage({
+                type: "room.snapshot",
+                payload: await RoomService.getRoomSnapshot(roomCode),
+              }));
+              publishSnapshot(server, roomCode);
+              subscribeToRoom(ws, roomCode);
+            })
+            .catch(() => {
+              ws.close(4001, "Unauthorized");
             });
-            ws.send(encodeRoomServerMessage({
-              type: "room.snapshot",
-              payload: RoomService.getRoomSnapshot(roomCode),
-            }));
-            publishSnapshot(server, roomCode);
-            subscribeToRoom(ws, roomCode);
-          } catch {
-            ws.close(4001, "Unauthorized");
-          }
         },
         onClose: (_, ws) => {
           unsubscribeFromRoom(ws, roomCode);
