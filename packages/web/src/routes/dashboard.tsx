@@ -1,9 +1,9 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Card, CardContent, Input, Label } from "../components/ui";
-import { api } from "../lib/api";
-import { useSession } from "../lib/auth";
+import { Button, Card, CardContent, Input } from "../components/ui";
+import { api, throwApiError } from "../lib/api";
+import { useSession, signOut } from "../lib/auth";
 
 export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
@@ -21,7 +21,7 @@ function DashboardPage() {
     queryFn: async () => {
       const response = await api.api.projects.$get();
       if (!response.ok) {
-        throw new Error(await response.text());
+        await throwApiError(response, "GET /api/projects");
       }
       return response.json();
     },
@@ -30,11 +30,9 @@ function DashboardPage() {
 
   const createMutation = useMutation({
     mutationFn: async (payload: { name: string }) => {
-      const response = await api.api.projects.$post({
-        json: payload,
-      });
+      const response = await api.api.projects.$post({ json: payload });
       if (!response.ok) {
-        throw new Error(await response.text());
+        await throwApiError(response, "POST /api/projects");
       }
       return response.json();
     },
@@ -52,7 +50,6 @@ function DashboardPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-
     createMutation.mutate({ name });
   };
 
@@ -61,78 +58,82 @@ function DashboardPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-2">
-        <h2 className="text-3xl font-semibold">Dashboard</h2>
-        <p className="text-muted-foreground">
-          Signed in as {session?.user.email}.
-        </p>
-      </section>
+    <div className="flex flex-1 flex-col px-5 py-10">
+      <div className="mx-auto w-full max-w-2xl space-y-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <Link to="/" className="text-2xl font-bold tracking-tight font-display">
+              Deck<span className="text-primary">flix</span>
+            </Link>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {session?.user.email}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link to="/rooms">
+              <Button variant="outline" size="sm">Rooms</Button>
+            </Link>
+            <Button variant="ghost" size="sm" onClick={() => signOut()}>
+              Sign out
+            </Button>
+          </div>
+        </div>
 
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <form onSubmit={handleCreate} className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div className="space-y-2">
-              <Label htmlFor="project-name">New project</Label>
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <h3 className="text-base font-semibold">New project</h3>
+            <form onSubmit={handleCreate} className="flex gap-3">
               <Input
-                id="project-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="My next product"
+                placeholder="Project name"
+                className="flex-1"
               />
-            </div>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Creating..." : "Create"}
-            </Button>
-          </form>
-          {createMutation.error ? (
-            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-              {createMutation.error instanceof Error
-                ? createMutation.error.message
-                : "Failed to create project"}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? "Creating..." : "Create"}
+              </Button>
+            </form>
+            {createMutation.error ? (
+              <div className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
+                {createMutation.error instanceof Error
+                  ? createMutation.error.message
+                  : "Failed to create project"}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
 
-      <section className="space-y-3">
-        <h3 className="text-lg font-semibold">Your projects</h3>
-        <div className="grid gap-3 md:grid-cols-2">
-          {projects.map((project) => (
-            <Card key={project.id}>
-              <CardContent className="p-4">
-                <div className="text-base font-semibold">{project.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  Created {new Date(project.createdAt).toLocaleDateString()}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {projectsQuery.isLoading ? (
-            <Card>
-              <CardContent className="p-4 text-sm text-muted-foreground">
-                Loading projects...
-              </CardContent>
-            </Card>
-          ) : null}
-          {projectsQuery.error ? (
-            <Card>
-              <CardContent className="p-4 text-sm text-danger">
+        <section className="space-y-3">
+          <h3 className="text-base font-semibold text-muted-foreground">Your projects</h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {projects.map((project) => (
+              <Card key={project.id}>
+                <CardContent className="p-4">
+                  <div className="font-semibold">{project.name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {new Date(project.createdAt).toLocaleDateString()}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {projectsQuery.isLoading ? (
+              <div className="text-sm text-muted-foreground py-4">Loading...</div>
+            ) : null}
+            {projectsQuery.error ? (
+              <div className="text-sm text-danger py-4">
                 {projectsQuery.error instanceof Error
                   ? projectsQuery.error.message
                   : "Failed to load projects"}
-              </CardContent>
-            </Card>
-          ) : null}
-          {projects.length === 0 && !projectsQuery.isLoading && !projectsQuery.error ? (
-            <Card>
-              <CardContent className="p-4 text-sm text-muted-foreground">
-                No projects yet. Create your first one above.
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
-      </section>
+              </div>
+            ) : null}
+            {projects.length === 0 && !projectsQuery.isLoading && !projectsQuery.error ? (
+              <div className="text-sm text-muted-foreground py-4">
+                No projects yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

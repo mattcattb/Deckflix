@@ -17,7 +17,7 @@ export const memberRoleSchema = z.enum(memberRoles);
 
 export const roomSettingsSchema = z.object({
   minLikesToMatch: z.number().int().min(1).max(50),
-  maxMovies: z.number().int().min(1).max(100),
+  maxMovies: z.number().int().min(1).max(500),
   allowMaybe: z.boolean(),
   allowSuperLike: z.boolean(),
 });
@@ -67,6 +67,7 @@ export const roomMemberSnapshotSchema = z.object({
 export const roomSnapshotSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
+  viewerMemberId: z.string().min(1).nullable().default(null),
   status: roomStatusSchema,
   createdAt: z.string().datetime(),
   hostMemberId: z.string().min(1),
@@ -87,6 +88,11 @@ export const roomSessionSchema = z.object({
   sessionToken: z.string().min(1),
 });
 
+export const roomParticipantSessionSchema = z.object({
+  memberId: z.string().min(1),
+  sessionToken: z.string().min(1),
+});
+
 export const createRoomPayloadSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
   settings: roomSettingsInputSchema.optional(),
@@ -97,8 +103,6 @@ export const joinRoomPayloadSchema = z.object({
 });
 
 export const swipeRoomPayloadSchema = z.object({
-  memberId: z.string().min(1),
-  sessionToken: z.string().min(1),
   movieId: z.string().min(1),
   choice: swipeChoiceSchema,
 });
@@ -157,6 +161,7 @@ export type RoomMemberProgress = z.infer<typeof roomMemberProgressSchema>;
 export type RoomMemberSnapshot = z.infer<typeof roomMemberSnapshotSchema>;
 export type RoomSnapshot = z.infer<typeof roomSnapshotSchema>;
 export type RoomSession = z.infer<typeof roomSessionSchema>;
+export type RoomParticipantSession = z.infer<typeof roomParticipantSessionSchema>;
 export type CreateRoomPayload = z.infer<typeof createRoomPayloadSchema>;
 export type JoinRoomPayload = z.infer<typeof joinRoomPayloadSchema>;
 export type SwipeRoomPayload = z.infer<typeof swipeRoomPayloadSchema>;

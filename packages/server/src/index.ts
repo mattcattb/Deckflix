@@ -3,7 +3,7 @@ import { appEnv } from "./common/env";
 import { logger } from "./common/logger";
 import { app } from "./app";
 import {ensureSocketPubSub} from "./lib/redis";
-export { app, protectedApiRoutes } from "./app";
+export { app, protectedProjectsRoutes } from "./app";
 export type { AppType, ApiRoutesType } from "./app";
 
 const port = appEnv.PORT;

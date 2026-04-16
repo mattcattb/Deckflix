@@ -8,7 +8,7 @@
     "./app": "./src/app.ts"
   },
   "scripts": {
-    "dev": "bun run --hot src/index.ts",
+    "dev": "bun --watch --no-clear-screen src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",

@@ -15,6 +15,11 @@ declare module "hono" {
       id: string;
       expiresAt: Date;
     };
+    roomParticipant: {
+      roomCode: string;
+      memberId: string;
+      sessionToken: string;
+    };
   }
 }
 

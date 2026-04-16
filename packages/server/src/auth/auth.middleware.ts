@@ -1,4 +1,5 @@
 import {createMiddleware} from "hono/factory";
+import {UnauthorizedException} from "../common/errors";
 import {auth} from "../lib/auth";
 
 // Extend Hono's context with typed user/session data
@@ -14,7 +15,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
   });
 
   if (!session) {
-    return c.json({error: "Unauthorized"}, 401);
+    throw new UnauthorizedException("You must be signed in for this route");
   }
 
   c.set("userId", session.user.id);

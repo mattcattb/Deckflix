@@ -6,9 +6,9 @@ import { moviesController } from "./movies/movies.controller";
 import { projectsController } from "./projects/projects.controller";
 import { roomsController } from "./rooms/rooms.controller";
 
-export const protectedApiRoutes = createRouter()
+export const protectedProjectsRoutes = createRouter()
   .use("*", authMiddleware)
-  .route("/projects", projectsController);
+  .route("/", projectsController);
 
 const baseApp = createRouter();
 addGlobalMiddlewares(baseApp);
@@ -16,9 +16,9 @@ addErrorHandling(baseApp);
 
 export const app = baseApp
   .route("/api/auth", authController)
-  .route("/api", protectedApiRoutes)
+  .route("/api/projects", protectedProjectsRoutes)
   .route("/api/movies", moviesController)
   .route("/api/rooms", roomsController);
 
-export type ApiRoutesType = typeof protectedApiRoutes;
+export type ApiRoutesType = typeof protectedProjectsRoutes;
 export type AppType = typeof app;

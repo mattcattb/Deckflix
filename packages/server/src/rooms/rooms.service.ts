@@ -4,6 +4,7 @@ import type {
   CreateRoomResult,
   JoinRoomResult,
   MovieCandidate,
+  RoomParticipantSession,
   RoomSettings,
   RoomSettingsInput,
   RoomSnapshot,
@@ -83,15 +84,19 @@ const roomStateSchema = z.object({
 
 const DEFAULT_SETTINGS: RoomSettings = {
   minLikesToMatch: 2,
-  maxMovies: 15,
+  maxMovies: 100,
   allowMaybe: true,
   allowSuperLike: true,
 };
 
 const ROOM_TTL_SECONDS = 60 * 60 * 24;
+const ROOM_LOCK_TTL_MS = 5_000;
+const ROOM_LOCK_RETRY_COUNT = 40;
+const ROOM_LOCK_RETRY_DELAY_MS = 50;
 const socketsByRoomCode = new Map<string, Map<string, Set<SocketLike>>>();
 
 const getRoomKey = (roomCode: string) => `room:${roomCode.trim().toUpperCase()}`;
+const getRoomLockKey = (roomCode: string) => `${getRoomKey(roomCode)}:lock`;
 
 const generateRoomCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -107,6 +112,11 @@ const mergeSettings = (settings?: RoomSettingsInput): RoomSettings => ({
   ...DEFAULT_SETTINGS,
   ...settings,
 });
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const saveRoom = async (room: RoomInternal) => {
   await ensureRedis();
@@ -138,21 +148,72 @@ const getRoomOrThrow = async (roomCode: string) => {
   return parsed.data satisfies RoomInternal;
 };
 
-const createUniqueRoomCode = async () => {
+const releaseRoomLock = async (roomCode: string, token: string) => {
+  await redis.eval(
+    `
+      if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+      end
+      return 0
+    `,
+    {
+      keys: [getRoomLockKey(roomCode)],
+      arguments: [token],
+    },
+  );
+};
+
+const withRoomLock = async <T>(roomCode: string, callback: () => Promise<T>) => {
   await ensureRedis();
-  for (let i = 0; i < 20; i += 1) {
-    const candidate = generateRoomCode();
-    if (!(await redis.exists(getRoomKey(candidate)))) {
-      return candidate;
+  const normalized = roomCode.trim().toUpperCase();
+  const lockToken = randomUUID();
+
+  for (let attempt = 0; attempt < ROOM_LOCK_RETRY_COUNT; attempt += 1) {
+    const locked = await redis.set(getRoomLockKey(normalized), lockToken, {
+      NX: true,
+      PX: ROOM_LOCK_TTL_MS,
+    });
+
+    if (!locked) {
+      await sleep(ROOM_LOCK_RETRY_DELAY_MS);
+      continue;
+    }
+
+    try {
+      return await callback();
+    } finally {
+      await releaseRoomLock(normalized, lockToken);
     }
   }
 
-  throw new BadRequestException("Unable to generate room code");
+  throw new BadRequestException("Room is busy, please try again");
 };
 
 const buildRoomDeck = async (maxMovies: number): Promise<MovieCandidate[]> => {
-  const popular = await MoviesService.getPopularMovies({page: 1});
-  const items = popular.items.slice(0, maxMovies);
+  const items: MovieCandidate[] = [];
+  const seenMovieIds = new Set<string>();
+  let page = 1;
+  let totalPages = 1;
+
+  while (items.length < maxMovies && page <= totalPages) {
+    const popular = await MoviesService.getPopularMovies({page});
+    totalPages = popular.totalPages;
+
+    for (const movie of popular.items) {
+      if (seenMovieIds.has(movie.id)) {
+        continue;
+      }
+
+      seenMovieIds.add(movie.id);
+      items.push(movie);
+
+      if (items.length >= maxMovies) {
+        break;
+      }
+    }
+
+    page += 1;
+  }
 
   if (items.length === 0) {
     throw new BadRequestException("No movies available to build deck");
@@ -201,7 +262,7 @@ const allMembersCompleted = (room: RoomInternal) =>
     return cursor >= room.movies.length;
   });
 
-const verifySession = async (input: {
+export const verifyRoomParticipantSession = async (input: {
   roomCode: string;
   memberId: string;
   sessionToken: string;
@@ -219,38 +280,54 @@ export const createRoom = async (input: {
   displayName: string;
   settings?: RoomSettingsInput;
 }): Promise<CreateRoomResult> => {
-  const roomCode = await createUniqueRoomCode();
   const memberId = randomUUID();
   const sessionToken = randomUUID();
   const createdAt = new Date().toISOString();
   const settings = mergeSettings(input.settings);
   const movies = await buildRoomDeck(settings.maxMovies);
+  let roomCode: string | null = null;
 
-  const room: RoomInternal = {
-    id: randomUUID(),
-    code: roomCode,
-    status: "lobby",
-    createdAt,
-    hostMemberId: memberId,
-    settings,
-    movies,
-    members: {
-      [memberId]: {
-        id: memberId,
-        displayName: input.displayName,
-        role: "host",
-        joinedAt: createdAt,
-        sessionToken,
+  await ensureRedis();
+  for (let i = 0; i < 20; i += 1) {
+    const candidate = generateRoomCode();
+    const room: RoomInternal = {
+      id: randomUUID(),
+      code: candidate,
+      status: "lobby",
+      createdAt,
+      hostMemberId: memberId,
+      settings,
+      movies,
+      members: {
+        [memberId]: {
+          id: memberId,
+          displayName: input.displayName,
+          role: "host",
+          joinedAt: createdAt,
+          sessionToken,
+        },
       },
-    },
-    memberCursorById: {
-      [memberId]: 0,
-    },
-    votesByMovieId: {},
-    matchedMovieIds: [],
-  };
+      memberCursorById: {
+        [memberId]: 0,
+      },
+      votesByMovieId: {},
+      matchedMovieIds: [],
+    };
 
-  await saveRoom(room);
+    const created = await redis.set(getRoomKey(candidate), JSON.stringify(room), {
+      EX: ROOM_TTL_SECONDS,
+      NX: true,
+    });
+
+    if (created) {
+      roomCode = candidate;
+      break;
+    }
+  }
+
+  if (!roomCode) {
+    throw new BadRequestException("Unable to generate room code");
+  }
 
   return {
     room: await getRoomSnapshot(roomCode),
@@ -266,25 +343,28 @@ export const joinRoom = async (input: {
   roomCode: string;
   displayName: string;
 }): Promise<JoinRoomResult> => {
-  const room = await getRoomOrThrow(input.roomCode);
   const memberId = randomUUID();
   const sessionToken = randomUUID();
   const joinedAt = new Date().toISOString();
+  const room = await withRoomLock(input.roomCode, async () => {
+    const nextRoom = await getRoomOrThrow(input.roomCode);
 
-  room.members[memberId] = {
-    id: memberId,
-    displayName: input.displayName,
-    role: "guest",
-    joinedAt,
-    sessionToken,
-  };
-  room.memberCursorById[memberId] = 0;
+    nextRoom.members[memberId] = {
+      id: memberId,
+      displayName: input.displayName,
+      role: "guest",
+      joinedAt,
+      sessionToken,
+    };
+    nextRoom.memberCursorById[memberId] = 0;
 
-  if (Object.keys(room.members).length >= 2 && room.status === "lobby") {
-    room.status = "swiping";
-  }
+    if (Object.keys(nextRoom.members).length >= 2 && nextRoom.status === "lobby") {
+      nextRoom.status = "swiping";
+    }
 
-  await saveRoom(room);
+    await saveRoom(nextRoom);
+    return nextRoom;
+  });
 
   return {
     room: await getRoomSnapshot(room.code),
@@ -297,6 +377,13 @@ export const joinRoom = async (input: {
 };
 
 export const getRoomSnapshot = async (roomCode: string): Promise<RoomSnapshot> => {
+  return getRoomSnapshotForViewer(roomCode, null);
+};
+
+export const getRoomSnapshotForViewer = async (
+  roomCode: string,
+  viewerMemberId: string | null,
+): Promise<RoomSnapshot> => {
   const room = await getRoomOrThrow(roomCode);
   const liveSockets = socketsByRoomCode.get(room.code);
 
@@ -315,6 +402,7 @@ export const getRoomSnapshot = async (roomCode: string): Promise<RoomSnapshot> =
   return {
     id: room.id,
     code: room.code,
+    viewerMemberId,
     status: room.status,
     createdAt: room.createdAt,
     hostMemberId: room.hostMemberId,
@@ -347,7 +435,7 @@ export const connectMember = async (input: {
   sessionToken: string;
   socket: SocketLike;
 }) => {
-  const {room} = await verifySession(input);
+  const {room} = await verifyRoomParticipantSession(input);
   const roomSockets =
     socketsByRoomCode.get(room.code) ?? new Map<string, Set<SocketLike>>();
   const memberSockets = roomSockets.get(input.memberId) ?? new Set<SocketLike>();
@@ -379,61 +467,109 @@ export const disconnectMember = (input: {
 };
 
 export const recordSwipe = async (input: {
-  roomCode: string;
-  memberId: string;
-  sessionToken: string;
+  participant: RoomParticipantSession & {roomCode: string};
   movieId: string;
   choice: SwipeChoice;
 }) => {
-  const {room} = await verifySession(input);
+  const result = await withRoomLock(input.participant.roomCode, async () => {
+    const {room} = await verifyRoomParticipantSession(input.participant);
+    const memberCount = Object.keys(room.members).length;
 
-  if (!room.settings.allowMaybe && input.choice === "maybe") {
-    throw new BadRequestException("Maybe swipes are disabled in this room");
-  }
+    if (memberCount < 2) {
+      throw new BadRequestException("Need at least 2 members before swiping");
+    }
 
-  if (!room.settings.allowSuperLike && input.choice === "super_like") {
-    throw new BadRequestException("Super like swipes are disabled in this room");
-  }
+    if (!room.settings.allowMaybe && input.choice === "maybe") {
+      throw new BadRequestException("Maybe swipes are disabled in this room");
+    }
 
-  const cursor = room.memberCursorById[input.memberId] ?? 0;
-  const currentMovie = room.movies[cursor];
-  if (!currentMovie) {
-    throw new BadRequestException("No remaining movies in deck");
-  }
+    if (!room.settings.allowSuperLike && input.choice === "super_like") {
+      throw new BadRequestException("Super like swipes are disabled in this room");
+    }
 
-  if (currentMovie.id !== input.movieId) {
-    throw new BadRequestException("Swipe does not match member deck position");
-  }
+    const cursor = room.memberCursorById[input.participant.memberId] ?? 0;
+    const currentMovie = room.movies[cursor];
+    if (!currentMovie) {
+      throw new BadRequestException("No remaining movies in deck");
+    }
 
-  room.votesByMovieId[input.movieId] ??= {};
-  room.votesByMovieId[input.movieId][input.memberId] = input.choice;
-  room.memberCursorById[input.memberId] = cursor + 1;
+    if (currentMovie.id !== input.movieId) {
+      throw new BadRequestException("Swipe does not match member deck position");
+    }
 
-  const voteCounts = computeVoteCounts(room, input.movieId);
-  const likes = voteCounts.like + voteCounts.superLike;
-  const memberCount = Object.keys(room.members).length;
-  const cardCompleted = voteCounts.totalVotes === memberCount;
-  const justMatched =
-    likes >= room.settings.minLikesToMatch &&
-    !room.matchedMovieIds.includes(input.movieId);
+    room.votesByMovieId[input.movieId] ??= {};
+    room.votesByMovieId[input.movieId][input.participant.memberId] = input.choice;
+    room.memberCursorById[input.participant.memberId] = cursor + 1;
 
-  if (justMatched) {
-    room.matchedMovieIds.push(input.movieId);
-  }
+    const voteCounts = computeVoteCounts(room, input.movieId);
+    const likes = voteCounts.like + voteCounts.superLike;
+    const cardCompleted = voteCounts.totalVotes === memberCount;
+    const justMatched =
+      likes >= room.settings.minLikesToMatch &&
+      !room.matchedMovieIds.includes(input.movieId);
 
-  if (allMembersCompleted(room)) {
-    room.status = "completed";
-  } else if (Object.keys(room.members).length >= 2) {
-    room.status = "swiping";
-  }
+    if (justMatched) {
+      room.matchedMovieIds.push(input.movieId);
+    }
 
-  await saveRoom(room);
+    if (allMembersCompleted(room)) {
+      room.status = "completed";
+    } else if (Object.keys(room.members).length >= 2) {
+      room.status = "swiping";
+    }
+
+    await saveRoom(room);
+
+    return {
+      roomCode: room.code,
+      movieId: input.movieId,
+      cardCompleted,
+      justMatched,
+      cardSummary: getMovieVoteSummary(room, input.movieId),
+    };
+  });
 
   return {
-    movieId: input.movieId,
-    cardCompleted,
-    justMatched,
-    cardSummary: getMovieVoteSummary(room, input.movieId),
-    snapshot: await getRoomSnapshot(room.code),
+    movieId: result.movieId,
+    cardCompleted: result.cardCompleted,
+    justMatched: result.justMatched,
+    cardSummary: result.cardSummary,
+    snapshot: await getRoomSnapshotForViewer(
+      result.roomCode,
+      input.participant.memberId,
+    ),
   };
+};
+
+export const leaveRoom = async (participant: RoomParticipantSession & {roomCode: string}) => {
+  return withRoomLock(participant.roomCode, async () => {
+    const {room} = await verifyRoomParticipantSession(participant);
+
+    delete room.members[participant.memberId];
+    delete room.memberCursorById[participant.memberId];
+
+    for (const votes of Object.values(room.votesByMovieId)) {
+      delete votes[participant.memberId];
+    }
+
+    if (room.hostMemberId === participant.memberId) {
+      const nextHost = Object.values(room.members)
+        .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))[0];
+      room.hostMemberId = nextHost?.id ?? "";
+    }
+
+    const remainingMembers = Object.keys(room.members).length;
+    if (remainingMembers === 0) {
+      await ensureRedis();
+      await redis.del(getRoomKey(room.code));
+      return {deleted: true, roomCode: room.code};
+    }
+
+    if (room.status !== "completed") {
+      room.status = remainingMembers >= 2 ? "swiping" : "lobby";
+    }
+
+    await saveRoom(room);
+    return {deleted: false, roomCode: room.code};
+  });
 };
