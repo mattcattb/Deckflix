@@ -1,2 +1,5 @@
 export * from "./movies";
-export * from "./games";
+export * from "./game-core";
+export * from "./game-sessions";
+export * from "./game-snapshots";
+export * from "./game-messages";

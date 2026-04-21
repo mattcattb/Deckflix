@@ -18,6 +18,7 @@
         "pino": "^10.3.0",
         "postgres": "^3.4.0",
         "redis": "^5.12.1",
+        "tmdb-ts": "^2.3.0",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -2011,6 +2012,8 @@
     "tiny-warning": ["tiny-warning@1.0.3", "", {}, "sha512-lBN9zLN/oAf68o3zNXYrdCt1kP8WsiGW8Oo2ka41b2IM5JL/S1CTyX1rW0mb/zSuJun0ZUrDxx4sqvYS2FWzPA=="],
 
     "tinyglobby": ["tinyglobby@0.2.15", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.3" } }, "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ=="],
+
+    "tmdb-ts": ["tmdb-ts@2.3.0", "", {}, "sha512-j7V85Gs8+fsSDOYmsChjCLn//ouxrwdWqlUUwKOM518PIcBU8VBS4YN/Lh2KJiLjEICHjYjv2SRvhMWn1Tdk4w=="],
 
     "tmpl": ["tmpl@1.0.5", "", {}, "sha512-3f0uOEAQwIqGuWW2MVzYg8fV/QNnc/IpuJNG837rLuczAaLVHslWHZQj4IGiEl5Hs3kkbhwL9Ab7Hrsmuj+Smw=="],
 

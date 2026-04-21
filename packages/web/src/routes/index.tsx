@@ -2,7 +2,7 @@ import {useEffect, useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery} from "@tanstack/react-query";
 import {Button, Input, Label} from "../components/ui";
-import {api, throwApiError} from "../lib/api";
+import {createGame, gameKeys, getActiveRoomClient, joinGame} from "../lib/games";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -18,17 +18,8 @@ function HomePage() {
   const [displayName, setDisplayName] = useState("");
 
   const activeSessionQuery = useQuery({
-    queryKey: ["active-game-session"],
-    queryFn: async () => {
-      const response = await api.api.games.session.$get();
-      if (!response.ok) {
-        await throwApiError(response, "GET /api/games/session");
-      }
-
-      const data = await response.json();
-
-      return data;
-    },
+    queryKey: gameKeys.activeClient,
+    queryFn: getActiveRoomClient,
   });
 
   useEffect(() => {
@@ -46,50 +37,21 @@ function HomePage() {
   }, [activeSessionQuery.data, navigate]);
 
   const createGameMutation = useMutation({
-    mutationFn: async () => {
-      const response = await api.api.games.$post({
-        json: {
-          roomName: roomName.trim() || undefined,
-        },
-      });
-
-      if (!response.ok) {
-        await throwApiError(response, "POST /api/games");
-      }
-
-      return response.json();
-    },
+    mutationFn: async () => createGame({roomName}),
     onSuccess: (result) => {
       navigate({
         to: "/room/$gameCode",
-        params: {gameCode: result.game.summary.code},
+        params: {gameCode: result.gameCode},
       });
     },
   });
 
   const joinGameMutation = useMutation({
-    mutationFn: async () => {
-      const normalizedCode = gameCode.trim().toUpperCase();
-      const response = await api.api.games[":gameCode"].players.$post({
-        param: {gameCode: normalizedCode},
-        json: {
-          displayName: displayName.trim(),
-        },
-      });
-
-      if (!response.ok) {
-        await throwApiError(
-          response,
-          `POST /api/games/${normalizedCode}/players`,
-        );
-      }
-
-      return response.json();
-    },
+    mutationFn: async () => joinGame({gameCode, displayName}),
     onSuccess: (result) => {
       navigate({
         to: "/room/$gameCode",
-        params: {gameCode: result.game.summary.code},
+        params: {gameCode: result.gameCode},
       });
     },
   });

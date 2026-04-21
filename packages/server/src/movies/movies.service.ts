@@ -11,7 +11,7 @@ import {
   getTmdbMovieById,
   getTmdbPopularMovies,
   searchTmdbMovies,
-} from "../lib/tmdb";
+} from "../tmdb/tmdb.service";
 import {mockMovies, paginateMovies} from "./movies.mock";
 
 export const movieSearchQuerySchema = z.object({

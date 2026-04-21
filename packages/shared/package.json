@@ -8,6 +8,10 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./rooms": "./src/rooms.ts"
+    "./game-core": "./src/game-core.ts",
+    "./game-sessions": "./src/game-sessions.ts",
+    "./game-snapshots": "./src/game-snapshots.ts",
+    "./game-messages": "./src/game-messages.ts",
+    "./movies": "./src/movies.ts"
   }
 }

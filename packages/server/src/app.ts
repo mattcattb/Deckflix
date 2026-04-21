@@ -5,6 +5,9 @@ import { authMiddleware } from "./auth/auth.middleware";
 import { gamesController } from "./games/games.controller";
 import { moviesController } from "./movies/movies.controller";
 import { projectsController } from "./projects/projects.controller";
+import { roomsController } from "./rooms/rooms.controller";
+import { settingsController } from "./settings/game-settings.controller";
+import { tmdbController } from "./tmdb/tmdb.controller";
 
 export const protectedProjectsRoutes = createRouter()
   .use("*", authMiddleware)
@@ -18,7 +21,10 @@ export const app = baseApp
   .route("/api/auth", authController)
   .route("/api/projects", protectedProjectsRoutes)
   .route("/api/movies", moviesController)
-  .route("/api/games", gamesController);
+  .route("/api/settings", settingsController)
+  .route("/api/tmdb", tmdbController)
+  .route("/api/games", gamesController)
+  .route("/api/rooms", roomsController);
 
 export type ApiRoutesType = typeof protectedProjectsRoutes;
 export type AppType = typeof app;

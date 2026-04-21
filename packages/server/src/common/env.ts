@@ -26,7 +26,6 @@ const appEnvSchema = z.object({
   ...githubEnvSchema.shape,
   DATABASE_URL: z.string().default(DEFAULT_DATABASE_URL),
   REDIS_URL: z.string().default(DEFAULT_REDIS_URL),
-
   LOG_LEVEL: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
 

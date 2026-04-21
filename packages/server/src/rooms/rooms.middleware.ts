@@ -1,14 +1,14 @@
-import {roomSessionSchema} from "@deckflix/shared";
+import {roomSessionSchema, type RoomSession} from "@deckflix/shared";
 import {deleteCookie, getCookie, setCookie} from "hono/cookie";
 import {createMiddleware} from "hono/factory";
 import {UnauthorizedException} from "../common/errors";
-import * as GamesService from "./games.service";
+import {verifyRoomSession} from "../games/game-session.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
 
 type CookieContext = Parameters<typeof getCookie>[0];
 
-const encodeRoomSessionCookieValue = (value: GamesService.ActiveRoomSession) =>
+const encodeRoomSessionCookieValue = (value: RoomSession) =>
   `${value.gameCode}.${value.role}.${value.roleId}.${value.sessionToken}`;
 
 const decodeRoomSessionCookieValue = (value?: string | null) => {
@@ -29,7 +29,7 @@ const decodeRoomSessionCookieValue = (value?: string | null) => {
 
 export const setRoomSessionCookie = (
   c: Parameters<typeof setCookie>[0],
-  session: GamesService.ActiveRoomSession,
+  session: RoomSession,
 ) => {
   setCookie(
     c,
@@ -38,7 +38,7 @@ export const setRoomSessionCookie = (
     {
       httpOnly: true,
       sameSite: "Lax",
-      path: "/api/games",
+      path: "/api",
     },
   );
 };
@@ -47,7 +47,7 @@ export const clearRoomSessionCookie = (c: Parameters<typeof deleteCookie>[0]) =>
   deleteCookie(c, ACTIVE_GAME_COOKIE_NAME, {
     httpOnly: true,
     sameSite: "Lax",
-    path: "/api/games",
+    path: "/api",
   });
 };
 
@@ -61,7 +61,7 @@ const resolveRoomScopedSession = async (c: CookieContext, gameCode: string) => {
   }
 
   try {
-    return await GamesService.verifyRoomSession(session);
+    return await verifyRoomSession(session);
   } catch (error) {
     if (error instanceof UnauthorizedException) {
       clearRoomSessionCookie(c);

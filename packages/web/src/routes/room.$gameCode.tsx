@@ -1,26 +1,36 @@
 import {useEffect, useMemo, useRef, useState} from "react";
 import {createFileRoute, Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery} from "@tanstack/react-query";
+import type {GameVoteSummary, MovieCandidate, SwipeChoice} from "@deckflix/shared/game-core";
+import type {ActiveRoomClient, RoomClient} from "@deckflix/shared/game-sessions";
 import type {
-  ActiveGameSession,
-  DisplayGameSnapshot,
-  GamePublicSnapshot,
-  GameVoteSummary,
-  MovieCandidate,
-  PlayerGameSnapshot,
-  RoomSessionSnapshot,
-  SwipeChoice,
-} from "@deckflix/shared";
+  DisplayGameState,
+  GameMeta,
+  GamePlayers,
+  GameResults,
+  PlayerGameState,
+} from "@deckflix/shared/game-snapshots";
 import {Button, Card, CardContent, Input, Label} from "../components/ui";
 import {MovieCard} from "../components/games/movie-card";
 import {SwipeControls} from "../components/games/player/swipe-controls";
 import {SwipeDeck} from "../components/games/player/swipe-stack";
-import {API_BASE_URL, api, throwApiError} from "../lib/api";
 import {
   createDisplayWebSocketUrl,
   createPlayerWebSocketUrl,
+  deleteRoom,
+  gameKeys,
+  getActiveRoomClient,
+  getDisplayGameState,
+  getGameMeta,
+  getGamePlayers,
+  getGameResults,
+  getPlayerGameState,
+  getRoomClient,
+  joinGame,
+  leaveGame,
   parseDisplayServerMessage,
   parsePlayerServerMessage,
+  voteForMovie,
 } from "../lib/games";
 
 export const Route = createFileRoute("/room/$gameCode")({
@@ -32,8 +42,8 @@ type DisplayBoardItem = {
   votes: GameVoteSummary;
 };
 
-const getBoardSections = (snapshot: DisplayGameSnapshot | null) => {
-  if (!snapshot) {
+const getBoardSections = (state: DisplayGameState | null) => {
+  if (!state) {
     return {
       matches: [] as DisplayBoardItem[],
       splitDecisions: [] as DisplayBoardItem[],
@@ -41,9 +51,9 @@ const getBoardSections = (snapshot: DisplayGameSnapshot | null) => {
     };
   }
 
-  const boardItems = snapshot.queue
+  const boardItems = state.queue
     .map((item) => {
-      const votes = snapshot.results.voteSummary.find((entry) => entry.movieId === item.movie.id);
+      const votes = state.results.voteSummary.find((entry) => entry.movieId === item.movie.id);
       return votes ? {movie: item.movie, votes} : null;
     })
     .filter((item): item is DisplayBoardItem => Boolean(item));
@@ -53,12 +63,7 @@ const getBoardSections = (snapshot: DisplayGameSnapshot | null) => {
     splitDecisions: boardItems.filter(
       ({votes}) => votes.totalVotes > 0 && votes.like + votes.superLike > 0 && votes.dislike + votes.skip > 0,
     ),
-    rejected: boardItems.filter(
-      ({votes}) =>
-        votes.totalVotes >= snapshot.summary.playerCount &&
-        votes.totalVotes > 0 &&
-        votes.like + votes.superLike + votes.maybe === 0,
-    ),
+    rejected: boardItems.filter(({votes}) => state.results.rejectedMovieIds.includes(votes.movieId)),
   };
 };
 
@@ -66,16 +71,9 @@ function RoomPage() {
   const {gameCode} = Route.useParams();
   const navigate = useNavigate();
 
-  const activeSessionQuery = useQuery({
-    queryKey: ["active-game-session"],
-    queryFn: async () => {
-      const response = await api.api.games.session.$get();
-      if (!response.ok) {
-        await throwApiError(response, "GET /api/games/session");
-      }
-
-      return (await response.json()) as ActiveGameSession;
-    },
+  const activeSessionQuery = useQuery<ActiveRoomClient>({
+    queryKey: gameKeys.activeClient,
+    queryFn: getActiveRoomClient,
   });
 
   useEffect(() => {
@@ -92,22 +90,12 @@ function RoomPage() {
     }
   }, [activeSessionQuery.data, gameCode, navigate]);
 
-  const roomQuery = useQuery({
-    queryKey: ["room", gameCode],
-    queryFn: async () => {
-      const response = await api.api.games[":gameCode"].session.$get({
-        param: {gameCode},
-      });
-
-      if (!response.ok) {
-        await throwApiError(response, `GET /api/games/${gameCode}/session`);
-      }
-
-      return (await response.json()) as RoomSessionSnapshot;
-    },
+  const roomClientQuery = useQuery<RoomClient>({
+    queryKey: gameKeys.roomClient(gameCode),
+    queryFn: () => getRoomClient(gameCode),
   });
 
-  if (activeSessionQuery.isLoading || roomQuery.isLoading) {
+  if (activeSessionQuery.isLoading || roomClientQuery.isLoading) {
     return null;
   }
 
@@ -119,42 +107,32 @@ function RoomPage() {
     return null;
   }
 
-  if (roomQuery.error || !roomQuery.data) {
+  if (roomClientQuery.error || !roomClientQuery.data) {
     return (
-      <div className="flex flex-1 items-center justify-center px-5 py-16">
-        <Card className="w-full max-w-md">
-          <CardContent className="space-y-4 p-6 text-center">
-            <h1 className="text-2xl font-semibold font-display">Room unavailable</h1>
-            <p className="text-sm text-muted-foreground">
-              {roomQuery.error instanceof Error
-                ? roomQuery.error.message
-                : "This room is not available."}
-            </p>
-            <Link to="/" className="block">
-              <Button className="w-full">Back home</Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (roomQuery.data.role === "display") {
-    return (
-      <DisplayRoomView
-        gameCode={gameCode}
-        initialSnapshot={roomQuery.data.game}
-        onSessionChange={() => void roomQuery.refetch()}
+      <RoomUnavailable
+        message={
+          roomClientQuery.error instanceof Error
+            ? roomClientQuery.error.message
+            : "This room is not available."
+        }
       />
     );
   }
 
-  if (roomQuery.data.role === "player") {
+  if (roomClientQuery.data.role === "display") {
+    return (
+      <DisplayRoomView
+        gameCode={gameCode}
+        onSessionChange={() => void roomClientQuery.refetch()}
+      />
+    );
+  }
+
+  if (roomClientQuery.data.role === "player") {
     return (
       <PlayerRoomView
         gameCode={gameCode}
-        initialSnapshot={roomQuery.data.game}
-        onSessionChange={() => void roomQuery.refetch()}
+        onSessionChange={() => void roomClientQuery.refetch()}
       />
     );
   }
@@ -162,64 +140,90 @@ function RoomPage() {
   return (
     <JoinRoomView
       gameCode={gameCode}
-      game={roomQuery.data.game}
-      onJoined={() => void roomQuery.refetch()}
+      onJoined={() => void roomClientQuery.refetch()}
     />
+  );
+}
+
+function RoomUnavailable({message}: {message: string}) {
+  return (
+    <div className="flex flex-1 items-center justify-center px-5 py-16">
+      <Card className="w-full max-w-md">
+        <CardContent className="space-y-4 p-6 text-center">
+          <h1 className="text-2xl font-semibold font-display">Room unavailable</h1>
+          <p className="text-sm text-muted-foreground">{message}</p>
+          <Link to="/" className="block">
+            <Button className="w-full">Back home</Button>
+          </Link>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
 function JoinRoomView({
   gameCode,
-  game,
   onJoined,
 }: {
   gameCode: string;
-  game: GamePublicSnapshot;
   onJoined: () => void;
 }) {
   const [displayName, setDisplayName] = useState("");
 
+  const metaQuery = useQuery<GameMeta>({
+    queryKey: gameKeys.meta(gameCode),
+    queryFn: () => getGameMeta(gameCode),
+  });
+
+  const playersQuery = useQuery<GamePlayers>({
+    queryKey: gameKeys.players(gameCode),
+    queryFn: () => getGamePlayers(gameCode),
+  });
+
   const joinGameMutation = useMutation({
-    mutationFn: async () => {
-      const response = await api.api.games[":gameCode"].players.$post({
-        param: {gameCode},
-        json: {
-          displayName: displayName.trim(),
-        },
-      });
-
-      if (!response.ok) {
-        await throwApiError(response, `POST /api/games/${gameCode}/players`);
-      }
-
-      return response.json();
-    },
+    mutationFn: async () => joinGame({gameCode, displayName}),
     onSuccess: async () => {
       setDisplayName("");
       onJoined();
     },
   });
 
+  if (metaQuery.isLoading || playersQuery.isLoading) {
+    return null;
+  }
+
+  if (metaQuery.error || playersQuery.error || !metaQuery.data || !playersQuery.data) {
+    return (
+      <RoomUnavailable
+        message={
+          metaQuery.error instanceof Error
+            ? metaQuery.error.message
+            : playersQuery.error instanceof Error
+              ? playersQuery.error.message
+              : "This room is not available."
+        }
+      />
+    );
+  }
+
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-12">
       <div className="w-full max-w-md space-y-6">
-        {/* Game code — big and central */}
         <div className="flex flex-col items-center gap-2">
           <Link to="/" className="text-lg font-bold tracking-tight font-display">
             DECK<span className="flame-text">FLIX</span>
           </Link>
           <div className="font-mono text-5xl font-bold tracking-[0.35em] text-foreground md:text-6xl">
-            {game.summary.code}
+            {metaQuery.data.summary.code}
           </div>
-          {game.summary.roomName ? (
-            <p className="text-sm text-muted-foreground">{game.summary.roomName}</p>
+          {metaQuery.data.summary.roomName ? (
+            <p className="text-sm text-muted-foreground">{metaQuery.data.summary.roomName}</p>
           ) : null}
           <span className="text-xs text-muted-foreground">
-            {game.summary.playerCount} player{game.summary.playerCount === 1 ? "" : "s"} in room
+            {playersQuery.data.players.length} player{playersQuery.data.players.length === 1 ? "" : "s"} in room
           </span>
         </div>
 
-        {/* Join form */}
         <Card className="border-white/[0.06] bg-black/40">
           <CardContent className="space-y-4 p-6">
             <form
@@ -263,31 +267,42 @@ function JoinRoomView({
 
 function DisplayRoomView({
   gameCode,
-  initialSnapshot,
   onSessionChange,
 }: {
   gameCode: string;
-  initialSnapshot: DisplayGameSnapshot;
   onSessionChange: () => void;
 }) {
   const navigate = useNavigate();
-  const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [gameError, setGameError] = useState<string | null>(null);
   const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(null);
   const [lastJoinedPlayer, setLastJoinedPlayer] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
-  const deleteRoomMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`${API_BASE_URL}/api/games/${gameCode}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+  const metaQuery = useQuery<GameMeta>({
+    queryKey: gameKeys.meta(gameCode),
+    queryFn: () => getGameMeta(gameCode),
+  });
+  const playersQuery = useQuery<GamePlayers>({
+    queryKey: gameKeys.players(gameCode),
+    queryFn: () => getGamePlayers(gameCode),
+  });
+  const stateQuery = useQuery<DisplayGameState>({
+    queryKey: gameKeys.displayState(gameCode),
+    queryFn: () => getDisplayGameState(gameCode),
+  });
 
-      if (!response.ok) {
-        await throwApiError(response, `DELETE /api/games/${gameCode}`);
-      }
-    },
+  const [state, setState] = useState<DisplayGameState | null>(null);
+  const refetchMeta = metaQuery.refetch;
+  const refetchPlayers = playersQuery.refetch;
+
+  useEffect(() => {
+    if (stateQuery.data) {
+      setState(stateQuery.data);
+    }
+  }, [stateQuery.data]);
+
+  const deleteRoomMutation = useMutation({
+    mutationFn: async () => deleteRoom(gameCode),
     onSuccess: () => {
       navigate({
         to: "/",
@@ -298,10 +313,6 @@ function DisplayRoomView({
       setGameError(error instanceof Error ? error.message : "Unable to delete room");
     },
   });
-
-  useEffect(() => {
-    setSnapshot(initialSnapshot);
-  }, [initialSnapshot]);
 
   useEffect(() => {
     const socket = new WebSocket(createDisplayWebSocketUrl(gameCode));
@@ -333,12 +344,20 @@ function DisplayRoomView({
       }
 
       if (message.type === "display.snapshot") {
-        setSnapshot(message.payload);
+        setState(message.payload);
         return;
       }
 
       if (message.type === "display.player_joined") {
         setLastJoinedPlayer(message.payload.displayName);
+        void refetchMeta();
+        void refetchPlayers();
+        return;
+      }
+
+      if (message.type === "display.player_left") {
+        void refetchMeta();
+        void refetchPlayers();
         return;
       }
 
@@ -358,22 +377,41 @@ function DisplayRoomView({
       }
       socketRef.current = null;
     };
-  }, [gameCode, onSessionChange]);
+  }, [gameCode, onSessionChange, refetchMeta, refetchPlayers]);
 
-  const board = useMemo(() => getBoardSections(snapshot), [snapshot]);
+  if (metaQuery.isLoading || playersQuery.isLoading || stateQuery.isLoading || !state) {
+    return null;
+  }
+
+  if (metaQuery.error || playersQuery.error || stateQuery.error || !metaQuery.data || !playersQuery.data) {
+    return (
+      <RoomUnavailable
+        message={
+          stateQuery.error instanceof Error
+            ? stateQuery.error.message
+            : metaQuery.error instanceof Error
+              ? metaQuery.error.message
+              : playersQuery.error instanceof Error
+                ? playersQuery.error.message
+                : "This room is not available."
+        }
+      />
+    );
+  }
+
+  const board = useMemo(() => getBoardSections(state), [state]);
   const latestMatch =
-    snapshot.queue.find((item) => item.movie.id === latestMatchMovieId)?.movie ?? null;
+    state.queue.find((item) => item.movie.id === latestMatchMovieId)?.movie ?? null;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-5 px-5 py-6">
-      {/* Top bar: logo + actions */}
       <div className="flex items-center justify-between">
         <Link to="/" className="text-lg font-bold tracking-tight font-display">
           DECK<span className="flame-text">FLIX</span>
         </Link>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {snapshot.summary.playerCount} player{snapshot.summary.playerCount === 1 ? "" : "s"}
+            {state.summary.playerCount} player{state.summary.playerCount === 1 ? "" : "s"}
           </span>
           <Link to="/">
             <button type="button" className="rounded-lg p-2 text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground" title="Home">
@@ -391,7 +429,6 @@ function DisplayRoomView({
         </div>
       </div>
 
-      {/* Hero: giant game code */}
       <div className="flex flex-col items-center gap-2 py-4">
         <button
           type="button"
@@ -399,21 +436,32 @@ function DisplayRoomView({
           title="Copy code"
           onClick={async () => {
             try {
-              await navigator.clipboard.writeText(gameCode.toUpperCase());
+              await navigator.clipboard.writeText(state.summary.code);
             } catch {
               setGameError("Unable to copy game code");
             }
           }}>
           <div className="font-mono text-6xl font-bold tracking-[0.35em] text-foreground transition group-hover:text-accent md:text-8xl">
-            {snapshot.summary.code}
+            {state.summary.code}
           </div>
         </button>
         <p className="text-sm text-muted-foreground">
-          {snapshot.summary.roomName ? snapshot.summary.roomName : "Tap code to copy"}
+          {metaQuery.data.summary.roomName ? metaQuery.data.summary.roomName : "Tap code to copy"}
         </p>
       </div>
 
-      {/* Alerts */}
+      {playersQuery.data.players.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {playersQuery.data.players.map((player) => (
+            <span
+              key={player.id}
+              className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+              {player.displayName}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {gameError ? (
         <div className="rounded-lg border border-swipe-nope/20 bg-swipe-nope/10 px-4 py-2.5 text-sm text-swipe-nope">
           {gameError}
@@ -436,9 +484,7 @@ function DisplayRoomView({
         </div>
       ) : null}
 
-      {/* Board: matches + rejected */}
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Matches — green */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-swipe-like">
             <HeartIcon size={18} />
@@ -457,7 +503,6 @@ function DisplayRoomView({
           )}
         </div>
 
-        {/* Rejected — red */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-swipe-nope">
             <XCircleIcon size={18} />
@@ -482,49 +527,69 @@ function DisplayRoomView({
 
 function PlayerRoomView({
   gameCode,
-  initialSnapshot,
   onSessionChange,
 }: {
   gameCode: string;
-  initialSnapshot: PlayerGameSnapshot;
   onSessionChange: () => void;
 }) {
   const navigate = useNavigate();
-  const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [gameError, setGameError] = useState<string | null>(null);
   const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(null);
   const [lastRecordedVote, setLastRecordedVote] = useState<SwipeChoice | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
+  const metaQuery = useQuery<GameMeta>({
+    queryKey: gameKeys.meta(gameCode),
+    queryFn: () => getGameMeta(gameCode),
+  });
+  const playersQuery = useQuery<GamePlayers>({
+    queryKey: gameKeys.players(gameCode),
+    queryFn: () => getGamePlayers(gameCode),
+  });
+  const resultsQuery = useQuery<GameResults>({
+    queryKey: gameKeys.results(gameCode),
+    queryFn: () => getGameResults(gameCode),
+  });
+  const stateQuery = useQuery<PlayerGameState>({
+    queryKey: gameKeys.playerState(gameCode),
+    queryFn: () => getPlayerGameState(gameCode),
+  });
+
+  const [state, setState] = useState<PlayerGameState | null>(null);
+  const [results, setResults] = useState<GameResults | null>(null);
+  const refetchMeta = metaQuery.refetch;
+  const refetchPlayers = playersQuery.refetch;
+  const refetchResults = resultsQuery.refetch;
+
   useEffect(() => {
-    setSnapshot(initialSnapshot);
-  }, [initialSnapshot]);
+    if (stateQuery.data) {
+      setState(stateQuery.data);
+    }
+  }, [stateQuery.data]);
+
+  useEffect(() => {
+    if (resultsQuery.data) {
+      setResults(resultsQuery.data);
+    }
+  }, [resultsQuery.data]);
 
   const voteMutation = useMutation({
-    mutationFn: async (payload: {movieId: string; choice: SwipeChoice; playerId: string}) => {
-      const response = await fetch(
-        `${API_BASE_URL}/api/games/${gameCode}/players/${payload.playerId}/votes`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            movieId: payload.movieId,
-            choice: payload.choice,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        await throwApiError(response, `POST /api/games/${gameCode}/players/${payload.playerId}/votes`);
-      }
-
-      return response.json();
-    },
+    mutationFn: async (payload: {
+      assignmentId: string;
+      movieId: string;
+      choice: SwipeChoice;
+      playerId: string;
+    }) =>
+      voteForMovie({
+        gameCode,
+        assignmentId: payload.assignmentId,
+        playerId: payload.playerId,
+        movieId: payload.movieId,
+        choice: payload.choice,
+      }),
     onSuccess: (result) => {
-      setSnapshot(result.game);
+      setState(result.state);
+      void resultsQuery.refetch();
     },
     onError: (error) => {
       setGameError(error instanceof Error ? error.message : "Unable to record vote");
@@ -532,19 +597,7 @@ function PlayerRoomView({
   });
 
   const leaveMutation = useMutation({
-    mutationFn: async (playerId: string) => {
-      const response = await fetch(
-        `${API_BASE_URL}/api/games/${gameCode}/players/${playerId}/leave`,
-        {
-          method: "POST",
-          credentials: "include",
-        },
-      );
-
-      if (!response.ok) {
-        await throwApiError(response, `POST /api/games/${gameCode}/players/${playerId}/leave`);
-      }
-    },
+    mutationFn: async (playerId: string) => leaveGame({gameCode, playerId}),
     onSuccess: () => {
       onSessionChange();
       navigate({
@@ -584,7 +637,10 @@ function PlayerRoomView({
       }
 
       if (message.type === "player.snapshot") {
-        setSnapshot(message.payload);
+        setState(message.payload);
+        void refetchMeta();
+        void refetchPlayers();
+        void refetchResults();
         return;
       }
 
@@ -595,6 +651,7 @@ function PlayerRoomView({
 
       if (message.type === "player.match_found") {
         setLatestMatchMovieId(message.payload.movieId);
+        void refetchResults();
         return;
       }
 
@@ -610,24 +667,61 @@ function PlayerRoomView({
 
       socketRef.current = null;
     };
-  }, [gameCode, onSessionChange]);
+  }, [gameCode, onSessionChange, refetchMeta, refetchPlayers, refetchResults]);
+
+  if (
+    metaQuery.isLoading ||
+    playersQuery.isLoading ||
+    resultsQuery.isLoading ||
+    stateQuery.isLoading ||
+    !state ||
+    !results
+  ) {
+    return null;
+  }
+
+  if (
+    metaQuery.error ||
+    playersQuery.error ||
+    resultsQuery.error ||
+    stateQuery.error ||
+    !metaQuery.data ||
+    !playersQuery.data
+  ) {
+    return (
+      <RoomUnavailable
+        message={
+          stateQuery.error instanceof Error
+            ? stateQuery.error.message
+            : metaQuery.error instanceof Error
+              ? metaQuery.error.message
+              : playersQuery.error instanceof Error
+                ? playersQuery.error.message
+                : resultsQuery.error instanceof Error
+                  ? resultsQuery.error.message
+                  : "This room is not available."
+        }
+      />
+    );
+  }
 
   const vote = (choice: SwipeChoice, movieId?: string) => {
-    if (!snapshot.currentItem) {
+    if (!state.currentItem) {
       return;
     }
 
     setGameError(null);
     voteMutation.mutate({
-      playerId: snapshot.me.playerId,
-      movieId: movieId ?? snapshot.currentItem.movie.id,
+      playerId: state.me.playerId,
+      assignmentId: state.currentItem.assignmentId,
+      movieId: movieId ?? state.currentItem.movie.id,
       choice,
     });
   };
 
-  const canVote = snapshot.summary.playerCount >= 2 && !snapshot.me.completed;
-  const progressLabel = `${Math.min(snapshot.me.currentIndex + 1, snapshot.summary.queueSize)}/${snapshot.summary.queueSize}`;
-  const latestMatch = snapshot.results.voteSummary.find((entry) => entry.movieId === latestMatchMovieId) ?? null;
+  const canVote = state.summary.playerCount >= 2 && !state.me.completed;
+  const progressLabel = `${Math.min(state.me.currentIndex + 1, state.summary.queueSize)}/${state.summary.queueSize}`;
+  const latestMatch = results.voteSummary.find((entry) => entry.movieId === latestMatchMovieId) ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -635,7 +729,7 @@ function PlayerRoomView({
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link to="/" className="text-lg font-bold tracking-tight font-display">
-              {snapshot.summary.code}
+              {state.summary.code}
             </Link>
             <div className="h-4 w-px bg-white/[0.1]" />
             <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -644,13 +738,13 @@ function PlayerRoomView({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">
-              {snapshot.summary.playerCount} player{snapshot.summary.playerCount === 1 ? "" : "s"}
+              {playersQuery.data.players.length} player{playersQuery.data.players.length === 1 ? "" : "s"}
             </span>
             <span className="text-xs text-muted-foreground">{progressLabel}</span>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => leaveMutation.mutate(snapshot.me.playerId)}
+              onClick={() => leaveMutation.mutate(state.me.playerId)}
               disabled={leaveMutation.isPending}>
               Leave game
             </Button>
@@ -659,6 +753,16 @@ function PlayerRoomView({
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-5 pt-6">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {playersQuery.data.players.map((player) => (
+            <span
+              key={player.id}
+              className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+              {player.displayName}
+            </span>
+          ))}
+        </div>
+
         {gameError ? (
           <div className="rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
             {gameError}
@@ -684,7 +788,7 @@ function PlayerRoomView({
       <div className="flex flex-1 flex-col items-center justify-center px-5 py-8">
         {!canVote ? (
           <div className="text-center text-muted-foreground">
-            {snapshot.summary.playerCount < 2 ? (
+            {state.summary.playerCount < 2 ? (
               <>
                 <p className="text-lg font-semibold">Waiting for another player</p>
                 <p className="mt-1 text-sm">
@@ -698,26 +802,26 @@ function PlayerRoomView({
               </>
             )}
           </div>
-        ) : snapshot.currentItem ? (
+        ) : state.currentItem ? (
           <div className="w-full max-w-sm space-y-5">
             <div className="text-center">
               <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                 Your controller
               </div>
               <h1 className="mt-2 text-2xl font-semibold font-display">
-                {snapshot.me.displayName}
+                {state.me.displayName}
               </h1>
             </div>
             <SwipeDeck
-              item={snapshot.currentItem}
+              item={state.currentItem}
               onSwipe={(choice, movieId) => vote(choice, movieId)}
               disabled={voteMutation.isPending}
             />
             <SwipeControls
               onSwipe={(choice) => vote(choice)}
               disabled={voteMutation.isPending}
-              allowMaybe={snapshot.settings.allowMaybe}
-              allowSuperLike={snapshot.settings.allowSuperLike}
+              allowMaybe={state.settings.allowMaybe}
+              allowSuperLike={state.settings.allowSuperLike}
             />
           </div>
         ) : (
