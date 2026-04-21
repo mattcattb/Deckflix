@@ -1,9 +1,20 @@
+import type {RoomSession} from "@deckflix/shared";
 import {Hono} from "hono";
 import {corsMiddleware} from "./cors";
 import {getPinoLogger} from "./logger";
 
 declare module "hono" {
   interface ContextVariableMap {
+    roomRequest: {
+      gameCode: string;
+      session: RoomSession | null;
+    };
+    roomSession: {
+      gameCode: RoomSession["gameCode"];
+      role: RoomSession["role"];
+      roleId: RoomSession["roleId"];
+      sessionToken: RoomSession["sessionToken"];
+    };
     userId: string;
     user: {
       id: string;
@@ -15,9 +26,14 @@ declare module "hono" {
       id: string;
       expiresAt: Date;
     };
-    roomParticipant: {
-      roomCode: string;
-      memberId: string;
+    displaySession: {
+      gameCode: string;
+      displayId: string;
+      sessionToken: string;
+    };
+    playerSession: {
+      gameCode: string;
+      playerId: string;
       sessionToken: string;
     };
   }

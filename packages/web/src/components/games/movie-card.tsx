@@ -1,10 +1,10 @@
 import type { CSSProperties } from "react";
-import type { MovieCandidate, MovieVoteSummary } from "@deckflix/shared";
+import type { GameVoteSummary, MovieCandidate } from "@deckflix/shared";
 import { cn } from "../../lib/cn";
 
 type MovieCardProps = {
   movie: MovieCandidate;
-  votes?: MovieVoteSummary;
+  votes?: GameVoteSummary;
   className?: string;
   active?: boolean;
   style?: CSSProperties;

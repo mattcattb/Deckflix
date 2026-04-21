@@ -9,31 +9,13 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SignupRouteImport } from './routes/signup'
-import { Route as RoomsRouteImport } from './routes/rooms'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as JoinRouteImport } from './routes/join'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as RoomsRoomCodeRouteImport } from './routes/rooms.$roomCode'
+import { Route as RoomGameCodeRouteImport } from './routes/room.$gameCode'
 
-const SignupRoute = SignupRouteImport.update({
-  id: '/signup',
-  path: '/signup',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RoomsRoute = RoomsRouteImport.update({
-  id: '/rooms',
-  path: '/rooms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRoute = DashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const JoinRoute = JoinRouteImport.update({
+  id: '/join',
+  path: '/join',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -41,94 +23,49 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RoomsRoomCodeRoute = RoomsRoomCodeRouteImport.update({
-  id: '/$roomCode',
-  path: '/$roomCode',
-  getParentRoute: () => RoomsRoute,
+const RoomGameCodeRoute = RoomGameCodeRouteImport.update({
+  id: '/room/$gameCode',
+  path: '/room/$gameCode',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/rooms': typeof RoomsRouteWithChildren
-  '/signup': typeof SignupRoute
-  '/rooms/$roomCode': typeof RoomsRoomCodeRoute
+  '/join': typeof JoinRoute
+  '/room/$gameCode': typeof RoomGameCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/rooms': typeof RoomsRouteWithChildren
-  '/signup': typeof SignupRoute
-  '/rooms/$roomCode': typeof RoomsRoomCodeRoute
+  '/join': typeof JoinRoute
+  '/room/$gameCode': typeof RoomGameCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/dashboard': typeof DashboardRoute
-  '/login': typeof LoginRoute
-  '/rooms': typeof RoomsRouteWithChildren
-  '/signup': typeof SignupRoute
-  '/rooms/$roomCode': typeof RoomsRoomCodeRoute
+  '/join': typeof JoinRoute
+  '/room/$gameCode': typeof RoomGameCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/dashboard'
-    | '/login'
-    | '/rooms'
-    | '/signup'
-    | '/rooms/$roomCode'
+  fullPaths: '/' | '/join' | '/room/$gameCode'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/login' | '/rooms' | '/signup' | '/rooms/$roomCode'
-  id:
-    | '__root__'
-    | '/'
-    | '/dashboard'
-    | '/login'
-    | '/rooms'
-    | '/signup'
-    | '/rooms/$roomCode'
+  to: '/' | '/join' | '/room/$gameCode'
+  id: '__root__' | '/' | '/join' | '/room/$gameCode'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRoute: typeof DashboardRoute
-  LoginRoute: typeof LoginRoute
-  RoomsRoute: typeof RoomsRouteWithChildren
-  SignupRoute: typeof SignupRoute
+  JoinRoute: typeof JoinRoute
+  RoomGameCodeRoute: typeof RoomGameCodeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/signup': {
-      id: '/signup'
-      path: '/signup'
-      fullPath: '/signup'
-      preLoaderRoute: typeof SignupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/rooms': {
-      id: '/rooms'
-      path: '/rooms'
-      fullPath: '/rooms'
-      preLoaderRoute: typeof RoomsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dashboard': {
-      id: '/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof DashboardRouteImport
+    '/join': {
+      id: '/join'
+      path: '/join'
+      fullPath: '/join'
+      preLoaderRoute: typeof JoinRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -138,32 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/rooms/$roomCode': {
-      id: '/rooms/$roomCode'
-      path: '/$roomCode'
-      fullPath: '/rooms/$roomCode'
-      preLoaderRoute: typeof RoomsRoomCodeRouteImport
-      parentRoute: typeof RoomsRoute
+    '/room/$gameCode': {
+      id: '/room/$gameCode'
+      path: '/room/$gameCode'
+      fullPath: '/room/$gameCode'
+      preLoaderRoute: typeof RoomGameCodeRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface RoomsRouteChildren {
-  RoomsRoomCodeRoute: typeof RoomsRoomCodeRoute
-}
-
-const RoomsRouteChildren: RoomsRouteChildren = {
-  RoomsRoomCodeRoute: RoomsRoomCodeRoute,
-}
-
-const RoomsRouteWithChildren = RoomsRoute._addFileChildren(RoomsRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRoute: DashboardRoute,
-  LoginRoute: LoginRoute,
-  RoomsRoute: RoomsRouteWithChildren,
-  SignupRoute: SignupRoute,
+  JoinRoute: JoinRoute,
+  RoomGameCodeRoute: RoomGameCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

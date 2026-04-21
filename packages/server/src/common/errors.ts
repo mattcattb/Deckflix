@@ -9,6 +9,7 @@ export const ERROR_MESSAGES = {
   BAD_REQUEST: "Bad request",
   UNAUTHORIZED: "Unauthorized",
   FORBIDDEN: "Forbidden",
+  CONFLICT: "Conflict",
   NOT_FOUND: "Not found",
   VALIDATION_ERROR: "Validation failed",
   SERVICE_ERROR: "Service error",
@@ -21,6 +22,7 @@ const STATUS_TO_CODE: Record<number, ErrorCode> = {
   400: "BAD_REQUEST",
   401: "UNAUTHORIZED",
   403: "FORBIDDEN",
+  409: "CONFLICT",
   404: "NOT_FOUND",
   422: "VALIDATION_ERROR",
   500: "INTERNAL_ERROR",
@@ -57,6 +59,12 @@ export class UnauthorizedException extends AppHttpError {
 export class ForbiddenException extends AppHttpError {
   constructor(message?: string, details?: unknown) {
     super(403, "FORBIDDEN", message, details);
+  }
+}
+
+export class ConflictException extends AppHttpError {
+  constructor(message?: string, details?: unknown) {
+    super(409, "CONFLICT", message, details);
   }
 }
 

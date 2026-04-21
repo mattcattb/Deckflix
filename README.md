@@ -1,22 +1,26 @@
-# Movie Tinder
+# Deckflix
 
-Movie tinder allows for quick swiping and such for users to help choose between movies
+Deckflix is a Jackbox-style movie picker:
+
+- the `display` creates and presents a game
+- `players` join from their own devices with a game code
+- anonymous room cookies store the per-room display/player identity token
 
 ## Core Features
 
-1. Friends can join room with room code
-2. room settings filtering configs for movies
-3. Swipe View (like, dislike, optional, SUPER LIKE) for choosing movies
+1. Players join a game with a game code
+2. Game settings control the movie queue
+3. Player controller view supports like, dislike, maybe, super like, and skip
 4. Card View for movies (description, image, score, etc)
 5. Rudamentary Recomendation system for users (maybe an account or lettrbox integration idk)
 6. Streaming service locations for movies perhaps
 
 ## Some Features
 
-1. Rooms for joining and setting preferences (prefered genres, star limits, etc)
+1. Games for joining and setting preferences (preferred genres, star limits, etc)
 2. Swiping features, with selection algorithms and prefence matching
 3. Integration with a movie db api for getting movies to show
-4. Room view during selection shows room cards with teh most swipes and likes as well as trashed ones just for some ideas
+4. The display view shows live results, matches, and rejected titles
 5. swiping options for like, dislike, maybe, and skip
 6. Maybe some config settings like how many people need to like it or not (later features )
 
@@ -76,7 +80,7 @@ CORS_ORIGINS=http://localhost:4273
 
 ## Auth Routes
 
-Better Auth is still available at `/api/auth`, but movie rooms are anonymous-first for MVP.
+Better Auth is still available at `/api/auth`, but movie games are anonymous-first for MVP.
 
 ## Example API (Projects)
 
@@ -85,45 +89,47 @@ Authenticated routes (require session cookie):
 - `GET /api/projects` - list projects
 - `POST /api/projects` - create project `{ "name": "My Project" }`
 
-## Movie Rooms (Core MVP)
+## Movie Games (Core MVP)
 
-Movie rooms are anonymous-first for MVP. A browser keeps a room-local
-session (`memberId` + `sessionToken`) so users can reconnect without
-creating an account.
+Movie games are anonymous-first for MVP. A browser keeps either a display-local
+session or a player-local session so it can reconnect without creating an account.
 
-### Room REST API
+### Game REST API
 
-- `POST /api/rooms` - create room
-  - body: `{ "displayName": "Matt", "settings": { "minLikesToMatch": 2 } }`
-  - returns room snapshot + member session (`memberId`, `sessionToken`)
-- `POST /api/rooms/:roomCode/join` - join room
-  - body: `{ "displayName": "Friend" }`
-  - returns room snapshot + member session
-- `POST /api/rooms/:roomCode/swipes` - record swipe
-  - body: `{ "memberId": "...", "sessionToken": "...", "movieId": "movie-dune", "choice": "like" }`
-- `GET /api/rooms/:roomCode` - fetch room snapshot
+- `POST /api/games` - create a new display-owned game
+- `GET /api/games/:gameCode/display` - fetch the display snapshot for the owning display session
+- `GET /api/games/:gameCode/session` - resolve the current browser role for the room from the room cookie
+- `GET /api/games/:gameCode/join` - fetch join-safe public game info
+- `GET /api/games/:gameCode/players/me` - fetch the current player snapshot from the player cookie
+- `POST /api/games/:gameCode/players` - join as a player
+- `POST /api/games/:gameCode/players/:playerId/votes` - record a vote for the current player
+- `POST /api/games/:gameCode/players/:playerId/leave` - leave the game as the current player
 
-### Room WebSocket
+### Game WebSockets
 
-- `GET /api/rooms/:roomCode/ws?memberId=...&sessionToken=...`
-- Client messages:
-  - `{ "type": "ping" }`
-- Server messages:
-  - `room.snapshot` - full room state after joins/swipes/connect changes
-  - `room.card_complete` - emitted when every current member has voted on a movie
-  - `room.match_found` - emitted when likes hit the room threshold
-  - `room.error` - validation/session errors
+- `GET /api/games/:gameCode/display/ws`
+- `GET /api/games/:gameCode/players/ws`
+- Display messages:
+  - `display.snapshot`
+  - `display.player_joined`
+  - `display.match_found`
+  - `display.error`
+- Player messages:
+  - `player.snapshot`
+  - `player.vote_recorded`
+  - `player.match_found`
+  - `player.error`
 
 ### Notes
 
-- Rooms currently use demo movie cards, not TMDB yet.
-- Room state is stored in Redis.
-- Better Auth remains in the repo for later account-based features, but rooms do not require accounts.
+- Game state is stored in Redis.
+- The display is never treated as a player.
+- Better Auth remains in the repo for later account-based features, but games do not require accounts.
 
 ### Web Routes
 
-- `/rooms` - create room or join by room code
-- `/rooms/:roomCode` - live room page with swipe controls + member presence
+- `/` - main entry with a display/play mode toggle
+- `/room/:gameCode` - unified room route that renders display, player, or join-needed
 
 ## Movies API (Provider-backed)
 

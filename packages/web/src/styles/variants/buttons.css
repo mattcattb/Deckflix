@@ -1,17 +1,17 @@
 @layer components {
   .btn-glow {
     box-shadow:
-      0 0 0 1px hsl(var(--ring) / 0.3),
-      0 4px 16px hsl(var(--ring) / 0.25),
-      0 8px 32px hsl(var(--ring) / 0.12);
+      0 0 0 1px hsl(4 90% 58% / 0.3),
+      0 4px 20px hsl(4 90% 58% / 0.25),
+      0 8px 36px hsl(350 85% 56% / 0.12);
     transition: box-shadow 200ms ease;
   }
 
   .btn-glow:hover {
     box-shadow:
-      0 0 0 1px hsl(var(--ring) / 0.4),
-      0 4px 20px hsl(var(--ring) / 0.35),
-      0 12px 40px hsl(var(--ring) / 0.18);
+      0 0 0 1px hsl(4 90% 58% / 0.4),
+      0 4px 24px hsl(4 90% 58% / 0.4),
+      0 12px 48px hsl(350 85% 56% / 0.2);
   }
 
   .btn-sheen {
@@ -27,7 +27,7 @@
     background: linear-gradient(
       120deg,
       transparent,
-      hsl(var(--primary-foreground) / 0.15),
+      hsl(0 0% 100% / 0.18),
       transparent
     );
     transform: rotate(8deg);

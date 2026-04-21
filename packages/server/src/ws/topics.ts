@@ -2,58 +2,77 @@ import type {Server, ServerWebSocket} from "bun";
 import type {BunWebSocketData} from "hono/bun";
 import type {WSContext} from "hono/ws";
 import {
-  encodeRoomServerMessage,
-  type RoomServerMessage,
+  encodeDisplayServerMessage,
+  encodePlayerServerMessage,
+  type DisplayServerMessage,
+  type PlayerServerMessage,
 } from "@deckflix/shared";
 import {publishSocketTopic} from "../lib/redis";
 
-const normalizeRoomCode = (roomCode: string) => roomCode.trim().toUpperCase();
+const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCase();
 
 export const SOCKET_TOPICS = {
-  getBroadcast: () => "ws:broadcast",
-  getMember: (memberId: string) => `ws:member:${memberId}`,
-  getRoom: (roomCode: string) => `ws:room:${normalizeRoomCode(roomCode)}`,
+  getDisplay: (gameCode: string) => `ws:display:${normalizeGameCode(gameCode)}`,
+  getPlayer: (gameCode: string, playerId: string) =>
+    `ws:player:${normalizeGameCode(gameCode)}:${playerId}`,
 };
 
 type TopicSocket = Pick<WSContext<ServerWebSocket<unknown>>, "raw">;
 
-export const subscribeToRoom = (ws: TopicSocket, roomCode: string) => {
-  ws.raw?.subscribe(SOCKET_TOPICS.getRoom(roomCode));
+export const subscribeToDisplay = (ws: TopicSocket, gameCode: string) => {
+  ws.raw?.subscribe(SOCKET_TOPICS.getDisplay(gameCode));
 };
 
-export const unsubscribeFromRoom = (ws: TopicSocket, roomCode: string) => {
-  ws.raw?.unsubscribe(SOCKET_TOPICS.getRoom(roomCode));
+export const unsubscribeFromDisplay = (ws: TopicSocket, gameCode: string) => {
+  ws.raw?.unsubscribe(SOCKET_TOPICS.getDisplay(gameCode));
 };
 
-const publishSocketMessage = (
+export const subscribeToPlayer = (
+  ws: TopicSocket,
+  gameCode: string,
+  playerId: string,
+) => {
+  ws.raw?.subscribe(SOCKET_TOPICS.getPlayer(gameCode, playerId));
+};
+
+export const unsubscribeFromPlayer = (
+  ws: TopicSocket,
+  gameCode: string,
+  playerId: string,
+) => {
+  ws.raw?.unsubscribe(SOCKET_TOPICS.getPlayer(gameCode, playerId));
+};
+
+const publishSocketPayload = (
   server: Server<BunWebSocketData>,
   topic: string,
-  message: RoomServerMessage,
+  payload: string,
 ) => {
-  const payload = encodeRoomServerMessage(message);
   server.publish(topic, payload);
   void publishSocketTopic(topic, payload);
 };
 
-export const publishBroadcastMessage = (
+export const publishDisplayMessage = (
   server: Server<BunWebSocketData>,
-  message: RoomServerMessage,
+  gameCode: string,
+  message: DisplayServerMessage,
 ) => {
-  publishSocketMessage(server, SOCKET_TOPICS.getBroadcast(), message);
+  publishSocketPayload(
+    server,
+    SOCKET_TOPICS.getDisplay(gameCode),
+    encodeDisplayServerMessage(message),
+  );
 };
 
-export const publishMemberMessage = (
+export const publishPlayerMessage = (
   server: Server<BunWebSocketData>,
-  memberId: string,
-  message: RoomServerMessage,
+  gameCode: string,
+  playerId: string,
+  message: PlayerServerMessage,
 ) => {
-  publishSocketMessage(server, SOCKET_TOPICS.getMember(memberId), message);
-};
-
-export const publishRoomMessage = (
-  server: Server<BunWebSocketData>,
-  roomCode: string,
-  message: RoomServerMessage,
-) => {
-  publishSocketMessage(server, SOCKET_TOPICS.getRoom(roomCode), message);
+  publishSocketPayload(
+    server,
+    SOCKET_TOPICS.getPlayer(gameCode, playerId),
+    encodePlayerServerMessage(message),
+  );
 };

@@ -1,4 +1,4 @@
-import type { SwipeChoice } from "@deckflix/shared";
+import type {SwipeChoice} from "@deckflix/shared";
 
 type SwipeControlsProps = {
   onSwipe: (choice: SwipeChoice) => void;

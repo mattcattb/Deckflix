@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build && tsc --noEmit",
     "preview": "vite preview",
-    "start": "vite"
+    "start": "vite",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

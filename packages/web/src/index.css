@@ -21,58 +21,72 @@
   --color-warning: hsl(var(--warning));
   --color-danger: hsl(var(--danger));
 
-  --font-display: "Sora", "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* Tinder swipe colors */
+  --color-swipe-like: hsl(145 65% 42%);
+  --color-swipe-nope: hsl(0 75% 55%);
+
+  /* Tinder flame gradient — use as bg-gradient-to-r from-flame-start to-flame-end */
+  --color-flame-start: hsl(4 90% 58%);
+  --color-flame-mid: hsl(350 85% 56%);
+  --color-flame-end: hsl(330 80% 55%);
+
+  --font-display: "Bebas Neue", "Sora", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", "Manrope", ui-sans-serif, system-ui, sans-serif;
 
   --shadow-glow: 0 0 0 1px hsl(var(--ring) / 0.25),
     0 12px 28px hsl(var(--ring) / 0.18);
+  --shadow-flame: 0 4px 24px hsl(4 90% 58% / 0.3),
+    0 8px 40px hsl(350 85% 56% / 0.15);
 }
 
 @layer base {
   :root {
     color-scheme: dark;
-    --background: 250 15% 7%;
-    --foreground: 220 20% 93%;
+    /* Netflix-dark base — true black with warm undertone */
+    --background: 0 0% 5%;
+    --foreground: 0 0% 95%;
 
-    --surface: 250 12% 12% / 0.85;
-    --surface-elevated: 250 12% 15% / 0.95;
-    --muted: 250 10% 18%;
-    --muted-foreground: 240 8% 55%;
+    --surface: 0 0% 10% / 0.9;
+    --surface-elevated: 0 0% 13% / 0.95;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 50%;
 
-    --border: 250 10% 18%;
-    --ring: 350 85% 56%;
-    --primary: 350 85% 56%;
+    --border: 0 0% 14%;
+    /* Netflix red — the signature */
+    --ring: 0 80% 48%;
+    --primary: 0 80% 48%;
     --primary-foreground: 0 0% 100%;
-    --accent: 28 95% 58%;
-    --success: 160 55% 45%;
+    /* Tinder coral accent */
+    --accent: 4 90% 58%;
+    --success: 145 60% 42%;
     --warning: 38 92% 56%;
     --danger: 0 72% 56%;
 
-    --radius: 0.75rem;
+    --radius: 0.625rem;
 
-    --card: 250 12% 11%;
-    --card-foreground: 220 20% 93%;
-    --popover: 250 12% 11%;
-    --popover-foreground: 220 20% 93%;
-    --secondary: 250 10% 18%;
-    --secondary-foreground: 220 20% 93%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 95%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 95%;
     --destructive: 0 72% 56%;
-    --input: 250 10% 18%;
+    --input: 0 0% 14%;
 
-    --chart-1: 350 85% 56%;
-    --chart-2: 28 95% 58%;
-    --chart-3: 200 70% 50%;
-    --chart-4: 160 55% 45%;
-    --chart-5: 270 55% 55%;
+    --chart-1: 0 80% 48%;
+    --chart-2: 4 90% 58%;
+    --chart-3: 350 85% 56%;
+    --chart-4: 145 60% 42%;
+    --chart-5: 38 92% 56%;
 
-    --sidebar: 250 12% 9%;
-    --sidebar-foreground: 220 20% 93%;
-    --sidebar-primary: 350 85% 56%;
+    --sidebar: 0 0% 6%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 0 80% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 250 10% 18%;
-    --sidebar-accent-foreground: 220 20% 93%;
-    --sidebar-border: 250 10% 18%;
-    --sidebar-ring: 350 85% 56%;
+    --sidebar-accent: 0 0% 14%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 0 80% 48%;
   }
 
   * {
@@ -82,19 +96,22 @@
   body {
     @apply bg-background text-foreground font-body antialiased;
     background-image:
+      /* Netflix-red ambient top glow */
       radial-gradient(
-        ellipse 80% 50% at 20% -20%,
-        hsl(350 85% 56% / 0.08),
+        ellipse 70% 40% at 50% -10%,
+        hsl(0 80% 48% / 0.07),
         transparent 60%
       ),
+      /* Tinder-coral side warmth */
       radial-gradient(
-        ellipse 60% 40% at 80% 0%,
-        hsl(270 60% 50% / 0.06),
+        ellipse 50% 60% at 0% 30%,
+        hsl(4 90% 58% / 0.04),
         transparent 50%
       ),
+      /* Deep cinematic vignette */
       radial-gradient(
-        ellipse 50% 60% at 50% 100%,
-        hsl(250 40% 20% / 0.3),
+        ellipse 100% 80% at 50% 100%,
+        hsl(0 0% 0% / 0.5),
         transparent 70%
       );
     min-height: 100vh;
@@ -108,7 +125,7 @@
   }
 
   ::selection {
-    background: hsl(var(--primary) / 0.3);
+    background: hsl(var(--primary) / 0.35);
     color: hsl(var(--foreground));
   }
 }
@@ -120,37 +137,37 @@
   --radius-xl: calc(var(--radius) + 4px);
   --radius-2xl: calc(var(--radius) + 8px);
 
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--secondary-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
 }
 
 @keyframes riseIn {
@@ -178,7 +195,16 @@
     box-shadow: 0 0 8px hsl(var(--primary) / 0.3);
   }
   50% {
-    box-shadow: 0 0 20px hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 24px hsl(var(--primary) / 0.55);
+  }
+}
+
+@keyframes flame-breathe {
+  0%, 100% {
+    box-shadow: 0 0 16px hsl(4 90% 58% / 0.25), 0 0 48px hsl(350 85% 56% / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 24px hsl(4 90% 58% / 0.4), 0 0 64px hsl(350 85% 56% / 0.2);
   }
 }
 
@@ -198,11 +224,13 @@
   animation-delay: 240ms;
 }
 
+/* Netflix-red shimmer on text */
 .shimmer-text {
   background: linear-gradient(
     90deg,
     hsl(var(--foreground)) 0%,
-    hsl(var(--primary)) 50%,
+    hsl(0 80% 48%) 40%,
+    hsl(4 90% 58%) 60%,
     hsl(var(--foreground)) 100%
   );
   background-size: 200% auto;
@@ -210,4 +238,17 @@
   -webkit-text-fill-color: transparent;
   background-clip: text;
   animation: shimmer 3s linear infinite;
+}
+
+/* Tinder flame gradient text */
+.flame-text {
+  background: linear-gradient(135deg, hsl(4 90% 58%), hsl(350 85% 56%), hsl(330 80% 55%));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Flame breathing animation for interactive elements */
+.flame-breathe {
+  animation: flame-breathe 2.5s ease-in-out infinite;
 }

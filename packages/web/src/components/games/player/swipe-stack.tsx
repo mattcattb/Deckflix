@@ -1,11 +1,10 @@
-import { useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import type { RoomDeckItem, SwipeChoice } from "@deckflix/shared";
-import { MovieCard } from "./movie-card";
+import {useMemo, useRef, useState} from "react";
+import type {PointerEvent as ReactPointerEvent} from "react";
+import type {GameQueueItem, SwipeChoice} from "@deckflix/shared";
+import {MovieCard} from "../movie-card";
 
 type SwipeDeckProps = {
-  items: RoomDeckItem[];
-  currentIndex: number;
+  item: GameQueueItem | null;
   onSwipe: (choice: SwipeChoice, movieId: string) => void;
   disabled?: boolean;
 };
@@ -13,18 +12,14 @@ type SwipeDeckProps = {
 const SWIPE_THRESHOLD_PX = 120;
 
 export function SwipeDeck({
-  items,
-  currentIndex,
+  item,
   onSwipe,
   disabled = false,
 }: SwipeDeckProps) {
-  const activeItem = items[currentIndex] ?? null;
-  const nextItem = items[currentIndex + 1] ?? null;
-
   const [dragX, setDragX] = useState(0);
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const startRef = useRef<{x: number; y: number} | null>(null);
 
   const rotate = useMemo(() => Math.max(-10, Math.min(10, dragX / 14)), [dragX]);
   const swipeHint = useMemo(() => {
@@ -41,54 +36,61 @@ export function SwipeDeck({
   };
 
   const commitSwipe = (direction: "left" | "right") => {
-    if (!activeItem) return;
-    onSwipe(direction === "right" ? "like" : "dislike", activeItem.movie.id);
+    if (!item) {
+      return;
+    }
+
+    onSwipe(direction === "right" ? "like" : "dislike", item.movie.id);
     resetDrag();
   };
 
   const onPointerDown = (event: ReactPointerEvent) => {
-    if (disabled || !activeItem) return;
-    startRef.current = { x: event.clientX, y: event.clientY };
+    if (disabled || !item) {
+      return;
+    }
+
+    startRef.current = {x: event.clientX, y: event.clientY};
     setIsDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPointerMove = (event: ReactPointerEvent) => {
-    if (!isDragging || !startRef.current) return;
+    if (!isDragging || !startRef.current) {
+      return;
+    }
+
     setDragX(event.clientX - startRef.current.x);
     setDragY(event.clientY - startRef.current.y);
   };
 
   const onPointerUp = () => {
-    if (!isDragging) return;
+    if (!isDragging) {
+      return;
+    }
+
     if (dragX > SWIPE_THRESHOLD_PX) {
       commitSwipe("right");
       return;
     }
+
     if (dragX < -SWIPE_THRESHOLD_PX) {
       commitSwipe("left");
       return;
     }
+
     resetDrag();
   };
 
-  if (!activeItem) {
+  if (!item) {
     return (
       <div className="flex h-[300px] items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] text-sm text-muted-foreground">
-        No remaining movies in this deck.
+        No remaining movies in this queue.
       </div>
     );
   }
 
   return (
     <div className="relative mx-auto w-full">
-      {nextItem ? (
-        <MovieCard
-          movie={nextItem.movie}
-          votes={nextItem.votes}
-          className="absolute inset-0 translate-y-2 scale-[0.97] opacity-50"
-        />
-      ) : null}
       <div
         className="relative"
         onPointerDown={onPointerDown}
@@ -97,8 +99,7 @@ export function SwipeDeck({
         onPointerCancel={resetDrag}
       >
         <MovieCard
-          movie={activeItem.movie}
-          votes={activeItem.votes}
+          movie={item.movie}
           active
           className="relative z-10 transition-transform duration-150"
           style={{

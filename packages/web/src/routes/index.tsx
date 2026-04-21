@@ -1,61 +1,262 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Button } from "../components/ui";
+import {useEffect, useState} from "react";
+import {createFileRoute, useNavigate} from "@tanstack/react-router";
+import {useMutation, useQuery} from "@tanstack/react-query";
+import {Button, Input, Label} from "../components/ui";
+import {api, throwApiError} from "../lib/api";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
+type HomeMode = "display" | "play";
+
 function HomePage() {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<HomeMode>("display");
+  const [roomName, setRoomName] = useState("");
+  const [gameCode, setGameCode] = useState("");
+  const [displayName, setDisplayName] = useState("");
+
+  const activeSessionQuery = useQuery({
+    queryKey: ["active-game-session"],
+    queryFn: async () => {
+      const response = await api.api.games.session.$get();
+      if (!response.ok) {
+        await throwApiError(response, "GET /api/games/session");
+      }
+
+      const data = await response.json();
+
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    if (activeSessionQuery.data?.role === "none") {
+      return;
+    }
+
+    if (activeSessionQuery.data) {
+      navigate({
+        to: "/room/$gameCode",
+        params: {gameCode: activeSessionQuery.data.gameCode},
+        replace: true,
+      });
+    }
+  }, [activeSessionQuery.data, navigate]);
+
+  const createGameMutation = useMutation({
+    mutationFn: async () => {
+      const response = await api.api.games.$post({
+        json: {
+          roomName: roomName.trim() || undefined,
+        },
+      });
+
+      if (!response.ok) {
+        await throwApiError(response, "POST /api/games");
+      }
+
+      return response.json();
+    },
+    onSuccess: (result) => {
+      navigate({
+        to: "/room/$gameCode",
+        params: {gameCode: result.game.summary.code},
+      });
+    },
+  });
+
+  const joinGameMutation = useMutation({
+    mutationFn: async () => {
+      const normalizedCode = gameCode.trim().toUpperCase();
+      const response = await api.api.games[":gameCode"].players.$post({
+        param: {gameCode: normalizedCode},
+        json: {
+          displayName: displayName.trim(),
+        },
+      });
+
+      if (!response.ok) {
+        await throwApiError(
+          response,
+          `POST /api/games/${normalizedCode}/players`,
+        );
+      }
+
+      return response.json();
+    },
+    onSuccess: (result) => {
+      navigate({
+        to: "/room/$gameCode",
+        params: {gameCode: result.game.summary.code},
+      });
+    },
+  });
+
+  const error =
+    mode === "display" ? createGameMutation.error : joinGameMutation.error;
+
+  if (activeSessionQuery.isLoading) {
+    return null;
+  }
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-5 py-16">
-      <div className="enter-rise flex flex-col items-center text-center">
-        <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/15">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="hsl(350 85% 56%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-            <line x1="7" y1="2" x2="7" y2="22" />
-            <line x1="17" y1="2" x2="17" y2="22" />
-            <line x1="2" y1="12" x2="22" y2="12" />
-            <line x1="2" y1="7" x2="7" y2="7" />
-            <line x1="2" y1="17" x2="7" y2="17" />
-            <line x1="17" y1="7" x2="22" y2="7" />
-            <line x1="17" y1="17" x2="22" y2="17" />
-          </svg>
-        </div>
-        <h1 className="text-5xl font-bold tracking-tight md:text-7xl">
-          Deck<span className="text-primary">flix</span>
-        </h1>
-        <p className="mt-3 max-w-md text-lg text-muted-foreground">
-          Swipe on movies together. Find what everyone wants to watch.
-        </p>
-      </div>
+    <div className="flex flex-1 items-center justify-center px-5 py-12">
+      <div className="enter-rise relative w-full max-w-md overflow-hidden rounded-2xl border border-white/[0.06] bg-[linear-gradient(160deg,hsl(0_0%_8%)_0%,hsl(0_0%_4%)_100%)] shadow-[0_12px_48px_hsl(0_0%_0%/0.6)]">
+        {/* Netflix-red ambient glow */}
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-15%,hsl(0_80%_48%/0.12),transparent_60%)]" />
 
-      <div className="enter-rise enter-delay-1 mt-12 flex flex-col items-center gap-4 sm:flex-row">
-        <Link to="/rooms">
-          <Button size="lg" effect="glow" className="min-w-[200px] text-base">
-            Start a room
-          </Button>
-        </Link>
-        <Link to="/rooms">
-          <Button variant="outline" size="lg" className="min-w-[200px] text-base">
-            Join a room
-          </Button>
-        </Link>
-      </div>
+        <div className="relative space-y-6 p-6 md:p-8">
+          {/* Logo + tagline */}
+          <div className="space-y-3 text-center">
+            <h1 className="text-5xl font-bold tracking-tight font-display">
+              DECK<span className="flame-text">FLIX</span>
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Swipe right on movie night
+            </p>
+          </div>
 
-      <div className="enter-rise enter-delay-2 mt-16 grid max-w-lg grid-cols-3 gap-8 text-center">
-        <div>
-          <div className="text-2xl font-bold text-primary">1</div>
-          <p className="mt-1 text-sm text-muted-foreground">Create a room</p>
-        </div>
-        <div>
-          <div className="text-2xl font-bold text-primary">2</div>
-          <p className="mt-1 text-sm text-muted-foreground">Friends join with code</p>
-        </div>
-        <div>
-          <div className="text-2xl font-bold text-primary">3</div>
-          <p className="mt-1 text-sm text-muted-foreground">Swipe to a match</p>
+          {/* Mode toggle — Tinder-style pill switcher */}
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1.5">
+            <button
+              type="button"
+              onClick={() => setMode("display")}
+              className={
+                mode === "display"
+                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
+                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
+              }>
+              <TvIcon />
+              Display
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("play")}
+              className={
+                mode === "play"
+                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
+                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
+              }>
+              <PhoneIcon />
+              Play
+            </button>
+          </div>
+
+          {mode === "display" ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                createGameMutation.mutate();
+              }}>
+              <div className="space-y-2">
+                <Label htmlFor="roomName">Room name</Label>
+                <Input
+                  id="roomName"
+                  value={roomName}
+                  onChange={(event) => setRoomName(event.target.value)}
+                  placeholder="Friday Night Picks"
+                  autoFocus
+                />
+              </div>
+
+              <Button
+                effect="glow"
+                className="w-full"
+                type="submit"
+                disabled={createGameMutation.isPending}>
+                {createGameMutation.isPending
+                  ? "Creating room..."
+                  : "Create room"}
+              </Button>
+            </form>
+          ) : (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!gameCode.trim() || !displayName.trim()) {
+                  return;
+                }
+                joinGameMutation.mutate();
+              }}>
+              <div className="space-y-2">
+                <Label htmlFor="gameCode">Room code</Label>
+                <Input
+                  id="gameCode"
+                  value={gameCode}
+                  onChange={(event) =>
+                    setGameCode(event.target.value.toUpperCase())
+                  }
+                  placeholder="ABC123"
+                  className="text-center text-xl font-mono tracking-[0.3em] uppercase"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="displayName">Your name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="What should the room call you?"
+                />
+              </div>
+
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={joinGameMutation.isPending}>
+                {joinGameMutation.isPending ? "Joining room..." : "Join room"}
+              </Button>
+            </form>
+          )}
+
+          {error ? (
+            <p className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
+              {error instanceof Error ? error.message : "Unable to continue"}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function TvIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="12" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round">
+      <rect x="7" y="2" width="10" height="20" rx="2" />
+      <line x1="11" y1="18" x2="13" y2="18" />
+    </svg>
   );
 }
