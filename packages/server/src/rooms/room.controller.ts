@@ -51,6 +51,15 @@ export const roomController = createRouter()
     clearRoomSessionCookie(c);
     return c.body(null, 204);
   })
+  .get("/meta", activeRoomMiddleware, async (c) => {
+    return c.json(await RoomsService.getMeta(c.get("room").gameCode));
+  })
+  .get("/players", activeRoomMiddleware, async (c) => {
+    return c.json(await RoomsService.getPlayers(c.get("room").gameCode));
+  })
+  .get("/results", activeRoomMiddleware, async (c) => {
+    return c.json(await RoomsService.getResults(c.get("room").gameCode));
+  })
   .use("/:gameCode/*", gameParamMiddleware)
   .get("/:gameCode/meta", async (c) => {
     return c.json(await RoomsService.getMeta(c.get("room").gameCode));
@@ -89,13 +98,4 @@ export const roomController = createRouter()
         playerSession: result.playerSession,
       }, 201);
     },
-  )
-  .get("/meta", activeRoomMiddleware, async (c) => {
-    return c.json(await RoomsService.getMeta(c.get("room").gameCode));
-  })
-  .get("/players", activeRoomMiddleware, async (c) => {
-    return c.json(await RoomsService.getPlayers(c.get("room").gameCode));
-  })
-  .get("/results", activeRoomMiddleware, async (c) => {
-    return c.json(await RoomsService.getResults(c.get("room").gameCode));
-  });
+  );
