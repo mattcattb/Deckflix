@@ -2,7 +2,7 @@ import {roomSessionSchema, type RoomSession} from "@deckflix/shared";
 import {deleteCookie, getCookie, setCookie} from "hono/cookie";
 import {createMiddleware} from "hono/factory";
 import {NotFoundException, UnauthorizedException} from "../common/errors";
-import * as GameSessionService from "../games/game-session.service";
+import * as RoomSessionService from "./room-session.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
 
@@ -61,7 +61,7 @@ const resolveRoomScopedSession = async (c: CookieContext, gameCode: string) => {
   }
 
   try {
-    return await GameSessionService.verifyRoomSession(session);
+    return await RoomSessionService.verifyRoomSession(session);
   } catch (error) {
     if (error instanceof UnauthorizedException) {
       clearRoomSessionCookie(c);
@@ -93,7 +93,7 @@ const getRequiredRoomSession = async (c: CookieContext) => {
   }
 
   try {
-    return await GameSessionService.verifyRoomSession(session);
+    return await RoomSessionService.verifyRoomSession(session);
   } catch (error) {
     if (error instanceof UnauthorizedException) {
       clearRoomSessionCookie(c);

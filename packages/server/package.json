@@ -19,10 +19,10 @@
   },
   "dependencies": {
     "@deckflix/shared": "workspace:*",
-    "@hono/zod-validator": "^0.4.0",
+    "@hono/zod-validator": "catalog:",
     "better-auth": "^1.2.0",
     "drizzle-orm": "^0.38.0",
-    "hono": "^4.6.0",
+    "hono": "catalog:",
     "hono-pino": "^0.10.3",
     "pino": "^10.3.0",
     "postgres": "^3.4.0",

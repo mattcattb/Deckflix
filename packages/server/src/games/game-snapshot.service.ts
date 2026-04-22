@@ -11,7 +11,7 @@ import {UnauthorizedException} from "../common/errors";
 import * as GamePoolService from "./game-pool.service";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as SwipeLedgerService from "../swipe/swipe-ledger.service";
-import * as GameStateService from "./game-state.service";
+import * as SwipeService from "../swipe/swipe.service";
 import {isDisplayConnected, isPlayerConnected} from "../ws/presence.ws";
 import * as GameRedisService from "./game-redis.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
@@ -119,8 +119,8 @@ export const getDisplayGameState = async (gameCode: string): Promise<DisplayGame
     playerProgress: await Promise.all(
       players.map(async (player) => ({
         playerId: player.id,
-        currentIndex: await GameStateService.getPlayerCurrentIndex(gameCode, player.id),
-        completed: await GameStateService.isPlayerCompleted(gameCode, player.id),
+        currentIndex: await SwipeService.getPlayerCurrentIndex(gameCode, player.id),
+        completed: await SwipeService.isPlayerCompleted(gameCode, player.id),
       })),
     ),
     results,
@@ -140,10 +140,10 @@ export const getPlayerGameState = async (input: {
     await Promise.all([
       buildSummary(input.gameCode),
       GameSettingsService.getGameSettingsOrThrow(input.gameCode),
-      GameStateService.getCurrentMovie(input.gameCode, input.playerId),
-      GameStateService.getPlayerCurrentIndex(input.gameCode, input.playerId),
-      GameStateService.isPlayerCompleted(input.gameCode, input.playerId),
-      GameStateService.getPlayerRemainingCount(input.gameCode, input.playerId),
+      SwipeService.getCurrentMovie(input.gameCode, input.playerId),
+      SwipeService.getPlayerCurrentIndex(input.gameCode, input.playerId),
+      SwipeService.isPlayerCompleted(input.gameCode, input.playerId),
+      SwipeService.getPlayerRemainingCount(input.gameCode, input.playerId),
     ]);
 
   return {

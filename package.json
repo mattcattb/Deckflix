@@ -2,6 +2,8 @@
   "name": "deckflix",
   "private": true,
   "catalog": {
+    "hono": "^4.12.14",
+    "@hono/zod-validator": "^0.7.6",
     "zod": "^3.24.0"
   },
   "workspaces": ["packages/*"],
@@ -13,5 +15,9 @@
     "db:generate": "bun run --filter @deckflix/server db:generate",
     "db:migrate": "bun run --filter @deckflix/server db:migrate",
     "db:studio": "bun run --filter @deckflix/server db:studio"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "catalog:",
+    "hono": "catalog:"
   }
 }

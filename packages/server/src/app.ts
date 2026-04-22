@@ -1,8 +1,10 @@
+import type {ApplyGlobalResponse} from "hono/client";
 import {
   addGlobalErrorHandling,
   addGlobalMiddlewares,
   createRouter,
 } from "./common/hono";
+import type {GlobalErrorResponses} from "./common/errors";
 import {authController} from "./auth/auth.controller";
 import {authMiddleware} from "./auth/auth.middleware";
 import {gamesController} from "./games/games.controller";
@@ -26,4 +28,4 @@ export const app = baseApp
   .route("/api/rooms", roomsController);
 
 export type ApiRoutesType = typeof protectedProjectsRoutes;
-export type AppType = typeof app;
+export type AppType = ApplyGlobalResponse<typeof app, GlobalErrorResponses>;

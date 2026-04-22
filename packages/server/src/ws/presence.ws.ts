@@ -7,7 +7,7 @@ import {
 } from "./topics";
 import {publishDisplayMessage, publishPlayerMessage} from "./topics";
 import * as GameSnapshotService from "../games/game-snapshot.service";
-import * as GameSessionService from "../games/game-session.service";
+import * as RoomSessionService from "../rooms/room-session.service";
 
 export type SocketLike = {
   send: (data: string) => void;
@@ -44,7 +44,7 @@ export const clearPresenceState = (gameCode: string) => {
 };
 
 export const connectDisplay = async (input: DisplaySession & {socket: SocketLike}) => {
-  await GameSessionService.verifyDisplaySession(input);
+  await RoomSessionService.verifyDisplaySession(input);
   const key = normalizeGameCode(input.gameCode);
   const sockets = displaySocketsByGameCode.get(key) ?? new Set<SocketLike>();
   sockets.add(input.socket);
@@ -65,7 +65,7 @@ export const disconnectDisplay = (input: {gameCode: string; socket: SocketLike})
 };
 
 export const connectPlayer = async (input: PlayerSession & {socket: SocketLike}) => {
-  await GameSessionService.verifyPlayerSession(input);
+  await RoomSessionService.verifyPlayerSession(input);
   const key = normalizeGameCode(input.gameCode);
   const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
   const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();

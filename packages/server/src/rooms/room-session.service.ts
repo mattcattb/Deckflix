@@ -12,8 +12,8 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
-import * as GameRedisService from "./game-redis.service";
-import * as RoomMetaService from "../rooms/room-meta.service";
+import * as GameRedisService from "../games/game-redis.service";
+import * as RoomMetaService from "./room-meta.service";
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
   role === "display"

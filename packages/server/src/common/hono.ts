@@ -4,11 +4,11 @@ import {corsMiddleware} from "./cors";
 import {createChildLogger, getPinoLogger} from "./logger";
 import {ZodError} from "zod/v4";
 import {
-  BadRequestException,
   ERROR_MESSAGES,
   formatErrorResponse,
   isPostgresError,
   ServiceException,
+  ValidationException,
 } from "./errors";
 import {HTTPException} from "hono/http-exception";
 
@@ -68,7 +68,7 @@ const logger = createChildLogger({service: "global.app.handler"});
 export const addGlobalErrorHandling = (app: Hono) => {
   app.onError((err, c) => {
     if (err instanceof ZodError) {
-      const validation = new BadRequestException(
+      const validation = new ValidationException(
         ERROR_MESSAGES.VALIDATION_ERROR,
         err.flatten(),
       );

@@ -1,24 +1,16 @@
-import type {Context, Hono} from "hono";
 import {HTTPException} from "hono/http-exception";
-import {ZodError} from "zod";
 import type {PostgresError} from "postgres";
-import {logger} from "./logger";
 import type {ContentfulStatusCode} from "hono/utils/http-status";
+import {
+  ERROR_MESSAGES,
+  type ApiError,
+  type ApiErrorCode,
+  type ApiErrorResponse,
+} from "@deckflix/shared";
 
-export const ERROR_MESSAGES = {
-  BAD_REQUEST: "Bad request",
-  UNAUTHORIZED: "Unauthorized",
-  FORBIDDEN: "Forbidden",
-  CONFLICT: "Conflict",
-  NOT_FOUND: "Not found",
-  VALIDATION_ERROR: "Validation failed",
-  SERVICE_ERROR: "Service error",
-  INTERNAL_ERROR: "Internal server error",
-} as const;
+export {ERROR_MESSAGES} from "@deckflix/shared";
 
-export type ErrorCode = keyof typeof ERROR_MESSAGES;
-
-const STATUS_TO_CODE: Record<number, ErrorCode> = {
+const STATUS_TO_CODE: Record<number, ApiErrorCode> = {
   400: "BAD_REQUEST",
   401: "UNAUTHORIZED",
   403: "FORBIDDEN",
@@ -29,12 +21,12 @@ const STATUS_TO_CODE: Record<number, ErrorCode> = {
 };
 
 export class AppHttpError extends HTTPException {
-  public readonly code: ErrorCode;
+  public readonly code: ApiErrorCode;
   public readonly details?: unknown;
 
   constructor(
     status: ContentfulStatusCode,
-    code: ErrorCode,
+    code: ApiErrorCode,
     message?: string,
     details?: unknown,
   ) {
@@ -93,7 +85,7 @@ export const isPostgresError = (err: unknown): err is PostgresError =>
   ("code" in err || "severity" in err) &&
   (err as {name?: string}).name === "PostgresError";
 
-export const formatErrorResponse = (err: HTTPException) => {
+export const formatErrorResponse = (err: HTTPException): ApiError => {
   if (err instanceof AppHttpError) {
     return {
       code: err.code,
@@ -107,4 +99,14 @@ export const formatErrorResponse = (err: HTTPException) => {
     code,
     message: err.message || ERROR_MESSAGES[code],
   };
+};
+
+export type GlobalErrorResponses = {
+  400: {json: ApiErrorResponse};
+  401: {json: ApiErrorResponse};
+  403: {json: ApiErrorResponse};
+  404: {json: ApiErrorResponse};
+  409: {json: ApiErrorResponse};
+  422: {json: ApiErrorResponse};
+  500: {json: ApiErrorResponse};
 };

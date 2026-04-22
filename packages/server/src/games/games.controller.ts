@@ -3,7 +3,6 @@ import {createGamePayloadSchema} from "@deckflix/shared";
 import {createRouter} from "../common/hono";
 import {clearRoomSessionCookie, readRoomSessionCookie, setRoomSessionCookie} from "../rooms/rooms.middleware";
 import * as RoomsService from "../rooms/rooms.service";
-import * as GameService from "./game.service";
 
 export const gamesController = createRouter()
   .post("/", zValidator("json", createGamePayloadSchema), async (c) => {
@@ -14,7 +13,7 @@ export const gamesController = createRouter()
     }
 
     const input = c.req.valid("json");
-    const result = await GameService.createGame({
+    const result = await RoomsService.create({
       roomName: input.roomName,
       settings: input.settings,
     });
