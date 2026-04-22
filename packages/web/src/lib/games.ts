@@ -1,10 +1,10 @@
-import {queryOptions} from "@tanstack/react-query";
+import {queryOptions, type QueryClient} from "@tanstack/react-query";
 import {GAME_CODE_LENGTH, type ActiveRoomClient} from "@deckflix/shared";
 import {
   parseDisplayServerMessage,
   parsePlayerServerMessage,
 } from "@deckflix/shared/game-messages";
-import {API_BASE_URL, api, parseRpc} from "./api";
+import {API_BASE_URL, api, hasRpcErrorCode, parseRpc} from "./api";
 
 export const normalizeGameCode = (gameCode: string) =>
   gameCode.replace(/[^A-Za-z0-9]/g, "").trim().toUpperCase().slice(0, GAME_CODE_LENGTH);
@@ -26,6 +26,35 @@ export const gameKeys = {
 };
 
 export const getActiveRoomClient = () => parseRpc(api.api.room.current.$get());
+
+export const isMissingRoomSessionError = (error: unknown) =>
+  hasRpcErrorCode(error, "NOT_FOUND", "UNAUTHORIZED");
+
+export const clearActiveRoomSession = async (
+  queryClient: QueryClient,
+  gameCode?: string,
+) => {
+  await parseRpc(api.api.room.current.$delete()).catch(() => undefined);
+  queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
+    role: "none",
+  });
+
+  if (!gameCode) {
+    return;
+  }
+
+  queryClient.removeQueries({queryKey: gameKeys.meta(gameCode), exact: true});
+  queryClient.removeQueries({queryKey: gameKeys.players(gameCode), exact: true});
+  queryClient.removeQueries({queryKey: gameKeys.results(gameCode), exact: true});
+  queryClient.removeQueries({
+    queryKey: gameKeys.displayState(gameCode),
+    exact: true,
+  });
+  queryClient.removeQueries({
+    queryKey: gameKeys.playerState(gameCode),
+    exact: true,
+  });
+};
 
 export const activeRoomClientQueryOptions = queryOptions({
   queryKey: gameKeys.activeClient,

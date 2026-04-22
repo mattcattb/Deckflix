@@ -38,6 +38,16 @@ type RpcClientError = {
 
 export type RpcError = ApiError | RpcClientError;
 
+export const hasRpcErrorCode = <Code extends RpcError["code"]>(
+  error: unknown,
+  ...codes: Code[]
+): error is RpcError & {code: Code} =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  typeof (error as {code?: unknown}).code === "string" &&
+  codes.includes((error as {code: Code}).code);
+
 const translateRpcError = (error: unknown): RpcError => {
   if (error instanceof DetailedError) {
     const parsed = apiErrorResponseSchema.safeParse(error.detail?.data);

@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from "../common/errors";
 import {appEnv} from "../common/env";
+import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomSessionService from "./room-session.service";
 import * as RoomMetaService from "./room-meta.service";
 
@@ -96,12 +97,32 @@ const getRequiredRoomSession = async (c: CookieContext) => {
   }
 };
 
+const getRequiredActiveRoomMeta = async (
+  c: CookieContext,
+  gameCode: string,
+) => {
+  try {
+    const [meta] = await Promise.all([
+      RoomMetaService.getGameMetaOrThrow(gameCode),
+      GameSettingsService.getGameSettingsOrThrow(gameCode),
+    ]);
+    return meta;
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      clearRoomSessionCookie(c);
+      throw new NotFoundException("Room not found");
+    }
+
+    throw error;
+  }
+};
+
 export const activeRoomMiddleware = createMiddleware(async (c, next) => {
   const session = await getRequiredRoomSession(c);
   c.set("room", {
     gameCode: session.gameCode,
     session,
-    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
+    meta: await getRequiredActiveRoomMeta(c, session.gameCode),
   });
 
   await next();
@@ -116,7 +137,7 @@ export const activePlayerMiddleware = createMiddleware(async (c, next) => {
   c.set("room", {
     gameCode: session.gameCode,
     session,
-    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
+    meta: await getRequiredActiveRoomMeta(c, session.gameCode),
   });
   c.set("playerActor", {
     playerId: session.roleId,
@@ -135,7 +156,7 @@ export const activeDisplayMiddleware = createMiddleware(async (c, next) => {
   c.set("room", {
     gameCode: session.gameCode,
     session,
-    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
+    meta: await getRequiredActiveRoomMeta(c, session.gameCode),
   });
   c.set("displayActor", {
     displayId: session.roleId,

@@ -13,6 +13,7 @@ import {
   UnauthorizedException,
 } from "../common/errors";
 import * as GameRedisService from "../games/game-redis.service";
+import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomMetaService from "./room-meta.service";
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
@@ -103,7 +104,10 @@ export const getActiveRoomClient = async (
 
   try {
     const verified = await verifyRoomSession(session);
-    const meta = await RoomMetaService.getGameMetaOrThrow(verified.gameCode);
+    const [meta] = await Promise.all([
+      RoomMetaService.getGameMetaOrThrow(verified.gameCode),
+      GameSettingsService.getGameSettingsOrThrow(verified.gameCode),
+    ]);
     return activeRoomClientSchema.parse({
       role: verified.role,
       gameCode: verified.gameCode,

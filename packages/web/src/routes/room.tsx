@@ -4,8 +4,10 @@ import {DisplayRoomShell} from "../features/room";
 import {
   activeDisplayStateQueryOptions,
   activeRoomClientQueryOptions,
+  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
+  isMissingRoomSessionError,
 } from "../lib/games";
 
 const getDisplayClient = async (queryClient: QueryClient) => {
@@ -29,17 +31,26 @@ export const Route = createFileRoute("/room")({
   loader: async ({context}) => {
     const activeClient = await getDisplayClient(context.queryClient);
 
-    await Promise.all([
-      context.queryClient.prefetchQuery(
-        activeRoomMetaQueryOptions(activeClient.gameCode),
-      ),
-      context.queryClient.prefetchQuery(
-        activeRoomPlayersQueryOptions(activeClient.gameCode),
-      ),
-      context.queryClient.prefetchQuery(
-        activeDisplayStateQueryOptions(activeClient.gameCode),
-      ),
-    ]);
+    try {
+      await Promise.all([
+        context.queryClient.prefetchQuery(
+          activeRoomMetaQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeRoomPlayersQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeDisplayStateQueryOptions(activeClient.gameCode),
+        ),
+      ]);
+    } catch (error) {
+      if (isMissingRoomSessionError(error)) {
+        await clearActiveRoomSession(context.queryClient, activeClient.gameCode);
+        throw redirect({to: "/", replace: true});
+      }
+
+      throw error;
+    }
 
     return activeClient;
   },

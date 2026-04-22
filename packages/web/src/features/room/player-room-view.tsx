@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 import {Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
@@ -9,11 +9,13 @@ import type {
 import {api, parseRpc} from "../../lib/api";
 import {
   activePlayerStateQueryOptions,
+  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   activeRoomResultsQueryOptions,
   createActivePlayerWebSocketUrl,
   gameKeys,
+  isMissingRoomSessionError,
   parsePlayerServerMessage,
 } from "../../lib/games";
 import {Button} from "../../components/ui";
@@ -26,6 +28,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
+  const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
   const [state, setState] = useState<PlayerGameState | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
@@ -35,12 +38,39 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
   const refetchResults = resultsQuery.refetch;
+  const resetRoomSession = useCallback(() => {
+    if (didClearSessionRef.current) {
+      return;
+    }
+
+    didClearSessionRef.current = true;
+    void clearActiveRoomSession(queryClient, gameCode).finally(() => {
+      navigate({to: "/", replace: true});
+    });
+  }, [gameCode, navigate, queryClient]);
 
   useEffect(() => {
     if (stateQuery.data) {
       setState(stateQuery.data);
     }
   }, [stateQuery.data]);
+
+  useEffect(() => {
+    const roomError =
+      metaQuery.error ??
+      playersQuery.error ??
+      resultsQuery.error ??
+      stateQuery.error;
+    if (roomError && isMissingRoomSessionError(roomError)) {
+      resetRoomSession();
+    }
+  }, [
+    metaQuery.error,
+    playersQuery.error,
+    resetRoomSession,
+    resultsQuery.error,
+    stateQuery.error,
+  ]);
 
   const voteMutation = useMutation({
     mutationFn: async (payload: {
@@ -62,6 +92,11 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       void resultsQuery.refetch();
     },
     onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
       setGameError(
         error instanceof Error ? error.message : "Unable to record vote",
       );
@@ -77,6 +112,11 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       navigate({to: "/", replace: true});
     },
     onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
       setGameError(
         error instanceof Error ? error.message : "Unable to leave game",
       );
@@ -93,10 +133,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
     socket.onclose = (event) => {
       if (event.code === 4001) {
-        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
-          role: "none",
-        });
-        navigate({to: "/", replace: true});
+        resetRoomSession();
         return;
       }
 
@@ -131,11 +168,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "room.deleted") {
-        void parseRpc(api.api.room.current.$delete()).catch(() => undefined);
-        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
-          role: "none",
-        });
-        navigate({to: "/", replace: true});
+        resetRoomSession();
         return;
       }
 
@@ -162,7 +195,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [navigate, queryClient, refetchMeta, refetchPlayers, refetchResults]);
+  }, [refetchMeta, refetchPlayers, refetchResults, resetRoomSession]);
 
   if (
     metaQuery.isLoading ||
@@ -182,6 +215,15 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
     !metaQuery.data ||
     !playersQuery.data
   ) {
+    if (
+      isMissingRoomSessionError(metaQuery.error) ||
+      isMissingRoomSessionError(playersQuery.error) ||
+      isMissingRoomSessionError(resultsQuery.error) ||
+      isMissingRoomSessionError(stateQuery.error)
+    ) {
+      return null;
+    }
+
     return (
       <RoomUnavailable
         message={

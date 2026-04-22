@@ -1,4 +1,5 @@
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -30,8 +31,10 @@ import {
   activeDisplayStateQueryOptions,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
+  clearActiveRoomSession,
   createActiveDisplayWebSocketUrl,
   gameKeys,
+  isMissingRoomSessionError,
   parseDisplayServerMessage,
 } from "../../lib/games";
 import {
@@ -178,6 +181,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
+  const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
   const [state, setState] = useState<DisplayGameState | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
@@ -206,6 +210,16 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
+  const resetRoomSession = useCallback(() => {
+    if (didClearSessionRef.current) {
+      return;
+    }
+
+    didClearSessionRef.current = true;
+    void clearActiveRoomSession(queryClient, gameCode).finally(() => {
+      navigate({to: "/", replace: true});
+    });
+  }, [gameCode, navigate, queryClient]);
 
   useEffect(() => {
     if (stateQuery.data) {
@@ -218,6 +232,14 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       setDraftSettings(metaQuery.data.settings);
     }
   }, [metaQuery.data]);
+
+  useEffect(() => {
+    const roomError =
+      metaQuery.error ?? playersQuery.error ?? stateQuery.error;
+    if (roomError && isMissingRoomSessionError(roomError)) {
+      resetRoomSession();
+    }
+  }, [metaQuery.error, playersQuery.error, resetRoomSession, stateQuery.error]);
 
   useEffect(() => {
     if (activeMatch || queuedMatchIds.length === 0) {
@@ -267,6 +289,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       setGameError(null);
     },
     onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
       setGameError(
         error instanceof Error ? error.message : "Unable to save settings",
       );
@@ -281,6 +308,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       void stateQuery.refetch();
     },
     onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
       setGameError(
         error instanceof Error ? error.message : "Unable to start game",
       );
@@ -296,6 +328,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       navigate({to: "/", replace: true});
     },
     onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
       setGameError(
         error instanceof Error ? error.message : "Unable to end room",
       );
@@ -312,10 +349,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
     socket.onclose = (event) => {
       if (event.code === 4001) {
-        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
-          role: "none",
-        });
-        navigate({to: "/", replace: true});
+        resetRoomSession();
         return;
       }
 
@@ -350,11 +384,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "room.deleted") {
-        void parseRpc(api.api.room.current.$delete()).catch(() => undefined);
-        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
-          role: "none",
-        });
-        navigate({to: "/", replace: true});
+        resetRoomSession();
         return;
       }
 
@@ -417,7 +447,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [navigate, queryClient, refetchMeta, refetchPlayers]);
+  }, [refetchMeta, refetchPlayers, resetRoomSession]);
 
   useEffect(() => {
     if (!state) {
@@ -447,6 +477,14 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     !metaQuery.data ||
     !playersQuery.data
   ) {
+    if (
+      isMissingRoomSessionError(metaQuery.error) ||
+      isMissingRoomSessionError(playersQuery.error) ||
+      isMissingRoomSessionError(stateQuery.error)
+    ) {
+      return null;
+    }
+
     return (
       <RoomUnavailable
         message={

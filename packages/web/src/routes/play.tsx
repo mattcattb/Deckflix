@@ -3,10 +3,12 @@ import {createFileRoute, redirect} from "@tanstack/react-router";
 import {PlayerRoomView} from "../features/room";
 import {
   activeRoomClientQueryOptions,
+  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   activeRoomResultsQueryOptions,
   activePlayerStateQueryOptions,
+  isMissingRoomSessionError,
 } from "../lib/games";
 
 const getPlayerClient = async (queryClient: QueryClient) => {
@@ -30,20 +32,29 @@ export const Route = createFileRoute("/play")({
   loader: async ({context}) => {
     const activeClient = await getPlayerClient(context.queryClient);
 
-    await Promise.all([
-      context.queryClient.prefetchQuery(
-        activeRoomMetaQueryOptions(activeClient.gameCode),
-      ),
-      context.queryClient.prefetchQuery(
-        activeRoomPlayersQueryOptions(activeClient.gameCode),
-      ),
-      context.queryClient.prefetchQuery(
-        activeRoomResultsQueryOptions(activeClient.gameCode),
-      ),
-      context.queryClient.prefetchQuery(
-        activePlayerStateQueryOptions(activeClient.gameCode),
-      ),
-    ]);
+    try {
+      await Promise.all([
+        context.queryClient.prefetchQuery(
+          activeRoomMetaQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeRoomPlayersQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeRoomResultsQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activePlayerStateQueryOptions(activeClient.gameCode),
+        ),
+      ]);
+    } catch (error) {
+      if (isMissingRoomSessionError(error)) {
+        await clearActiveRoomSession(context.queryClient, activeClient.gameCode);
+        throw redirect({to: "/", replace: true});
+      }
+
+      throw error;
+    }
 
     return activeClient;
   },
