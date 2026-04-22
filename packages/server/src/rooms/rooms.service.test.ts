@@ -77,6 +77,7 @@ mock.module(new URL("../games/game-redis.service.ts", import.meta.url).href, () 
   listPlayerIds,
   withGameLock,
   setPlayerRecord: mock(),
+  setMovieRecord: mock(),
 }));
 mock.module(new URL("../settings/game-settings.service.ts", import.meta.url).href, () => ({
   resolveGameSettings,

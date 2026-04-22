@@ -6,6 +6,9 @@ const searchTmdbMovies = mock();
 const getTmdbPopularMovies = mock();
 const getTmdbMovieById = mock();
 const getTmdbMovieGenres = mock();
+const getTmdbTrendingMovies = mock();
+const getTmdbMovieRecommendations = mock();
+const getTmdbSimilarMovies = mock();
 const isTmdbConfigured = mock(() => true);
 
 const gameSettingsSchema = z.object({
@@ -80,6 +83,9 @@ mock.module(new URL("../lib/tmdb.ts", import.meta.url).href, () => ({
   getTmdbPopularMovies,
   getTmdbMovieById,
   getTmdbMovieGenres,
+  getTmdbTrendingMovies,
+  getTmdbMovieRecommendations,
+  getTmdbSimilarMovies,
   isTmdbConfigured,
 }));
 mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({

@@ -4,6 +4,9 @@ const discoverTmdbMovies = mock();
 const searchTmdbMovies = mock();
 const getTmdbPopularMovies = mock();
 const getTmdbMovieById = mock();
+const getTmdbTrendingMovies = mock();
+const getTmdbMovieRecommendations = mock();
+const getTmdbSimilarMovies = mock();
 const isTmdbConfigured = mock(() => true);
 
 process.env.TMDB_API_KEY = "test-key";
@@ -14,6 +17,9 @@ mock.module(new URL("../lib/tmdb.ts", import.meta.url).href, () => ({
   searchTmdbMovies,
   getTmdbPopularMovies,
   getTmdbMovieById,
+  getTmdbTrendingMovies,
+  getTmdbMovieRecommendations,
+  getTmdbSimilarMovies,
   isTmdbConfigured,
 }));
 

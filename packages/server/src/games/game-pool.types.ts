@@ -20,6 +20,24 @@ export const poolSortOptionSchema = z.enum([
   "vote_count.desc",
 ]);
 
+export const poolSourceFamilySchema = z.enum([
+  "discover",
+  "trending",
+  "recommendation",
+  "similar",
+  "popular",
+]);
+
+export const poolSourceSchema = z.enum([
+  "discover",
+  "trending",
+  "recommendation",
+  "similar",
+  "popular",
+]);
+
+export const poolTimeWindowSchema = z.enum(["day", "week"]);
+
 export const poolQueryFiltersSchema = z.object({
   sortBy: poolSortOptionSchema.optional(),
   page: z.number().int().min(1).optional(),
@@ -40,34 +58,51 @@ export const poolQueryFiltersSchema = z.object({
   watchProviderIds: z.array(z.number().int().positive()).optional(),
 });
 
-export const poolQueryVariantSchema = z.object({
+export const poolStrategySchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  source: z.enum(["discover", "popular"]),
+  source: poolSourceSchema,
+  sourceFamily: poolSourceFamilySchema,
   weight: z.number().positive(),
-  pageSampleSize: z.number().int().min(1).max(6),
-  filters: poolQueryFiltersSchema,
+  pageSampleSize: z.number().int().min(1).max(6).optional(),
+  pageBandStart: z.number().int().min(1).max(500).optional(),
+  pageBandEnd: z.number().int().min(1).max(500).optional(),
+  anchorLimit: z.number().int().min(1).max(5).optional(),
+  timeWindow: poolTimeWindowSchema.optional(),
+  filters: poolQueryFiltersSchema.optional(),
 });
 
 export const poolPlanSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   seed: z.string().min(1),
   generatedAt: z.string().datetime(),
   settingsFingerprint: z.string().min(1),
-  variants: z.array(poolQueryVariantSchema).min(1),
+  selectionSalt: z.string().min(1).optional(),
+  strategies: z.array(poolStrategySchema).min(1),
+});
+
+export const poolSourceHitSchema = z.object({
+  sourceFamily: poolSourceFamilySchema,
+  strategyId: z.string().min(1),
+  page: z.number().int().min(1),
+  weight: z.number().positive(),
+  anchorMovieId: z.string().min(1).optional(),
 });
 
 export const poolCandidateScoresSchema = z.object({
-  relevance: z.number(),
+  filterFit: z.number(),
   quality: z.number(),
-  popularity: z.number(),
-  diversity: z.number(),
-  jitter: z.number(),
+  freshness: z.number(),
+  novelty: z.number(),
+  diversityPotential: z.number(),
+  source: z.number(),
+  recentHistoryPenalty: z.number(),
   final: z.number(),
 });
 
 export const poolCandidateFeaturesSchema = z.object({
   year: z.number().int(),
+  releaseDate: z.string().nullable(),
   rating: z.number(),
   voteCount: z.number().int().min(0),
   popularity: z.number().min(0),
@@ -77,6 +112,7 @@ export const poolCandidateFeaturesSchema = z.object({
 });
 
 export const poolSourceMovieSchema = movieCandidateSchema.extend({
+  releaseDate: z.string().nullable().default(null),
   voteCount: z.number().int().min(0).default(0),
   popularity: z.number().min(0).default(0),
   genreIds: z.array(z.number().int().positive()).default([]),
@@ -92,7 +128,8 @@ export const poolSourceMovieListResultSchema = z.object({
 
 export const poolCandidateRecordSchema = z.object({
   movie: movieCandidateSchema,
-  sourceVariantIds: z.array(z.string().min(1)).min(1),
+  primarySourceFamily: poolSourceFamilySchema,
+  sourceHits: z.array(poolSourceHitSchema).min(1),
   discoveredPages: z.array(z.number().int().min(1)).min(1),
   features: poolCandidateFeaturesSchema,
   scores: poolCandidateScoresSchema,
@@ -105,9 +142,13 @@ export const poolBuildResultSchema = z.object({
 });
 
 export type PoolSortOption = z.infer<typeof poolSortOptionSchema>;
+export type PoolSourceFamily = z.infer<typeof poolSourceFamilySchema>;
+export type PoolSource = z.infer<typeof poolSourceSchema>;
+export type PoolTimeWindow = z.infer<typeof poolTimeWindowSchema>;
 export type PoolQueryFilters = z.infer<typeof poolQueryFiltersSchema>;
-export type PoolQueryVariant = z.infer<typeof poolQueryVariantSchema>;
+export type PoolStrategy = z.infer<typeof poolStrategySchema>;
 export type PoolPlan = z.infer<typeof poolPlanSchema>;
+export type PoolSourceHit = z.infer<typeof poolSourceHitSchema>;
 export type PoolCandidateScores = z.infer<typeof poolCandidateScoresSchema>;
 export type PoolCandidateFeatures = z.infer<typeof poolCandidateFeaturesSchema>;
 export type PoolSourceMovie = z.infer<typeof poolSourceMovieSchema>;
