@@ -87,13 +87,13 @@ export class ServiceException extends AppHttpError {
   }
 }
 
-const isPostgresError = (err: unknown): err is PostgresError =>
+export const isPostgresError = (err: unknown): err is PostgresError =>
   typeof err === "object" &&
   err !== null &&
   ("code" in err || "severity" in err) &&
   (err as {name?: string}).name === "PostgresError";
 
-const formatErrorResponse = (err: HTTPException) => {
+export const formatErrorResponse = (err: HTTPException) => {
   if (err instanceof AppHttpError) {
     return {
       code: err.code,
@@ -107,46 +107,4 @@ const formatErrorResponse = (err: HTTPException) => {
     code,
     message: err.message || ERROR_MESSAGES[code],
   };
-};
-
-export const addErrorHandling = (app: Hono) => {
-  app.onError((err, c: Context) => {
-    if (err instanceof ZodError) {
-      const validation = new BadRequestException(
-        ERROR_MESSAGES.VALIDATION_ERROR,
-        err.flatten(),
-      );
-      const payload = formatErrorResponse(validation);
-      return c.json({error: payload}, validation.status);
-    }
-
-    if (isPostgresError(err)) {
-      logger.error({err}, "Database error");
-      const dbError = new ServiceException(ERROR_MESSAGES.SERVICE_ERROR, {
-        code: err.code,
-        detail: (err as {detail?: string}).detail,
-      });
-      const payload = formatErrorResponse(dbError);
-      return c.json({error: payload}, dbError.status);
-    }
-
-    if (err instanceof HTTPException) {
-      const payload = formatErrorResponse(err);
-      return c.json({error: payload}, err.status);
-    }
-
-    logger.error({err}, "Unhandled error");
-
-    return c.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: ERROR_MESSAGES.INTERNAL_ERROR,
-        },
-      },
-      500,
-    );
-  });
-
-  return app;
 };

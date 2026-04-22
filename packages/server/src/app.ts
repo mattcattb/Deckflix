@@ -1,5 +1,8 @@
-import {addErrorHandling} from "./common/errors";
-import {addGlobalMiddlewares, createRouter} from "./common/hono";
+import {
+  addGlobalErrorHandling,
+  addGlobalMiddlewares,
+  createRouter,
+} from "./common/hono";
 import {authController} from "./auth/auth.controller";
 import {authMiddleware} from "./auth/auth.middleware";
 import {gamesController} from "./games/games.controller";
@@ -12,7 +15,7 @@ export const protectedProjectsRoutes = createRouter().use("*", authMiddleware);
 
 const baseApp = createRouter();
 addGlobalMiddlewares(baseApp);
-addErrorHandling(baseApp);
+addGlobalErrorHandling(baseApp);
 
 export const app = baseApp
   .route("/api/auth", authController)

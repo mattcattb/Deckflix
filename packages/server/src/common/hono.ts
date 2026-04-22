@@ -1,7 +1,16 @@
 import type {RoomSession} from "@deckflix/shared";
 import {Hono} from "hono";
 import {corsMiddleware} from "./cors";
-import {getPinoLogger} from "./logger";
+import {createChildLogger, getPinoLogger} from "./logger";
+import {ZodError} from "zod/v4";
+import {
+  BadRequestException,
+  ERROR_MESSAGES,
+  formatErrorResponse,
+  isPostgresError,
+  ServiceException,
+} from "./errors";
+import {HTTPException} from "hono/http-exception";
 
 declare module "hono" {
   interface ContextVariableMap {
@@ -52,4 +61,46 @@ export const addGlobalMiddlewares = (app: Hono) => {
     .get("/health", (c) =>
       c.json({status: "ok", timestamp: new Date().toISOString()}),
     );
+};
+
+const logger = createChildLogger({service: "global.app.handler"});
+
+export const addGlobalErrorHandling = (app: Hono) => {
+  app.onError((err, c) => {
+    if (err instanceof ZodError) {
+      const validation = new BadRequestException(
+        ERROR_MESSAGES.VALIDATION_ERROR,
+        err.flatten(),
+      );
+      const payload = formatErrorResponse(validation);
+      return c.json({error: payload}, validation.status);
+    }
+
+    if (isPostgresError(err)) {
+      logger.error({err}, "Database error");
+      const dbError = new ServiceException(ERROR_MESSAGES.SERVICE_ERROR, {
+        code: err.code,
+        detail: (err as {detail?: string}).detail,
+      });
+      const payload = formatErrorResponse(dbError);
+      return c.json({error: payload}, dbError.status);
+    }
+
+    if (err instanceof HTTPException) {
+      const payload = formatErrorResponse(err);
+      return c.json({error: payload}, err.status);
+    }
+
+    logger.error({err}, "Unhandled error");
+
+    return c.json(
+      {
+        error: {
+          code: "INTERNAL_ERROR",
+          message: ERROR_MESSAGES.INTERNAL_ERROR,
+        },
+      },
+      500,
+    );
+  });
 };
