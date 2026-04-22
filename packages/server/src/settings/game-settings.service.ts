@@ -1,6 +1,5 @@
 import type {GameSettings, GameSettingsInput} from "@deckflix/shared";
 import {gameSettingsSchema} from "@deckflix/shared";
-import {z} from "zod";
 import {NotFoundException} from "../common/errors";
 import {getTmdbMovieGenres} from "../lib/tmdb";
 import {ensureRedis, redis} from "../lib/redis";
@@ -117,8 +116,6 @@ export const buildMovieDiscoveryFilters = (settings: GameSettings) => ({
     settings.movieFilters.primaryReleaseDateLte ?? undefined,
   voteAverageGte: settings.movieFilters.voteAverageGte ?? undefined,
   voteAverageLte: settings.movieFilters.voteAverageLte ?? undefined,
-  sortBy: "popularity.desc",
-  voteCountGte: 50,
 });
 
 export const getSelectableMovieGenres = async (language = "en-US") =>

@@ -4,9 +4,16 @@ import type {
   MovieSearchResult,
   MovieSummary,
 } from "@deckflix/shared";
+import {createHash} from "node:crypto";
 import {TMDB} from "tmdb-ts";
 import {appEnv} from "../common/env";
 import {ServiceException} from "../common/errors";
+import type {
+  PoolQueryFilters,
+  PoolSourceMovie,
+  PoolSourceMovieListResult,
+  PoolSortOption,
+} from "../games/game-pool.types";
 import {ensureRedis, redis} from "./redis";
 
 type TmdbSourceMovie = {
@@ -17,6 +24,10 @@ type TmdbSourceMovie = {
   backdrop_path?: string | null;
   vote_average?: number | null;
   release_date?: string | null;
+  genre_ids?: number[];
+  vote_count?: number | null;
+  popularity?: number | null;
+  original_language?: string | null;
 };
 
 export type TmdbMovieGenre = {
@@ -40,6 +51,7 @@ export type TmdbMovieImages = {
 
 const TMDB_GENRE_CACHE_TTL_SECONDS = 60 * 60 * 24;
 const TMDB_CONFIGURATION_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7;
+const TMDB_DISCOVER_CACHE_TTL_SECONDS = 60 * 60 * 6;
 
 const defaultImageConfiguration: TmdbImageConfiguration = {
   secureBaseUrl: appEnv.TMDB_IMAGE_BASE_URL.replace(/\/w\d+$/, "/"),
@@ -103,6 +115,27 @@ const handleTmdbError = (error: unknown, fallbackMessage: string): never => {
 
 const toTmdbLanguage = (language?: string) => language as never;
 
+const stableStringify = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableStringify(nestedValue)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+};
+
+const hashValue = (value: unknown) =>
+  createHash("sha256").update(stableStringify(value)).digest("hex");
+
+const discoverCacheKey = (input: PoolQueryFilters & {language?: string}) =>
+  `tmdb:discover:${hashValue(input)}`;
+
 export const buildTmdbImageUrl = (path: string | null | undefined, size = "w500") =>
   path ? `${defaultImageConfiguration.secureBaseUrl}${size}${path}` : null;
 
@@ -113,6 +146,14 @@ const toMovieSummary = (movie: TmdbSourceMovie): MovieSummary => ({
   overview: movie.overview ?? "",
   posterUrl: buildTmdbImageUrl(movie.poster_path) ?? "",
   rating: Number(movie.vote_average?.toFixed(1) ?? 0),
+});
+
+const toPoolSourceMovie = (movie: TmdbSourceMovie): PoolSourceMovie => ({
+  ...toMovieSummary(movie),
+  voteCount: movie.vote_count ?? 0,
+  popularity: movie.popularity ?? 0,
+  genreIds: movie.genre_ids ?? [],
+  originalLanguage: movie.original_language ?? null,
 });
 
 export const getTmdbImageConfiguration = async (): Promise<TmdbImageConfiguration> => {
@@ -215,60 +256,55 @@ export const getTmdbPopularMovies = async (input: {
   }
 };
 
-export const discoverTmdbMovies = async (input: {
-  page?: number;
-  language?: string;
-  includedGenreIds?: number[];
-  excludedGenreIds?: number[];
-  primaryReleaseDateGte?: string;
-  primaryReleaseDateLte?: string;
-  sortBy?: string;
-  voteCountGte?: number;
-  voteAverageGte?: number;
-  voteAverageLte?: number;
-}): Promise<MovieListResult> => {
+export const discoverTmdbMovies = async (
+  input: PoolQueryFilters & {language?: string},
+): Promise<PoolSourceMovieListResult> => {
+  await ensureRedis();
+  const cacheKey = discoverCacheKey(input);
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached) as PoolSourceMovieListResult;
+  }
+
   try {
     const response = await getTmdbClient().discover.movie({
       page: input.page ?? 1,
       language: toTmdbLanguage(input.language ?? "en-US"),
       include_adult: false,
-      sort_by: input.sortBy as
-        | "first_air_date.asc"
-        | "first_air_date.desc"
-        | "popularity.asc"
-        | "popularity.desc"
-        | "release_date.asc"
-        | "release_date.desc"
-        | "revenue.asc"
-        | "revenue.desc"
-        | "primary_release_date.asc"
-        | "primary_release_date.desc"
-        | "original_title.asc"
-        | "original_title.desc"
-        | "vote_average.asc"
-        | "vote_average.desc"
-        | "vote_count.asc"
-        | "vote_count.desc"
-        | undefined,
+      sort_by: input.sortBy as PoolSortOption | undefined,
       with_genres: input.includedGenreIds?.length
         ? input.includedGenreIds.join("|")
         : undefined,
       without_genres: input.excludedGenreIds?.length
         ? input.excludedGenreIds.join(",")
         : undefined,
+      primary_release_year: input.primaryReleaseYear,
       "primary_release_date.gte": input.primaryReleaseDateGte,
       "primary_release_date.lte": input.primaryReleaseDateLte,
       "vote_count.gte": input.voteCountGte,
+      "vote_count.lte": input.voteCountLte,
       "vote_average.gte": input.voteAverageGte,
       "vote_average.lte": input.voteAverageLte,
+      "with_runtime.gte": input.runtimeGte,
+      "with_runtime.lte": input.runtimeLte,
+      with_original_language: input.originalLanguage,
+      region: input.region,
+      watch_region: input.watchRegion,
+      with_watch_providers: input.watchProviderIds?.length
+        ? input.watchProviderIds.join("|")
+        : undefined,
     });
 
-    return {
+    const result = {
       page: response.page,
       totalPages: response.total_pages,
       totalResults: response.total_results,
-      items: response.results.map(toMovieSummary),
+      items: response.results.map(toPoolSourceMovie),
     };
+    await redis.set(cacheKey, JSON.stringify(result), {
+      EX: TMDB_DISCOVER_CACHE_TTL_SECONDS,
+    });
+    return result;
   } catch (error) {
     return handleTmdbError(error, "TMDB discover request failed");
   }

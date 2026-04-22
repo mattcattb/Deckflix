@@ -165,8 +165,6 @@ describe("game settings", () => {
       primaryReleaseDateLte: "2024-12-31",
       voteAverageGte: 6.5,
       voteAverageLte: 8.8,
-      sortBy: "popularity.desc",
-      voteCountGte: 50,
     });
   });
 
@@ -182,8 +180,6 @@ describe("game settings", () => {
       primaryReleaseDateLte: undefined,
       voteAverageGte: undefined,
       voteAverageLte: undefined,
-      sortBy: "popularity.desc",
-      voteCountGte: 50,
     });
   });
 });

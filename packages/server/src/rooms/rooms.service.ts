@@ -1,8 +1,7 @@
 import type {GamePlayerPresence, RoomSession} from "@deckflix/shared";
-import * as GamePresenceService from "../ws/presence.ws";
 import * as RoomStatePublisher from "../ws/room-state-publisher";
 import * as GameSnapshotService from "../games/game-snapshot.service";
-import * as GamePoolService from "../games/game-pool.service";
+import * as GamePoolService from "../games/game-pool";
 import {BadRequestException, ConflictException} from "../common/errors";
 import {randomUUID} from "node:crypto";
 import {clearPresenceState} from "../ws/presence.ws";
@@ -105,9 +104,9 @@ export const create = async (input: {
   const createdAt = new Date().toISOString();
   const settings = GameSettingsService.resolveGameSettings(input.settings);
   const roomName = input.roomName?.trim() || null;
-  const movies = await GamePoolService.buildInitialPool({settings});
   const displayId = randomUUID();
   const sessionToken = randomUUID();
+  const poolSeed = GamePoolService.createPoolSeed();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const gameCode = generateGameCode();
@@ -125,8 +124,11 @@ export const create = async (input: {
     });
 
     if (created) {
-      await GamePoolService.saveInitialPool(gameCode, movies);
       await GameSettingsService.setGameSettings(gameCode, settings);
+      await GamePoolService.setPoolSeed({
+        gameCode,
+        seed: poolSeed,
+      });
       await GameRedisService.touchRoomKeys(gameCode);
       return {
         gameCode,
@@ -170,7 +172,10 @@ export const start = async (input: {
     }
 
     const settings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const movies = await GamePoolService.buildInitialPool({settings});
+    const movies = await GamePoolService.buildInitialPool({
+      gameCode: input.gameCode,
+      settings,
+    });
     await GamePoolService.saveInitialPool(input.gameCode, movies);
 
     for (const playerId of playerIds) {

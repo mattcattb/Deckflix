@@ -17,10 +17,11 @@ import * as GameRedisService from "./game-redis.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
 
 const buildSummary = async (gameCode: string): Promise<GameSummary> => {
-  const [meta, players, queueSize] = await Promise.all([
+  const [meta, players, queueSize, settings] = await Promise.all([
     RoomMetaService.getGameMetaOrThrow(gameCode),
     GameRedisService.listPlayers(gameCode),
     GamePoolService.getPoolSize(gameCode),
+    GameSettingsService.getGameSettingsOrThrow(gameCode),
   ]);
 
   return {
@@ -30,7 +31,10 @@ const buildSummary = async (gameCode: string): Promise<GameSummary> => {
     status: meta.status,
     createdAt: meta.createdAt,
     playerCount: players.length,
-    queueSize,
+    queueSize:
+      meta.status === "lobby" && queueSize === 0
+        ? settings.gameplay.maxMovies
+        : queueSize,
     displayConnected: isDisplayConnected(gameCode),
   };
 };
