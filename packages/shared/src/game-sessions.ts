@@ -1,16 +1,16 @@
 import {z} from "zod";
 
-export const roomRoles = ["display", "player"] as const;
+const roomRoles = ["display", "player"] as const;
 
-export const roomRoleSchema = z.enum(roomRoles);
+const roomRoleSchema = z.enum(roomRoles);
 
-export const displaySessionSchema = z.object({
+const displaySessionSchema = z.object({
   gameCode: z.string().min(1),
   displayId: z.string().min(1),
   sessionToken: z.string().min(1),
 });
 
-export const playerSessionSchema = z.object({
+const playerSessionSchema = z.object({
   gameCode: z.string().min(1),
   playerId: z.string().min(1),
   sessionToken: z.string().min(1),
@@ -51,7 +51,6 @@ export const activeRoomClientSchema = z.discriminatedUnion("role", [
   }),
 ]);
 
-export type RoomRole = z.infer<typeof roomRoleSchema>;
 export type DisplaySession = z.infer<typeof displaySessionSchema>;
 export type PlayerSession = z.infer<typeof playerSessionSchema>;
 export type RoomSession = z.infer<typeof roomSessionSchema>;

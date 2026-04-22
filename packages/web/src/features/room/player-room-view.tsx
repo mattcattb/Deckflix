@@ -3,7 +3,6 @@ import {Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
   ActiveRoomClient,
-  GamePlayerPresence,
   GameResults,
   PlayerGameState,
   SwipeChoice,
@@ -252,7 +251,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
       <div className="mx-auto w-full max-w-3xl px-5 pt-6">
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          {playersQuery.data.players.map((player: GamePlayerPresence) => (
+          {playersQuery.data.players.map((player) => (
             <span
               key={player.id}
               className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">

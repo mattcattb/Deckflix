@@ -77,10 +77,6 @@ export const joinGamePayloadSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
 });
 
-export const joinRoomPayloadSchema = joinGamePayloadSchema.extend({
-  gameCode: z.string().trim().min(1),
-});
-
 export const voteGamePayloadSchema = z.object({
   assignmentId: z.string().min(1),
   movieId: z.string().min(1),

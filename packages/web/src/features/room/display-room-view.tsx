@@ -37,6 +37,11 @@ type DisplayBoardItem = {
   outcome: "match" | "rejected";
 };
 
+type PlayerRailPlayer = Pick<
+  GamePlayerPresence,
+  "id" | "displayName" | "connectedAsPlayer"
+>;
+
 const PLAYER_TILE_GRADIENTS = [
   "from-red-500 to-rose-700",
   "from-amber-400 to-orange-600",
@@ -545,7 +550,7 @@ function PlayerRailTile({
   completed,
   queueSize,
 }: {
-  player: GamePlayerPresence;
+  player: PlayerRailPlayer;
   currentIndex: number;
   completed: boolean;
   queueSize: number;

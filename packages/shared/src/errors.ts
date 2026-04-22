@@ -11,7 +11,7 @@ export const ERROR_MESSAGES = {
   INTERNAL_ERROR: "Internal server error",
 } as const;
 
-export const errorCodeValues = [
+const errorCodeValues = [
   "BAD_REQUEST",
   "UNAUTHORIZED",
   "FORBIDDEN",
@@ -22,9 +22,9 @@ export const errorCodeValues = [
   "INTERNAL_ERROR",
 ] as const;
 
-export const apiErrorCodeSchema = z.enum(errorCodeValues);
+const apiErrorCodeSchema = z.enum(errorCodeValues);
 
-export const apiErrorSchema = z.object({
+const apiErrorSchema = z.object({
   code: apiErrorCodeSchema,
   message: z.string(),
   details: z.unknown().optional(),

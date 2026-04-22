@@ -1,6 +1,6 @@
 import {z} from "zod";
 
-export const swipeChoices = [
+const swipeChoices = [
   "like",
   "dislike",
   "maybe",
@@ -8,14 +8,14 @@ export const swipeChoices = [
   "skip",
 ] as const;
 
-export const gameStatuses = ["lobby", "swiping", "completed"] as const;
+const gameStatuses = ["lobby", "swiping", "completed"] as const;
 
 export const swipeChoiceSchema = z.enum(swipeChoices);
 export const gameStatusSchema = z.enum(gameStatuses);
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
-export const gameplaySettingsSchema = z.object({
+const gameplaySettingsSchema = z.object({
   minLikesToMatch: z.number().int().min(1).max(50),
   maxMovies: z.number().int().min(1).max(500),
   allowMaybe: z.boolean(),
@@ -82,7 +82,7 @@ const addMovieFilterIssues = (
 
 const movieFilterSettingsBaseSchema = z.object(movieFilterSettingsShape);
 
-export const movieFilterSettingsSchema = movieFilterSettingsBaseSchema.superRefine(
+const movieFilterSettingsSchema = movieFilterSettingsBaseSchema.superRefine(
   addMovieFilterIssues,
 );
 
@@ -91,8 +91,8 @@ export const gameSettingsSchema = z.object({
   movieFilters: movieFilterSettingsSchema,
 });
 
-export const gameplaySettingsInputSchema = gameplaySettingsSchema.partial();
-export const movieFilterSettingsInputSchema = movieFilterSettingsBaseSchema
+const gameplaySettingsInputSchema = gameplaySettingsSchema.partial();
+const movieFilterSettingsInputSchema = movieFilterSettingsBaseSchema
   .partial()
   .superRefine(addMovieFilterIssues);
 export const gameSettingsInputSchema = z.object({
@@ -133,11 +133,7 @@ export const gamePlayerProgressSchema = z.object({
 
 export type SwipeChoice = z.infer<typeof swipeChoiceSchema>;
 export type GameStatus = z.infer<typeof gameStatusSchema>;
-export type GameplaySettings = z.infer<typeof gameplaySettingsSchema>;
-export type MovieFilterSettings = z.infer<typeof movieFilterSettingsSchema>;
 export type GameSettings = z.infer<typeof gameSettingsSchema>;
 export type GameSettingsInput = z.infer<typeof gameSettingsInputSchema>;
 export type MovieCandidate = z.infer<typeof movieCandidateSchema>;
 export type GameVoteSummary = z.infer<typeof gameVoteSummarySchema>;
-export type GameQueueItem = z.infer<typeof gameQueueItemSchema>;
-export type GamePlayerProgress = z.infer<typeof gamePlayerProgressSchema>;

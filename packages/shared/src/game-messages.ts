@@ -6,19 +6,19 @@ import {
   playerGameStateSchema,
 } from "./game-snapshots";
 
-export const displayClientMessageSchema = z.discriminatedUnion("type", [
+const displayClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("ping"),
   }),
 ]);
 
-export const playerClientMessageSchema = z.discriminatedUnion("type", [
+const playerClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("ping"),
   }),
 ]);
 
-export const displayServerMessageSchema = z.discriminatedUnion("type", [
+const displayServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("display.snapshot"),
     payload: displayGameStateSchema,
@@ -53,7 +53,7 @@ export const displayServerMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const playerServerMessageSchema = z.discriminatedUnion("type", [
+const playerServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("player.snapshot"),
     payload: playerGameStateSchema,
@@ -85,23 +85,21 @@ export const playerServerMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export type DisplayClientMessage = z.infer<typeof displayClientMessageSchema>;
-export type PlayerClientMessage = z.infer<typeof playerClientMessageSchema>;
 export type DisplayServerMessage = z.infer<typeof displayServerMessageSchema>;
 export type PlayerServerMessage = z.infer<typeof playerServerMessageSchema>;
 
 const parseJson = (raw: string) => JSON.parse(raw) as unknown;
 
-export const decodeDisplayClientMessage = (raw: string): DisplayClientMessage =>
+export const decodeDisplayClientMessage = (raw: string) =>
   displayClientMessageSchema.parse(parseJson(raw));
 
-export const decodePlayerClientMessage = (raw: string): PlayerClientMessage =>
+export const decodePlayerClientMessage = (raw: string) =>
   playerClientMessageSchema.parse(parseJson(raw));
 
-export const decodeDisplayServerMessage = (raw: string): DisplayServerMessage =>
+const decodeDisplayServerMessage = (raw: string): DisplayServerMessage =>
   displayServerMessageSchema.parse(parseJson(raw));
 
-export const decodePlayerServerMessage = (raw: string): PlayerServerMessage =>
+const decodePlayerServerMessage = (raw: string): PlayerServerMessage =>
   playerServerMessageSchema.parse(parseJson(raw));
 
 export const parseDisplayServerMessage = (
