@@ -1,43 +1,56 @@
+import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect} from "@tanstack/react-router";
-import {useQuery} from "@tanstack/react-query";
-import {PlayerRoomView} from "../features/room/room-views";
-import {activeRoomClientQueryOptions} from "../lib/games";
+import {PlayerRoomView} from "../features/room";
+import {
+  activeRoomClientQueryOptions,
+  activeRoomMetaQueryOptions,
+  activeRoomPlayersQueryOptions,
+  activeRoomResultsQueryOptions,
+  activePlayerStateQueryOptions,
+} from "../lib/games";
+
+const getPlayerClient = async (queryClient: QueryClient) => {
+  const activeClient = await queryClient.ensureQueryData(
+    activeRoomClientQueryOptions,
+  );
+
+  if (activeClient.role === "none") {
+    throw redirect({to: "/", replace: true});
+  }
+
+  if (activeClient.role === "display") {
+    throw redirect({to: "/room", replace: true});
+  }
+
+  return activeClient;
+};
 
 export const Route = createFileRoute("/play")({
-  beforeLoad: async ({context}) => {
-    const session = await context.queryClient.ensureQueryData(
-      activeRoomClientQueryOptions,
-    );
+  beforeLoad: ({context}) => getPlayerClient(context.queryClient),
+  loader: async ({context}) => {
+    const activeClient = await getPlayerClient(context.queryClient);
 
-    if (session.role === "none") {
-      throw redirect({to: "/", replace: true});
-    }
+    await Promise.all([
+      context.queryClient.prefetchQuery(
+        activeRoomMetaQueryOptions(activeClient.gameCode),
+      ),
+      context.queryClient.prefetchQuery(
+        activeRoomPlayersQueryOptions(activeClient.gameCode),
+      ),
+      context.queryClient.prefetchQuery(
+        activeRoomResultsQueryOptions(activeClient.gameCode),
+      ),
+      context.queryClient.prefetchQuery(
+        activePlayerStateQueryOptions(activeClient.gameCode),
+      ),
+    ]);
 
-    if (session.role === "display") {
-      throw redirect({to: "/room", replace: true});
-    }
+    return activeClient;
   },
-  loader: ({context}) =>
-    context.queryClient.ensureQueryData(activeRoomClientQueryOptions),
   component: ActivePlayPage,
 });
 
 function ActivePlayPage() {
-  const activeSessionQuery = useQuery(activeRoomClientQueryOptions);
-
-  if (
-    activeSessionQuery.isLoading ||
-    !activeSessionQuery.data ||
-    activeSessionQuery.data.role !== "player"
-  ) {
-    return null;
-  }
-
-  return (
-    <PlayerRoomView
-      gameCode={activeSessionQuery.data.gameCode}
-      onSessionChange={() => void activeSessionQuery.refetch()}
-      scopedToActiveRoom
-    />
-  );
+  const activeClient = Route.useLoaderData();
+  return <PlayerRoomView gameCode={activeClient.gameCode} />;
 }

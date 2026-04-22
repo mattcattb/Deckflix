@@ -1,9 +1,14 @@
-import {createFileRoute, Navigate} from "@tanstack/react-router";
+import {Outlet, createFileRoute, redirect} from "@tanstack/react-router";
 
 export const Route = createFileRoute("/join")({
-  component: JoinPage,
+  beforeLoad: ({location}) => {
+    if (location.pathname === "/join") {
+      throw redirect({to: "/", replace: true});
+    }
+  },
+  component: JoinLayout,
 });
 
-function JoinPage() {
-  return <Navigate to="/" />;
+function JoinLayout() {
+  return <Outlet />;
 }

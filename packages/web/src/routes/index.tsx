@@ -1,14 +1,49 @@
 import {useEffect, useState} from "react";
-import {createFileRoute, useNavigate} from "@tanstack/react-router";
-import {useMutation, useQuery} from "@tanstack/react-query";
+import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
+import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import {api, parseRpc} from "../lib/api";
 import {Button, Checkbox, Input, Label} from "../components/ui";
 import {
+  activeRoomClientQueryOptions,
   gameKeys,
-  getActiveRoomClient,
+  getActiveRoomPath,
 } from "../lib/games";
 
+const settingsDefaultsQueryOptions = {
+  queryKey: gameKeys.settingsDefaults,
+  queryFn: () => parseRpc(api.api.settings.game.$get()),
+  staleTime: 1000 * 60 * 10,
+};
+
+const movieGenresQueryOptions = {
+  queryKey: gameKeys.movieGenres(),
+  queryFn: () =>
+    parseRpc(
+      api.api.settings.game["movie-genres"].$get({
+        query: {language: "en-US"},
+      }),
+    ),
+  staleTime: 1000 * 60 * 60,
+};
+
 export const Route = createFileRoute("/")({
+  beforeLoad: async ({context}) => {
+    const activeClient = await context.queryClient.ensureQueryData(
+      activeRoomClientQueryOptions,
+    );
+
+    if (activeClient.role !== "none") {
+      throw redirect({
+        to: getActiveRoomPath(activeClient),
+        replace: true,
+      });
+    }
+  },
+  loader: ({context}) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(settingsDefaultsQueryOptions),
+      context.queryClient.ensureQueryData(movieGenresQueryOptions),
+    ]),
   component: HomePage,
 });
 
@@ -16,46 +51,15 @@ type HomeMode = "display" | "play";
 
 function HomePage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [mode, setMode] = useState<HomeMode>("display");
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [selectedGenreIds, setSelectedGenreIds] = useState<number[]>([]);
 
-  const activeSessionQuery = useQuery({
-    queryKey: gameKeys.activeClient,
-    queryFn: getActiveRoomClient,
-  });
-
-  const settingsDefaultsQuery = useQuery({
-    queryKey: gameKeys.settingsDefaults,
-    queryFn: () => parseRpc(api.api.settings.game.$get()),
-    staleTime: 1000 * 60 * 10,
-  });
-
-  const movieGenresQuery = useQuery({
-    queryKey: gameKeys.movieGenres(),
-    queryFn: () =>
-      parseRpc(
-        api.api.settings.game["movie-genres"].$get({
-          query: {language: "en-US"},
-        }),
-      ),
-    staleTime: 1000 * 60 * 60,
-  });
-
-  useEffect(() => {
-    if (activeSessionQuery.data?.role === "none") {
-      return;
-    }
-
-    if (activeSessionQuery.data) {
-      navigate({
-        to: activeSessionQuery.data.role === "display" ? "/room" : "/play",
-        replace: true,
-      });
-    }
-  }, [activeSessionQuery.data, navigate]);
+  const settingsDefaultsQuery = useQuery(settingsDefaultsQueryOptions);
+  const movieGenresQuery = useQuery(movieGenresQueryOptions);
 
   useEffect(() => {
     if (!settingsDefaultsQuery.data) {
@@ -72,7 +76,7 @@ function HomePage() {
   const createGameMutation = useMutation({
     mutationFn: async () =>
       parseRpc(
-        api.api.games.$post({
+        api.api.rooms.$post({
           json: {
             roomName: roomName.trim() || undefined,
             settings: {
@@ -82,9 +86,8 @@ function HomePage() {
         }),
       ),
     onSuccess: () => {
-      navigate({
-        to: "/room",
-      });
+      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+      navigate({to: "/room"});
     },
   });
 
@@ -99,9 +102,8 @@ function HomePage() {
         }),
       ),
     onSuccess: () => {
-      navigate({
-        to: "/play",
-      });
+      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+      navigate({to: "/play"});
     },
   });
 
@@ -110,22 +112,18 @@ function HomePage() {
 
   const toggleGenreId = (genreId: number, checked: boolean) => {
     setSelectedGenreIds((current) =>
-      checked ? [...new Set([...current, genreId])] : current.filter((id) => id !== genreId),
+      checked
+        ? [...new Set([...current, genreId])]
+        : current.filter((id) => id !== genreId),
     );
   };
-
-  if (activeSessionQuery.isLoading) {
-    return null;
-  }
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-12">
       <div className="enter-rise relative w-full max-w-md overflow-hidden rounded-2xl border border-white/[0.06] bg-[linear-gradient(160deg,hsl(0_0%_8%)_0%,hsl(0_0%_4%)_100%)] shadow-[0_12px_48px_hsl(0_0%_0%/0.6)]">
-        {/* Netflix-red ambient glow */}
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-15%,hsl(0_80%_48%/0.12),transparent_60%)]" />
 
         <div className="relative space-y-6 p-6 md:p-8">
-          {/* Logo + tagline */}
           <div className="space-y-3 text-center">
             <h1 className="text-5xl font-bold tracking-tight font-display">
               DECK<span className="flame-text">FLIX</span>
@@ -135,7 +133,6 @@ function HomePage() {
             </p>
           </div>
 
-          {/* Mode toggle — Tinder-style pill switcher */}
           <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1.5">
             <button
               type="button"
@@ -202,7 +199,10 @@ function HomePage() {
                   </p>
                 ) : (
                   <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    {movieGenresQuery.data?.items.map((genre: {id: number; name: string}) => (
+                    {movieGenresQuery.data?.items.map((genre: {
+                      id: number;
+                      name: string;
+                    }) => (
                       <Checkbox
                         key={genre.id}
                         checked={selectedGenreIds.includes(genre.id)}
@@ -242,6 +242,7 @@ function HomePage() {
                 if (!gameCode.trim() || !displayName.trim()) {
                   return;
                 }
+
                 joinGameMutation.mutate();
               }}>
               <div className="space-y-2">

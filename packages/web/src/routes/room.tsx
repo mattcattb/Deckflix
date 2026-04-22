@@ -1,58 +1,52 @@
-import {Outlet, createFileRoute, redirect, useLocation} from "@tanstack/react-router";
-import {useQuery} from "@tanstack/react-query";
-import {DisplayRoomView} from "../features/room/room-views";
-import {activeRoomClientQueryOptions} from "../lib/games";
+import type {QueryClient} from "@tanstack/react-query";
+import {createFileRoute, redirect} from "@tanstack/react-router";
+import {DisplayRoomView} from "../features/room";
+import {
+  activeDisplayStateQueryOptions,
+  activeRoomClientQueryOptions,
+  activeRoomMetaQueryOptions,
+  activeRoomPlayersQueryOptions,
+} from "../lib/games";
+
+const getDisplayClient = async (queryClient: QueryClient) => {
+  const activeClient = await queryClient.ensureQueryData(
+    activeRoomClientQueryOptions,
+  );
+
+  if (activeClient.role === "none") {
+    throw redirect({to: "/", replace: true});
+  }
+
+  if (activeClient.role === "player") {
+    throw redirect({to: "/play", replace: true});
+  }
+
+  return activeClient;
+};
 
 export const Route = createFileRoute("/room")({
-  beforeLoad: async ({context, location}) => {
-    if (location.pathname !== "/room") {
-      return;
-    }
+  beforeLoad: ({context}) => getDisplayClient(context.queryClient),
+  loader: async ({context}) => {
+    const activeClient = await getDisplayClient(context.queryClient);
 
-    const session = await context.queryClient.ensureQueryData(
-      activeRoomClientQueryOptions,
-    );
+    await Promise.all([
+      context.queryClient.prefetchQuery(
+        activeRoomMetaQueryOptions(activeClient.gameCode),
+      ),
+      context.queryClient.prefetchQuery(
+        activeRoomPlayersQueryOptions(activeClient.gameCode),
+      ),
+      context.queryClient.prefetchQuery(
+        activeDisplayStateQueryOptions(activeClient.gameCode),
+      ),
+    ]);
 
-    if (session.role === "none") {
-      throw redirect({to: "/", replace: true});
-    }
-
-    if (session.role === "player") {
-      throw redirect({to: "/play", replace: true});
-    }
+    return activeClient;
   },
-  loader: ({context, location}) =>
-    location.pathname === "/room"
-      ? context.queryClient.ensureQueryData(activeRoomClientQueryOptions)
-      : null,
   component: ActiveRoomPage,
 });
 
 function ActiveRoomPage() {
-  const location = useLocation();
-  const isExactRoomRoute = location.pathname === "/room";
-  const activeSessionQuery = useQuery({
-    ...activeRoomClientQueryOptions,
-    enabled: isExactRoomRoute,
-  });
-
-  if (!isExactRoomRoute) {
-    return <Outlet />;
-  }
-
-  if (
-    activeSessionQuery.isLoading ||
-    !activeSessionQuery.data ||
-    activeSessionQuery.data.role !== "display"
-  ) {
-    return null;
-  }
-
-  return (
-    <DisplayRoomView
-      gameCode={activeSessionQuery.data.gameCode}
-      onSessionChange={() => void activeSessionQuery.refetch()}
-      scopedToActiveRoom
-    />
-  );
+  const activeClient = Route.useLoaderData();
+  return <DisplayRoomView gameCode={activeClient.gameCode} />;
 }

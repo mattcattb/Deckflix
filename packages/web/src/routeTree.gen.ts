@@ -13,7 +13,7 @@ import { Route as RoomRouteImport } from './routes/room'
 import { Route as PlayRouteImport } from './routes/play'
 import { Route as JoinRouteImport } from './routes/join'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as RoomGameCodeRouteImport } from './routes/room.$gameCode'
+import { Route as JoinGameCodeRouteImport } from './routes/join.$gameCode'
 
 const RoomRoute = RoomRouteImport.update({
   id: '/room',
@@ -35,47 +35,47 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RoomGameCodeRoute = RoomGameCodeRouteImport.update({
+const JoinGameCodeRoute = JoinGameCodeRouteImport.update({
   id: '/$gameCode',
   path: '/$gameCode',
-  getParentRoute: () => RoomRoute,
+  getParentRoute: () => JoinRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/join': typeof JoinRoute
+  '/join': typeof JoinRouteWithChildren
   '/play': typeof PlayRoute
-  '/room': typeof RoomRouteWithChildren
-  '/room/$gameCode': typeof RoomGameCodeRoute
+  '/room': typeof RoomRoute
+  '/join/$gameCode': typeof JoinGameCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/join': typeof JoinRoute
+  '/join': typeof JoinRouteWithChildren
   '/play': typeof PlayRoute
-  '/room': typeof RoomRouteWithChildren
-  '/room/$gameCode': typeof RoomGameCodeRoute
+  '/room': typeof RoomRoute
+  '/join/$gameCode': typeof JoinGameCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/join': typeof JoinRoute
+  '/join': typeof JoinRouteWithChildren
   '/play': typeof PlayRoute
-  '/room': typeof RoomRouteWithChildren
-  '/room/$gameCode': typeof RoomGameCodeRoute
+  '/room': typeof RoomRoute
+  '/join/$gameCode': typeof JoinGameCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/join' | '/play' | '/room' | '/room/$gameCode'
+  fullPaths: '/' | '/join' | '/play' | '/room' | '/join/$gameCode'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/join' | '/play' | '/room' | '/room/$gameCode'
-  id: '__root__' | '/' | '/join' | '/play' | '/room' | '/room/$gameCode'
+  to: '/' | '/join' | '/play' | '/room' | '/join/$gameCode'
+  id: '__root__' | '/' | '/join' | '/play' | '/room' | '/join/$gameCode'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  JoinRoute: typeof JoinRoute
+  JoinRoute: typeof JoinRouteWithChildren
   PlayRoute: typeof PlayRoute
-  RoomRoute: typeof RoomRouteWithChildren
+  RoomRoute: typeof RoomRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -108,31 +108,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/room/$gameCode': {
-      id: '/room/$gameCode'
+    '/join/$gameCode': {
+      id: '/join/$gameCode'
       path: '/$gameCode'
-      fullPath: '/room/$gameCode'
-      preLoaderRoute: typeof RoomGameCodeRouteImport
-      parentRoute: typeof RoomRoute
+      fullPath: '/join/$gameCode'
+      preLoaderRoute: typeof JoinGameCodeRouteImport
+      parentRoute: typeof JoinRoute
     }
   }
 }
 
-interface RoomRouteChildren {
-  RoomGameCodeRoute: typeof RoomGameCodeRoute
+interface JoinRouteChildren {
+  JoinGameCodeRoute: typeof JoinGameCodeRoute
 }
 
-const RoomRouteChildren: RoomRouteChildren = {
-  RoomGameCodeRoute: RoomGameCodeRoute,
+const JoinRouteChildren: JoinRouteChildren = {
+  JoinGameCodeRoute: JoinGameCodeRoute,
 }
 
-const RoomRouteWithChildren = RoomRoute._addFileChildren(RoomRouteChildren)
+const JoinRouteWithChildren = JoinRoute._addFileChildren(JoinRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  JoinRoute: JoinRoute,
+  JoinRoute: JoinRouteWithChildren,
   PlayRoute: PlayRoute,
-  RoomRoute: RoomRouteWithChildren,
+  RoomRoute: RoomRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

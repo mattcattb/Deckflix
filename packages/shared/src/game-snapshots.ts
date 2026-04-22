@@ -78,6 +78,10 @@ export const joinGamePayloadSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
 });
 
+export const joinRoomPayloadSchema = joinGamePayloadSchema.extend({
+  gameCode: z.string().trim().min(1),
+});
+
 export const voteGamePayloadSchema = z.object({
   assignmentId: z.string().min(1),
   movieId: z.string().min(1),
@@ -109,6 +113,7 @@ export type DisplayGameState = z.infer<typeof displayGameStateSchema>;
 export type PlayerGameState = z.infer<typeof playerGameStateSchema>;
 export type CreateGamePayload = z.infer<typeof createGamePayloadSchema>;
 export type JoinGamePayload = z.infer<typeof joinGamePayloadSchema>;
+export type JoinRoomPayload = z.infer<typeof joinRoomPayloadSchema>;
 export type VoteGamePayload = z.infer<typeof voteGamePayloadSchema>;
 export type CreateGameResult = z.infer<typeof createGameResultSchema>;
 export type JoinGameResult = z.infer<typeof joinGameResultSchema>;

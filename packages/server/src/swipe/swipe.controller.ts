@@ -10,7 +10,6 @@ import {ensureSocketPubSub} from "../lib/redis";
 import {
   activePlayerSessionMiddleware,
   clearRoomSessionCookie,
-  playerSessionMiddleware,
   requireStartedGame,
 } from "../rooms/rooms.middleware";
 import * as SwipeService from "./swipe.service";
@@ -75,14 +74,15 @@ const createPlayerSocketHandler = () =>
     };
   });
 
-export const playerSwipeRoutes = createRouter()
-  .get("/me", playerSessionMiddleware, async (c) => {
-    return c.json(await SwipeService.getSwipeState(c.get("playerSession")));
+export const swipeController = createRouter()
+  .use("*", activePlayerSessionMiddleware)
+  .get("/state", async (c) => {
+    const {gameCode, playerId} = c.get("playerSession");
+    return c.json(await SwipeService.getSwipeState({gameCode, playerId}));
   })
-  .get("/ws", playerSessionMiddleware, createPlayerSocketHandler())
+  .get("/ws", createPlayerSocketHandler())
   .post(
-    "/:playerId/votes",
-    playerSessionMiddleware,
+    "/vote",
     requireStartedGame,
     zValidator("json", voteGamePayloadSchema),
     async (c) => {
@@ -100,47 +100,7 @@ export const playerSwipeRoutes = createRouter()
       return c.json({state: result.state}, 201);
     },
   )
-  .post("/:playerId/leave", playerSessionMiddleware, async (c) => {
-    const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-    void ensureSocketPubSub(server);
-    await SwipeService.leaveSwipe({
-      player: c.get("playerSession"),
-      server,
-    });
-    clearRoomSessionCookie(c);
-    return c.body(null, 204);
-  });
-
-export const activeSwipeRoutes = createRouter()
-  .get("/state", activePlayerSessionMiddleware, async (c) => {
-    const {gameCode, playerId} = c.get("playerSession");
-    const resp = await SwipeService.getSwipeState({gameCode, playerId});
-    return c.json(resp);
-  })
-  .get("/ws", activePlayerSessionMiddleware, createPlayerSocketHandler())
-  .post(
-    "/votes",
-    activePlayerSessionMiddleware,
-    requireStartedGame,
-    zValidator("json", voteGamePayloadSchema),
-    async (c) => {
-      // only swipe on the most recent one? or have to have the id for this too?
-      const playerData = c.get("playerSession");
-      const input = c.req.valid("json");
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const result = await SwipeService.recordSwipe({
-        player: playerData,
-        assignmentId: input.assignmentId,
-        movieId: input.movieId,
-        choice: input.choice,
-        server,
-      });
-
-      return c.json({state: result.state}, 201);
-    },
-  )
-  .post("/leave", activePlayerSessionMiddleware, async (c) => {
+  .post("/leave", async (c) => {
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
     await SwipeService.leaveSwipe({
