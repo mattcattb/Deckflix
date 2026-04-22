@@ -29,12 +29,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
-  const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(
-    null,
-  );
-  const [lastRecordedVote, setLastRecordedVote] = useState<SwipeChoice | null>(
-    null,
-  );
   const [state, setState] = useState<PlayerGameState | null>(null);
   const [results, setResults] = useState<GameResults | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
@@ -139,13 +133,10 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "player.vote_recorded") {
-        setLastRecordedVote(message.payload.choice);
         return;
       }
 
       if (message.type === "player.match_found") {
-        setLatestMatchMovieId(message.payload.movieId);
-        void refetchResults();
         return;
       }
 
@@ -217,9 +208,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
   const viewMode = getPlayerRoomViewMode(state.summary.status);
   const progressLabel = `${Math.min(state.me.currentIndex + 1, state.summary.queueSize)}/${state.summary.queueSize}`;
-  const latestMatch =
-    results.voteSummary.find((entry) => entry.movieId === latestMatchMovieId) ??
-    null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -267,27 +255,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
         {gameError ? (
           <div className="rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
             {gameError}
-          </div>
-        ) : null}
-
-        {latestMatch ? (
-          <div className="mt-4 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3">
-            <div className="text-sm font-semibold text-primary">
-              Match found in the room
-            </div>
-            <div className="text-sm text-foreground">
-              Movie ID <span className="font-mono">{latestMatch.movieId}</span>{" "}
-              just hit the threshold.
-            </div>
-          </div>
-        ) : null}
-
-        {lastRecordedVote ? (
-          <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-muted-foreground">
-            Last vote recorded:{" "}
-            <span className="text-foreground">
-              {lastRecordedVote.replace("_", " ")}
-            </span>
           </div>
         ) : null}
       </div>

@@ -23,7 +23,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -75,10 +74,6 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
-  const [latestMatchMovieId, setLatestMatchMovieId] = useState<string | null>(
-    null,
-  );
-  const [lastJoinedPlayer, setLastJoinedPlayer] = useState<string | null>(null);
   const [state, setState] = useState<DisplayGameState | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
@@ -199,7 +194,6 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "display.player_joined") {
-        setLastJoinedPlayer(message.payload.displayName);
         void refetchMeta();
         void refetchPlayers();
         return;
@@ -212,7 +206,6 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "display.match_found") {
-        setLatestMatchMovieId(message.payload.movieId);
         return;
       }
 
@@ -267,28 +260,31 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
 
   const board = getBoardSections(state);
   const viewMode = getDisplayRoomViewMode(state.summary.status);
-  const latestMatch =
-    state.queue.find((item) => item.movie.id === latestMatchMovieId)?.movie ??
-    null;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-5 py-6">
-      <div className="flex items-center justify-between gap-3">
-        <Link to="/room" className="text-lg font-bold tracking-tight font-display">
-          DECK<span className="flame-text">FLIX</span>
-        </Link>
-        <div className="flex items-center gap-2">
-          <StatusBadge label={viewMode} />
-          <Button
-            variant="ghost"
-            size="sm"
-            title="Delete room"
-            onClick={() => deleteRoomMutation.mutate()}
-            disabled={deleteRoomMutation.isPending}>
-            End room
-          </Button>
+    <div className="flex w-full flex-1 flex-col">
+      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-gradient-to-b from-black via-black/95 to-black/70 backdrop-blur-sm">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-3">
+          <Link
+            to="/room"
+            className="netflix-wordmark text-2xl uppercase tracking-[0.08em]">
+            Deck<span className="flame-text">flix</span>
+          </Link>
+          <div className="flex items-center gap-3">
+            <StatusBadge label={viewMode} />
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Delete room"
+              onClick={() => deleteRoomMutation.mutate()}
+              disabled={deleteRoomMutation.isPending}>
+              End room
+            </Button>
+          </div>
         </div>
-      </div>
+      </header>
+
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-5 py-6">
 
       <div className="flex flex-col items-center gap-2 py-4">
         <button
@@ -311,19 +307,21 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {playersQuery.data.players.map((player: GamePlayerPresence) => (
-          <span
-            key={player.id}
-            className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-            {player.displayName}
+      {viewMode !== "lobby" ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {playersQuery.data.players.map((player: GamePlayerPresence) => (
+            <span
+              key={player.id}
+              className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+              {player.displayName}
+            </span>
+          ))}
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+            {state.summary.playerCount} player
+            {state.summary.playerCount === 1 ? "" : "s"}
           </span>
-        ))}
-        <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-          {state.summary.playerCount} player
-          {state.summary.playerCount === 1 ? "" : "s"}
-        </span>
-      </div>
+        </div>
+      ) : null}
 
       {gameError ? (
         <div className="rounded-lg border border-swipe-nope/20 bg-swipe-nope/10 px-4 py-2.5 text-sm text-swipe-nope">
@@ -331,51 +329,27 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         </div>
       ) : null}
 
-      {lastJoinedPlayer ? (
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-2.5 text-sm">
-          <span className="font-semibold">{lastJoinedPlayer}</span> joined
-        </div>
-      ) : null}
-
-      {latestMatch && viewMode !== "lobby" ? (
-        <div className="rounded-lg border border-swipe-like/20 bg-swipe-like/10 px-4 py-2.5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-swipe-like">
-            <HeartIcon size={16} />
-            It&apos;s a match!
-          </div>
-          <div className="text-sm text-foreground">{latestMatch.title}</div>
-        </div>
-      ) : null}
-
       {viewMode === "lobby" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Lobby controls</CardTitle>
-            <CardDescription>
-              Tune the room settings, wait for players, and start once at least
-              two people have joined.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <GameSettingsSection
-              settings={draftSettings}
-              onChange={setDraftSettings}
-              movieGenres={movieGenresQuery.data?.items ?? []}
-              movieGenresError={movieGenresError}
-            />
-          </CardContent>
-          <CardFooter className="flex-wrap justify-between">
-            <div className="text-sm text-muted-foreground">
-              {playersQuery.data.players.length < 2
-                ? "Need at least two players to start."
-                : `${playersQuery.data.players.length} players are ready.`}
-            </div>
-            <div className="flex items-center gap-3">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <GameSettingsSection
+                settings={draftSettings}
+                onChange={setDraftSettings}
+                movieGenres={movieGenresQuery.data?.items ?? []}
+                movieGenresError={movieGenresError}
+              />
+            </CardContent>
+            <CardFooter className="justify-end gap-3">
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={() => settingsMutation.mutate()}
                 disabled={settingsMutation.isPending}>
-                {settingsMutation.isPending ? "Saving..." : "Save settings"}
+                {settingsMutation.isPending ? "Saving..." : "Save"}
               </Button>
               <Button
                 effect="glow"
@@ -386,9 +360,29 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
                 }>
                 {startGameMutation.isPending ? "Starting..." : "Start game"}
               </Button>
-            </div>
-          </CardFooter>
-        </Card>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-baseline justify-between space-y-0">
+              <CardTitle className="font-display text-2xl tracking-wide">
+                Who&apos;s Playing?
+              </CardTitle>
+              <span className="font-display text-lg text-muted-foreground">
+                {playersQuery.data.players.length}
+              </span>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-5">
+                {playersQuery.data.players.map(
+                  (player: GamePlayerPresence) => (
+                    <PlayerTile key={player.id} name={player.displayName} />
+                  ),
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-3">
           <BoardColumn
@@ -435,6 +429,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
           </BoardColumn>
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -467,6 +462,40 @@ function BoardColumn({
         </span>
       </div>
       <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+const PLAYER_TILE_GRADIENTS = [
+  "from-red-500 to-rose-700",
+  "from-amber-400 to-orange-600",
+  "from-emerald-400 to-teal-600",
+  "from-sky-400 to-indigo-600",
+  "from-fuchsia-400 to-purple-600",
+  "from-pink-400 to-rose-600",
+];
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function PlayerTile({name}: {name: string}) {
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
+  const gradient =
+    PLAYER_TILE_GRADIENTS[hashString(name) % PLAYER_TILE_GRADIENTS.length];
+  return (
+    <div className="group flex w-24 flex-col items-center gap-2">
+      <div
+        className={`flex h-24 w-24 items-center justify-center rounded-md bg-gradient-to-br ${gradient} font-display text-5xl text-white shadow-[0_4px_20px_rgba(0,0,0,0.3)] ring-0 ring-white transition-all duration-150 group-hover:ring-2`}>
+        {initial}
+      </div>
+      <div className="w-full truncate text-center font-display text-sm tracking-wide text-muted-foreground transition-colors group-hover:text-foreground">
+        {name}
+      </div>
     </div>
   );
 }
