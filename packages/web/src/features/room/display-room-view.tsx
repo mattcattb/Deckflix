@@ -27,11 +27,9 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-  Input,
-  Label,
-  Switch,
 } from "../../components/ui";
 import {MovieCard} from "../../components/games/movie-card";
+import {GameSettingsSection} from "../../components/games/game-settings-section";
 import {RoomUnavailable} from "./room-unavailable";
 import {getDisplayRoomViewMode} from "./room-view-modes";
 
@@ -39,18 +37,6 @@ type DisplayBoardItem = {
   movie: MovieCandidate;
   votes: GameVoteSummary;
 };
-
-type LobbySettings = Pick<
-  GameSettings,
-  "allowMaybe" | "allowSuperLike" | "maxMovies" | "minLikesToMatch"
->;
-
-const selectLobbySettings = (settings: GameSettings): LobbySettings => ({
-  allowMaybe: settings.allowMaybe,
-  allowSuperLike: settings.allowSuperLike,
-  maxMovies: settings.maxMovies,
-  minLikesToMatch: settings.minLikesToMatch,
-});
 
 const getBoardSections = (state: DisplayGameState | null) => {
   if (!state) {
@@ -94,10 +80,25 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   );
   const [lastJoinedPlayer, setLastJoinedPlayer] = useState<string | null>(null);
   const [state, setState] = useState<DisplayGameState | null>(null);
-  const [draftSettings, setDraftSettings] = useState<LobbySettings | null>(null);
+  const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
   const stateQuery = useQuery(activeDisplayStateQueryOptions(gameCode));
+  const movieGenresQuery = useQuery({
+    queryKey: gameKeys.movieGenres(),
+    queryFn: () =>
+      parseRpc(
+        api.api.settings.game["movie-genres"].$get({
+          query: {language: "en-US"},
+        }),
+      ),
+    staleTime: 1000 * 60 * 60,
+  });
+  const movieGenresError = movieGenresQuery.error
+    ? movieGenresQuery.error instanceof Error
+      ? movieGenresQuery.error.message
+      : "Unable to load genres"
+    : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
 
@@ -109,7 +110,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
 
   useEffect(() => {
     if (metaQuery.data) {
-      setDraftSettings(selectLobbySettings(metaQuery.data.settings));
+      setDraftSettings(metaQuery.data.settings);
     }
   }, [metaQuery.data]);
 
@@ -255,7 +256,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
           stateQuery.error instanceof Error
             ? stateQuery.error.message
             : metaQuery.error instanceof Error
-              ? metaQuery.error.message
+                ? metaQuery.error.message
               : playersQuery.error instanceof Error
                 ? playersQuery.error.message
                 : "This room is not available."
@@ -351,86 +352,17 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
           <CardHeader>
             <CardTitle>Lobby controls</CardTitle>
             <CardDescription>
-              Tune the room, wait for players, and start once at least two
-              people have joined.
+              Tune the room settings, wait for players, and start once at least
+              two people have joined.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="minLikesToMatch">Likes needed to match</Label>
-              <Input
-                id="minLikesToMatch"
-                type="number"
-                min={1}
-                max={50}
-                value={draftSettings.minLikesToMatch}
-                onChange={(event) =>
-                  setDraftSettings((current) =>
-                    current
-                      ? {
-                          ...current,
-                          minLikesToMatch: Number.parseInt(event.target.value, 10) || 1,
-                        }
-                      : current,
-                  )
-                }
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="maxMovies">Movies per round</Label>
-              <Input
-                id="maxMovies"
-                type="number"
-                min={1}
-                max={500}
-                value={draftSettings.maxMovies}
-                onChange={(event) =>
-                  setDraftSettings((current) =>
-                    current
-                      ? {
-                          ...current,
-                          maxMovies: Number.parseInt(event.target.value, 10) || 1,
-                        }
-                      : current,
-                  )
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-              <div>
-                <div className="text-sm font-medium">Maybe votes</div>
-                <div className="text-xs text-muted-foreground">
-                  Let players keep titles in a soft shortlist.
-                </div>
-              </div>
-              <Switch
-                checked={draftSettings.allowMaybe}
-                onCheckedChange={(checked) =>
-                  setDraftSettings((current) =>
-                    current ? {...current, allowMaybe: checked} : current,
-                  )
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-              <div>
-                <div className="text-sm font-medium">Super likes</div>
-                <div className="text-xs text-muted-foreground">
-                  Enable stronger positive votes for must-watch picks.
-                </div>
-              </div>
-              <Switch
-                checked={draftSettings.allowSuperLike}
-                onCheckedChange={(checked) =>
-                  setDraftSettings((current) =>
-                    current ? {...current, allowSuperLike: checked} : current,
-                  )
-                }
-              />
-            </div>
+          <CardContent>
+            <GameSettingsSection
+              settings={draftSettings}
+              onChange={setDraftSettings}
+              movieGenres={movieGenresQuery.data?.items ?? []}
+              movieGenresError={movieGenresError}
+            />
           </CardContent>
           <CardFooter className="flex-wrap justify-between">
             <div className="text-sm text-muted-foreground">

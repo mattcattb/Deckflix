@@ -1,5 +1,6 @@
 import type {GamePlayerPresence, RoomSession} from "@deckflix/shared";
 import * as GamePresenceService from "../ws/presence.ws";
+import * as RoomStatePublisher from "../ws/room-state-publisher";
 import * as GameSnapshotService from "../games/game-snapshot.service";
 import * as GamePoolService from "../games/game-pool.service";
 import {BadRequestException, ConflictException} from "../common/errors";
@@ -39,7 +40,7 @@ const generateGameCode = () => {
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  GamePresenceService.publishRoomState(server, gameCode, playerIds);
+  RoomStatePublisher.publishRoomState(server, gameCode, playerIds);
 };
 
 const publishPlayerJoined = (
@@ -147,10 +148,10 @@ export const updateSettings = async (input: {
 }) =>
   GameRedisService.withGameLock(input.gameCode, async () => {
     const currentSettings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const nextSettings = GameSettingsService.resolveGameSettings({
-      ...currentSettings,
-      ...input.settings,
-    });
+    const nextSettings = GameSettingsService.mergeGameSettings(
+      currentSettings,
+      input.settings,
+    );
 
     await GameSettingsService.setGameSettings(input.gameCode, nextSettings);
     await GameRedisService.touchRoomKeys(input.gameCode);

@@ -218,10 +218,14 @@ export const getTmdbPopularMovies = async (input: {
 export const discoverTmdbMovies = async (input: {
   page?: number;
   language?: string;
-  genreIds?: number[];
+  includedGenreIds?: number[];
+  excludedGenreIds?: number[];
+  primaryReleaseDateGte?: string;
+  primaryReleaseDateLte?: string;
   sortBy?: string;
   voteCountGte?: number;
   voteAverageGte?: number;
+  voteAverageLte?: number;
 }): Promise<MovieListResult> => {
   try {
     const response = await getTmdbClient().discover.movie({
@@ -246,9 +250,17 @@ export const discoverTmdbMovies = async (input: {
         | "vote_count.asc"
         | "vote_count.desc"
         | undefined,
-      with_genres: input.genreIds?.length ? input.genreIds.join("|") : undefined,
+      with_genres: input.includedGenreIds?.length
+        ? input.includedGenreIds.join("|")
+        : undefined,
+      without_genres: input.excludedGenreIds?.length
+        ? input.excludedGenreIds.join(",")
+        : undefined,
+      "primary_release_date.gte": input.primaryReleaseDateGte,
+      "primary_release_date.lte": input.primaryReleaseDateLte,
       "vote_count.gte": input.voteCountGte,
       "vote_average.gte": input.voteAverageGte,
+      "vote_average.lte": input.voteAverageLte,
     });
 
     return {

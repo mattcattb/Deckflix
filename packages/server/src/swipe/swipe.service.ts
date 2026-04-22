@@ -9,7 +9,7 @@ import {BadRequestException} from "../common/errors";
 import * as GamePoolService from "../games/game-pool.service";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as GameRedisService from "../games/game-redis.service";
-import * as GamePresenceService from "../ws/presence.ws";
+import * as RoomStatePublisher from "../ws/room-state-publisher";
 import * as SwipeLedgerService from "./swipe-ledger.service";
 import * as SwipeQueueService from "./swipe-queue.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
@@ -226,7 +226,7 @@ const determineMovieStatus = async (
   }
 
   const settings = await GameSettingsService.getGameSettingsOrThrow(gameCode);
-  if (getPositiveVotes(movieRecord) >= settings.minLikesToMatch) {
+  if (getPositiveVotes(movieRecord) >= settings.gameplay.minLikesToMatch) {
     return "matched";
   }
 
@@ -334,7 +334,7 @@ export const syncRoomStatus = async (gameCode: string) => {
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  GamePresenceService.publishRoomState(server, gameCode, playerIds);
+  RoomStatePublisher.publishRoomState(server, gameCode, playerIds);
 };
 
 export const publishState = publishStateForGame;
@@ -405,11 +405,11 @@ export const recordSwipe = async (input: {
     }
 
     const settings = await GameSettingsService.getGameSettingsOrThrow(input.player.gameCode);
-    if (!settings.allowMaybe && input.choice === "maybe") {
+    if (!settings.gameplay.allowMaybe && input.choice === "maybe") {
       throw new BadRequestException("Maybe votes are disabled in this game");
     }
 
-    if (!settings.allowSuperLike && input.choice === "super_like") {
+    if (!settings.gameplay.allowSuperLike && input.choice === "super_like") {
       throw new BadRequestException("Super likes are disabled in this game");
     }
 
@@ -507,8 +507,3 @@ export const leaveSwipe = async (input: {
   await publishStateForGame(input.server, result.gameCode);
   return result;
 };
-
-export const openSwipeConnection = GamePresenceService.connectPlayer;
-export const closeSwipeConnection = GamePresenceService.disconnectPlayer;
-export const subscribeSwipeSocket = GamePresenceService.subscribePlayerSocket;
-export const unsubscribeSwipeSocket = GamePresenceService.unsubscribePlayerSocket;

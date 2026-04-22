@@ -10,7 +10,6 @@ export const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCa
 
 export const gameKeys = {
   activeClient: ["active-room-client"] as const,
-  settingsDefaults: ["game-settings-defaults"] as const,
   movieGenres: (language = "en-US") => ["movie-genres", language] as const,
   meta: (gameCode: string) => ["game-meta", normalizeGameCode(gameCode)] as const,
   players: (gameCode: string) =>

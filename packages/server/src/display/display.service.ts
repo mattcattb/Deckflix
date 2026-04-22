@@ -1,6 +1,6 @@
-import * as GamePresenceService from "../ws/presence.ws";
 import * as GameSnapshotService from "../games/game-snapshot.service";
 import * as GameRedisService from "../games/game-redis.service";
+import * as RoomStatePublisher from "../ws/room-state-publisher";
 
 type RealtimeServer = {publish: (topic: string, payload: string) => void};
 
@@ -12,10 +12,5 @@ export const publishDisplayRoomState = async (
   gameCode: string,
 ) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  GamePresenceService.publishRoomState(server, gameCode, playerIds);
+  RoomStatePublisher.publishRoomState(server, gameCode, playerIds);
 };
-
-export const openDisplayConnection = GamePresenceService.connectDisplay;
-export const closeDisplayConnection = GamePresenceService.disconnectDisplay;
-export const subscribeDisplaySocket = GamePresenceService.subscribeDisplaySocket;
-export const unsubscribeDisplaySocket = GamePresenceService.unsubscribeDisplaySocket;

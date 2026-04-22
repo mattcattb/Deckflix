@@ -1,30 +1,13 @@
-import {useEffect, useState} from "react";
+import {useState} from "react";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
-import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
+import {useMutation, useQueryClient} from "@tanstack/react-query";
 import {api, parseRpc} from "../lib/api";
-import {Button, Checkbox, Input, Label} from "../components/ui";
+import {Button, Input, Label} from "../components/ui";
 import {
   activeRoomClientQueryOptions,
   gameKeys,
   getActiveRoomPath,
 } from "../lib/games";
-
-const settingsDefaultsQueryOptions = {
-  queryKey: gameKeys.settingsDefaults,
-  queryFn: () => parseRpc(api.api.settings.game.$get()),
-  staleTime: 1000 * 60 * 10,
-};
-
-const movieGenresQueryOptions = {
-  queryKey: gameKeys.movieGenres(),
-  queryFn: () =>
-    parseRpc(
-      api.api.settings.game["movie-genres"].$get({
-        query: {language: "en-US"},
-      }),
-    ),
-  staleTime: 1000 * 60 * 60,
-};
 
 export const Route = createFileRoute("/")({
   beforeLoad: async ({context}) => {
@@ -39,11 +22,6 @@ export const Route = createFileRoute("/")({
       });
     }
   },
-  loader: ({context}) =>
-    Promise.all([
-      context.queryClient.ensureQueryData(settingsDefaultsQueryOptions),
-      context.queryClient.ensureQueryData(movieGenresQueryOptions),
-    ]),
   component: HomePage,
 });
 
@@ -56,22 +34,6 @@ function HomePage() {
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [selectedGenreIds, setSelectedGenreIds] = useState<number[]>([]);
-
-  const settingsDefaultsQuery = useQuery(settingsDefaultsQueryOptions);
-  const movieGenresQuery = useQuery(movieGenresQueryOptions);
-
-  useEffect(() => {
-    if (!settingsDefaultsQuery.data) {
-      return;
-    }
-
-    setSelectedGenreIds((current) =>
-      current.length > 0
-        ? current
-        : settingsDefaultsQuery.data.defaults.selectedGenreIds ?? [],
-    );
-  }, [settingsDefaultsQuery.data]);
 
   const createGameMutation = useMutation({
     mutationFn: async () =>
@@ -79,9 +41,6 @@ function HomePage() {
         api.api.rooms.$post({
           json: {
             roomName: roomName.trim() || undefined,
-            settings: {
-              selectedGenreIds,
-            },
           },
         }),
       ),
@@ -109,14 +68,6 @@ function HomePage() {
 
   const error =
     mode === "display" ? createGameMutation.error : joinGameMutation.error;
-
-  const toggleGenreId = (genreId: number, checked: boolean) => {
-    setSelectedGenreIds((current) =>
-      checked
-        ? [...new Set([...current, genreId])]
-        : current.filter((id) => id !== genreId),
-    );
-  };
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-12">
@@ -176,59 +127,11 @@ function HomePage() {
                 />
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <Label>Genres</Label>
-                  {selectedGenreIds.length > 0 ? (
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-                      onClick={() => setSelectedGenreIds([])}>
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-
-                {movieGenresQuery.isLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading genres...</p>
-                ) : movieGenresQuery.error ? (
-                  <p className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
-                    {movieGenresQuery.error instanceof Error
-                      ? movieGenresQuery.error.message
-                      : "Unable to load genres"}
-                  </p>
-                ) : (
-                  <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    {movieGenresQuery.data?.items.map((genre: {
-                      id: number;
-                      name: string;
-                    }) => (
-                      <Checkbox
-                        key={genre.id}
-                        checked={selectedGenreIds.includes(genre.id)}
-                        onCheckedChange={(checked) =>
-                          toggleGenreId(genre.id, checked === true)
-                        }
-                        label={genre.name}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <p className="text-xs text-muted-foreground">
-                  Leave blank to pull from the broader movie pool.
-                </p>
-              </div>
-
               <Button
                 effect="glow"
                 className="w-full"
                 type="submit"
-                disabled={
-                  createGameMutation.isPending ||
-                  settingsDefaultsQuery.isLoading ||
-                  movieGenresQuery.isLoading
-                }>
+                disabled={createGameMutation.isPending}>
                 {createGameMutation.isPending
                   ? "Creating room..."
                   : "Create room"}

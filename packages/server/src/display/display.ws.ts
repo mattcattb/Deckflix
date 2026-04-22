@@ -5,6 +5,7 @@ import {
 } from "@deckflix/shared";
 import {ensureSocketPubSub} from "../lib/redis";
 import * as DisplayService from "./display.service";
+import * as GamePresenceService from "../ws/presence.ws";
 
 export const createDisplaySocketHandler = () =>
   upgradeWebSocket((c) => {
@@ -15,7 +16,7 @@ export const createDisplaySocketHandler = () =>
 
     return {
       onOpen: (_, ws) => {
-        void DisplayService.openDisplayConnection({
+        void GamePresenceService.connectDisplay({
           gameCode,
           displayId,
           sessionToken,
@@ -27,15 +28,15 @@ export const createDisplaySocketHandler = () =>
               payload: await DisplayService.getDisplayState(gameCode),
             }));
             DisplayService.publishDisplayRoomState(server, gameCode);
-            DisplayService.subscribeDisplaySocket(ws, gameCode);
+            GamePresenceService.subscribeDisplaySocket(ws, gameCode);
           })
           .catch(() => {
             ws.close(4001, "Invalid display session");
           });
       },
       onClose: (_, ws) => {
-        DisplayService.unsubscribeDisplaySocket(ws, gameCode);
-        DisplayService.closeDisplayConnection({
+        GamePresenceService.unsubscribeDisplaySocket(ws, gameCode);
+        GamePresenceService.disconnectDisplay({
           gameCode,
           socket: ws,
         });

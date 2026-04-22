@@ -331,8 +331,8 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
             <SwipeControls
               onSwipe={(choice) => vote(choice)}
               disabled={voteMutation.isPending}
-              allowMaybe={state.settings.allowMaybe}
-              allowSuperLike={state.settings.allowSuperLike}
+              allowMaybe={state.settings.gameplay.allowMaybe}
+              allowSuperLike={state.settings.gameplay.allowSuperLike}
             />
           </div>
         ) : (

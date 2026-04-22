@@ -18,16 +18,21 @@ export const buildInitialPool = async (input: {
   const seenMovieIds = new Set<string>();
   let page = 1;
   let totalPages = 1;
-  const maxMovies = input.settings.maxMovies;
+  const maxMovies = input.settings.gameplay.maxMovies;
   const filters = GameSettingsService.buildMovieDiscoveryFilters(input.settings);
 
   while (items.length < maxMovies && page <= totalPages) {
     const result = isTmdbConfigured()
       ? await discoverTmdbMovies({
         page,
-        genreIds: filters.genreIds,
+        includedGenreIds: filters.includedGenreIds,
+        excludedGenreIds: filters.excludedGenreIds,
+        primaryReleaseDateGte: filters.primaryReleaseDateGte,
+        primaryReleaseDateLte: filters.primaryReleaseDateLte,
         sortBy: filters.sortBy,
         voteCountGte: filters.voteCountGte,
+        voteAverageGte: filters.voteAverageGte,
+        voteAverageLte: filters.voteAverageLte,
       }).catch(() => MoviesService.getPopularMovies({page}))
       : await MoviesService.getPopularMovies({page});
 

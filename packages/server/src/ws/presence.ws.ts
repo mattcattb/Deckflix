@@ -5,8 +5,6 @@ import {
   unsubscribeFromDisplay,
   unsubscribeFromPlayer,
 } from "./topics";
-import {publishDisplayMessage, publishPlayerMessage} from "./topics";
-import * as GameSnapshotService from "../games/game-snapshot.service";
 import * as RoomSessionService from "../rooms/room-session.service";
 
 export type SocketLike = {
@@ -20,10 +18,6 @@ type TopicSocket = {
     unsubscribe: (topic: string) => void;
   };
 };
-type SocketServer = {
-  publish: (topic: string, payload: string) => void;
-};
-
 const displaySocketsByGameCode = new Map<string, Set<SocketLike>>();
 const playerSocketsByGameCode = new Map<string, Map<string, Set<SocketLike>>>();
 
@@ -122,42 +116,4 @@ export const unsubscribePlayerSocket = (
   playerId: string,
 ) => {
   unsubscribeFromPlayer(ws as never, gameCode, playerId);
-};
-
-export const publishDisplayState = (server: SocketServer, gameCode: string) => {
-  void GameSnapshotService.getDisplayGameState(gameCode)
-    .then((state) => {
-      publishDisplayMessage(server as never, gameCode, {
-        type: "display.snapshot",
-        payload: state,
-      });
-    })
-    .catch(() => {});
-};
-
-export const publishPlayerStates = (
-  server: SocketServer,
-  gameCode: string,
-  playerIds: string[],
-) => {
-  void Promise.all(
-    playerIds.map(async (playerId) => {
-      publishPlayerMessage(server as never, gameCode, playerId, {
-        type: "player.snapshot",
-        payload: await GameSnapshotService.getPlayerGameState({
-          gameCode,
-          playerId,
-        }),
-      });
-    }),
-  ).catch(() => {});
-};
-
-export const publishRoomState = (
-  server: SocketServer,
-  gameCode: string,
-  playerIds: string[],
-) => {
-  publishDisplayState(server, gameCode);
-  publishPlayerStates(server, gameCode, playerIds);
 };
