@@ -7,16 +7,34 @@ import {
   type RoomClient,
   type RoomSession,
 } from "@deckflix/shared";
-import {ConflictException, UnauthorizedException} from "../common/errors";
-import {getGameMetaOrThrow, getPlayerRecord} from "./game-redis.service";
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from "../common/errors";
+import {getPlayerRecord} from "./game-redis.service";
+import {getGameMetaOrThrow} from "../rooms/room-meta.service";
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
   role === "display"
     ? "This browser already owns the display for this room"
     : "This browser is already joined to this room as a player";
 
+const isInvalidRoomSessionError = (error: unknown) =>
+  error instanceof UnauthorizedException || error instanceof NotFoundException;
+
 export const verifyDisplaySession = async (input: DisplaySession) => {
-  const meta = await getGameMetaOrThrow(input.gameCode);
+  let meta;
+  try {
+    meta = await getGameMetaOrThrow(input.gameCode);
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw new UnauthorizedException("Invalid display session");
+    }
+
+    throw error;
+  }
+
   if (
     meta.display.id !== input.displayId ||
     meta.display.sessionToken !== input.sessionToken
@@ -64,7 +82,7 @@ export const assertRoomSessionAvailable = async (session: RoomSession | null) =>
   try {
     await verifyRoomSession(session);
   } catch (error) {
-    if (error instanceof UnauthorizedException) {
+    if (isInvalidRoomSessionError(error)) {
       return;
     }
 
@@ -92,7 +110,7 @@ export const getActiveRoomClient = async (
       roomName: meta.roomName,
     });
   } catch (error) {
-    if (error instanceof UnauthorizedException) {
+    if (isInvalidRoomSessionError(error)) {
       return activeRoomClientSchema.parse({role: "none"});
     }
 
@@ -112,7 +130,7 @@ export const getRoomClient = async (input: {
     const verified = await verifyRoomSession(input.session);
     return roomClientSchema.parse({role: verified.role});
   } catch (error) {
-    if (error instanceof UnauthorizedException) {
+    if (isInvalidRoomSessionError(error)) {
       return roomClientSchema.parse({role: "none"});
     }
 

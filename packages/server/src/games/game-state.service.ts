@@ -7,39 +7,43 @@ import type {
   SwipeChoice,
 } from "@deckflix/shared";
 import {BadRequestException, ConflictException} from "../common/errors";
-import {maybeRefillPool} from "./game-pool.service";
+import {getPoolEntries, maybeRefillPool} from "./game-pool.service";
+import {getGameSettingsOrThrow} from "../settings/game-settings.service";
+import {
+  deletePlayerState,
+  getMovieRecordOrThrow,
+  listPlayerIds,
+  setMovieRecord,
+  setPlayerRecord,
+  touchRoomKeys,
+  withGameLock,
+  type MovieRecord,
+  type MovieStatus,
+} from "./game-redis.service";
+import {verifyPlayerSession} from "./game-session.service";
+import {
+  getPlayerVote,
+  setPlayerVote,
+  syncMovieOutcomeSets,
+} from "../swipe/swipe-ledger.service";
 import {
   clearPlayerCurrentAssignment,
-  deletePlayerState,
-  getGameMetaOrThrow,
-  getGameSettingsOrThrow,
-  getMovieRecordOrThrow,
+  deleteSwipeState,
   getPlayerCurrentAssignment,
   getPlayerQueueEntries,
   getPlayerQueueLength,
   getPlayerSeenCount,
   getPlayerSeenMovieIds,
-  getPlayerVote,
-  getPoolEntries,
   hasPlayerSeenMovie,
-  listPlayerIds,
   markPlayerSeenMovie,
   popPlayerQueueEntry,
   pushPlayerQueueEntries,
-  setGameMeta,
-  setMovieRecord,
   setPlayerCurrentAssignment,
-  setPlayerRecord,
-  setPlayerVote,
-  syncMovieOutcomeSets,
-  touchRoomKeys,
-  withGameLock,
-  type MovieRecord,
-  type MovieStatus,
   type PlayerCurrentAssignment,
   type PlayerQueueEntry,
-} from "./game-redis.service";
-import {verifyPlayerSession} from "./game-session.service";
+} from "../swipe/swipe-queue.service";
+import {getGameMetaOrThrow, setGameMeta} from "../rooms/room-meta.service";
+import {getPlayerGameState} from "./game-snapshot.service";
 
 export const PLAYER_QUEUE_TARGET = 3;
 export const PLAYER_QUEUE_REFILL_THRESHOLD = 1;
@@ -60,12 +64,13 @@ const listAssignableEntries = async (
   gameCode: string,
   playerId: string,
 ): Promise<PlayerQueueEntry[]> => {
-  const [poolEntries, seenMovieIds, queuedEntries, currentAssignment] = await Promise.all([
-    getPoolEntries(gameCode),
-    getPlayerSeenMovieIds(gameCode, playerId),
-    getPlayerQueueEntries(gameCode, playerId),
-    getPlayerCurrentAssignment(gameCode, playerId),
-  ]);
+  const [poolEntries, seenMovieIds, queuedEntries, currentAssignment] =
+    await Promise.all([
+      getPoolEntries(gameCode),
+      getPlayerSeenMovieIds(gameCode, playerId),
+      getPlayerQueueEntries(gameCode, playerId),
+      getPlayerCurrentAssignment(gameCode, playerId),
+    ]);
 
   const excludedMovieIds = new Set<string>(seenMovieIds);
   for (const entry of queuedEntries) {
@@ -160,18 +165,30 @@ export const getCurrentOrNextMovie = async (
   return hydrateAssignment(gameCode, assignment);
 };
 
-export const clearCurrentAssignment = async (gameCode: string, playerId: string) => {
+export const clearCurrentAssignment = async (
+  gameCode: string,
+  playerId: string,
+) => {
   await clearPlayerCurrentAssignment(gameCode, playerId);
 };
 
-export const markSeen = async (gameCode: string, playerId: string, movieId: string) => {
+export const markSeen = async (
+  gameCode: string,
+  playerId: string,
+  movieId: string,
+) => {
   await markPlayerSeenMovie(gameCode, playerId, movieId);
 };
 
-export const getPlayerCurrentIndex = async (gameCode: string, playerId: string) =>
-  getPlayerSeenCount(gameCode, playerId);
+export const getPlayerCurrentIndex = async (
+  gameCode: string,
+  playerId: string,
+) => getPlayerSeenCount(gameCode, playerId);
 
-export const getPlayerRemainingCount = async (gameCode: string, playerId: string) => {
+export const getPlayerRemainingCount = async (
+  gameCode: string,
+  playerId: string,
+) => {
   const [current, queueEntries, assignableEntries] = await Promise.all([
     getPlayerCurrentAssignment(gameCode, playerId),
     getPlayerQueueEntries(gameCode, playerId),
@@ -188,10 +205,13 @@ export const isPlayerCompleted = async (gameCode: string, playerId: string) => {
     listAssignableEntries(gameCode, playerId),
   ]);
 
-  return !current && queueEntries.length === 0 && assignableEntries.length === 0;
+  return (
+    !current && queueEntries.length === 0 && assignableEntries.length === 0
+  );
 };
 
-export const getGamePlayerIds = async (gameCode: string) => listPlayerIds(gameCode);
+export const getGamePlayerIds = async (gameCode: string) =>
+  listPlayerIds(gameCode);
 
 export const areAllPlayersCompleted = async (gameCode: string) => {
   const playerIds = await listPlayerIds(gameCode);
@@ -209,7 +229,10 @@ export const areAllPlayersCompleted = async (gameCode: string) => {
 const getPositiveVotes = (movieRecord: MovieRecord) =>
   movieRecord.likeCount + movieRecord.superLikeCount;
 
-const incrementVoteCounts = (movieRecord: MovieRecord, choice: SwipeChoice): MovieRecord => {
+const incrementVoteCounts = (
+  movieRecord: MovieRecord,
+  choice: SwipeChoice,
+): MovieRecord => {
   const nextRecord = {
     ...movieRecord,
     totalVotes: movieRecord.totalVotes + 1,
@@ -243,7 +266,9 @@ const determineMovieStatus = async (
   }
 
   const seenStates = await Promise.all(
-    playerIds.map((playerId) => hasPlayerSeenMovie(gameCode, playerId, movieRecord.movie.id)),
+    playerIds.map((playerId) =>
+      hasPlayerSeenMovie(gameCode, playerId, movieRecord.movie.id),
+    ),
   );
 
   return seenStates.every(Boolean) ? "rejected" : "pending";
@@ -255,7 +280,8 @@ export const refreshMovieOutcome = async (
 ) => {
   const movieRecord = await getMovieRecordOrThrow(gameCode, movieId);
   const nextStatus = await determineMovieStatus(gameCode, movieRecord);
-  const justMatched = movieRecord.status !== "matched" && nextStatus === "matched";
+  const justMatched =
+    movieRecord.status !== "matched" && nextStatus === "matched";
 
   if (movieRecord.status !== nextStatus) {
     await setMovieRecord(gameCode, movieId, {
@@ -282,14 +308,26 @@ const recordMovieVote = async (input: {
   playerId: string;
   choice: SwipeChoice;
 }) => {
-  const existingVote = await getPlayerVote(input.gameCode, input.movieId, input.playerId);
+  const existingVote = await getPlayerVote(
+    input.gameCode,
+    input.movieId,
+    input.playerId,
+  );
   if (existingVote) {
     throw new BadRequestException("Vote already recorded for this movie");
   }
 
-  await setPlayerVote(input.gameCode, input.movieId, input.playerId, input.choice);
+  await setPlayerVote(
+    input.gameCode,
+    input.movieId,
+    input.playerId,
+    input.choice,
+  );
 
-  const movieRecord = await getMovieRecordOrThrow(input.gameCode, input.movieId);
+  const movieRecord = await getMovieRecordOrThrow(
+    input.gameCode,
+    input.movieId,
+  );
   const nextRecord = incrementVoteCounts(movieRecord, input.choice);
   await setMovieRecord(input.gameCode, input.movieId, nextRecord);
 
@@ -324,9 +362,10 @@ export const syncRoomStatus = async (gameCode: string) => {
   const nextMeta = {
     ...meta,
     status: nextStatus,
-    endedAt: nextStatus === "completed"
-      ? meta.endedAt ?? new Date().toISOString()
-      : null,
+    endedAt:
+      nextStatus === "completed"
+        ? (meta.endedAt ?? new Date().toISOString())
+        : null,
   };
 
   await setGameMeta(gameCode, nextMeta);
@@ -379,7 +418,7 @@ export const joinGame = async (input: {
 export const leaveGame = async (player: PlayerSession) =>
   withGameLock(player.gameCode, async () => {
     await verifyPlayerSession(player);
-    await clearCurrentAssignment(player.gameCode, player.playerId);
+    await deleteSwipeState(player.gameCode, player.playerId);
     await deletePlayerState(player.gameCode, player.playerId);
     await recalculateMovieOutcomes(player.gameCode);
     await syncRoomStatus(player.gameCode);
@@ -424,7 +463,9 @@ export const recordVote = async (input: {
     }
 
     if (currentAssignment.assignmentId !== input.assignmentId) {
-      throw new BadRequestException("Vote does not match the active assignment");
+      throw new BadRequestException(
+        "Vote does not match the active assignment",
+      );
     }
 
     if (currentAssignment.movieId !== input.movieId) {
@@ -450,8 +491,6 @@ export const recordVote = async (input: {
       justMatched,
     };
   });
-
-  const {getPlayerGameState} = await import("./game-snapshot.service");
 
   return {
     movieId: result.movieId,

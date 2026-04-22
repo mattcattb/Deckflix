@@ -1,9 +1,18 @@
 import type {MovieCandidate} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
 import * as MoviesService from "../movies/movies.service";
-import {discoverTmdbMovies, isTmdbConfigured} from "../tmdb/tmdb.service";
+import {discoverTmdbMovies, isTmdbConfigured} from "../lib/tmdb";
 import {buildMovieDiscoveryFilters} from "../settings/game-settings.service";
 import type {GameSettings} from "@deckflix/shared";
+import {ensureRedis, redis} from "../lib/redis";
+import {
+  normalizeGameCode,
+  setMovieRecord,
+  type MovieRecord,
+} from "./game-redis.service";
+import type {PlayerQueueEntry} from "../swipe/swipe-queue.service";
+
+const poolKey = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:pool`;
 
 export const buildInitialPool = async (input: {
   settings: GameSettings;
@@ -48,6 +57,49 @@ export const buildInitialPool = async (input: {
   }
 
   return items;
+};
+
+export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]) => {
+  if (movies.length === 0) {
+    return;
+  }
+
+  await ensureRedis();
+  await redis.zAdd(
+    poolKey(gameCode),
+    movies.map((movie, order) => ({
+      value: movie.id,
+      score: order,
+    })),
+  );
+
+  for (const movie of movies) {
+    const record: MovieRecord = {
+      movie,
+      status: "pending",
+      likeCount: 0,
+      dislikeCount: 0,
+      maybeCount: 0,
+      superLikeCount: 0,
+      skipCount: 0,
+      totalVotes: 0,
+    };
+    await setMovieRecord(gameCode, movie.id, record);
+  }
+};
+
+export const getPoolEntries = async (gameCode: string): Promise<PlayerQueueEntry[]> => {
+  await ensureRedis();
+  const movieIds = await redis.zRange(poolKey(gameCode), 0, -1);
+  return movieIds.map((movieId, order) => ({
+    movieId,
+    order,
+  }));
+};
+
+export const getPoolSize = async (gameCode: string) => {
+  await ensureRedis();
+  return redis.zCard(poolKey(gameCode));
 };
 
 export const maybeRefillPool = async (_input: {gameCode: string}) => {

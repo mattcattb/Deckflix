@@ -24,6 +24,25 @@ Deckflix is a Jackbox-style movie picker:
 5. swiping options for like, dislike, maybe, and skip
 6. Maybe some config settings like how many people need to like it or not (later features )
 
+- Add info view (like for tinder) to show movie description + other information on it
+- click on movies in home view to pull up modal for the movie information
+- toast notifications on matches!
+- better display view for matches
+- settings, movie stars filtering
+- genre filtering for movies recommedended
+- filter in settings movie recency
+- back option
+- show genre in next swipe details (defered loading)
+- like, superlike, dislike animations?
+- match event on user device + profile device? (if a move is selected by everyone do a event OR )
+- on response to a matched movie show the match animation
+
+- settings in room creation page
+
+- rejected bug...
+- double linked list for preserving back? (or do this on client idk)
+- swipe maybe should have an id?
+
 ## Quick Start
 
 1. Copy envs:

@@ -1,7 +1,7 @@
 import {roomSessionSchema, type RoomSession} from "@deckflix/shared";
 import {deleteCookie, getCookie, setCookie} from "hono/cookie";
 import {createMiddleware} from "hono/factory";
-import {UnauthorizedException} from "../common/errors";
+import {NotFoundException, UnauthorizedException} from "../common/errors";
 import {verifyRoomSession} from "../games/game-session.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
@@ -86,6 +86,34 @@ export const roomMiddleware = createMiddleware(async (c, next) => {
   await next();
 });
 
+const getRequiredRoomSession = async (c: CookieContext) => {
+  const session = readRoomSessionCookie(c);
+  if (!session) {
+    throw new NotFoundException("Room not found");
+  }
+
+  try {
+    return await verifyRoomSession(session);
+  } catch (error) {
+    if (error instanceof UnauthorizedException) {
+      clearRoomSessionCookie(c);
+      throw new NotFoundException("Room not found");
+    }
+
+    throw error;
+  }
+};
+
+export const activeRoomMiddleware = createMiddleware(async (c, next) => {
+  const session = await getRequiredRoomSession(c);
+  c.set("roomRequest", {
+    gameCode: session.gameCode,
+    session,
+  });
+
+  await next();
+});
+
 export const displaySessionMiddleware = createMiddleware(async (c, next) => {
   const {gameCode, session} = c.get("roomRequest");
   if (!session || session.role !== "display") {
@@ -95,6 +123,26 @@ export const displaySessionMiddleware = createMiddleware(async (c, next) => {
   c.set("roomSession", session);
   c.set("displaySession", {
     gameCode,
+    displayId: session.roleId,
+    sessionToken: session.sessionToken,
+  });
+
+  await next();
+});
+
+export const activeDisplaySessionMiddleware = createMiddleware(async (c, next) => {
+  const session = await getRequiredRoomSession(c);
+  if (session.role !== "display") {
+    throw new NotFoundException("Room not found");
+  }
+
+  c.set("roomRequest", {
+    gameCode: session.gameCode,
+    session,
+  });
+  c.set("roomSession", session);
+  c.set("displaySession", {
+    gameCode: session.gameCode,
     displayId: session.roleId,
     sessionToken: session.sessionToken,
   });
@@ -117,6 +165,26 @@ export const playerSessionMiddleware = createMiddleware(async (c, next) => {
   c.set("playerSession", {
     gameCode,
     playerId,
+    sessionToken: session.sessionToken,
+  });
+
+  await next();
+});
+
+export const activePlayerSessionMiddleware = createMiddleware(async (c, next) => {
+  const session = await getRequiredRoomSession(c);
+  if (session.role !== "player") {
+    throw new NotFoundException("Room not found");
+  }
+
+  c.set("roomRequest", {
+    gameCode: session.gameCode,
+    session,
+  });
+  c.set("roomSession", session);
+  c.set("playerSession", {
+    gameCode: session.gameCode,
+    playerId: session.roleId,
     sessionToken: session.sessionToken,
   });
 

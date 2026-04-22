@@ -20,6 +20,11 @@ export const gameSettingsSchema = z.object({
   allowSuperLike: z.boolean(),
   selectedGenreIds: z.array(z.number().int().positive()).max(10).optional(),
 });
+/*
+minStars: z.number().min(0).optional(),
+  maxStars: z.number().max(10).optional(),
+  movieYearMin: z.date().optional(),
+*/
 
 export const gameSettingsInputSchema = gameSettingsSchema.partial();
 

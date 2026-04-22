@@ -9,6 +9,15 @@ import type {
 } from "@deckflix/shared";
 import {UnauthorizedException} from "../common/errors";
 import {
+  getPoolEntries,
+  getPoolSize,
+} from "./game-pool.service";
+import {getGameSettingsOrThrow} from "../settings/game-settings.service";
+import {
+  getMatchedMovieIds,
+  getRejectedMovieIds,
+} from "../swipe/swipe-ledger.service";
+import {
   getCurrentMovie,
   getPlayerCurrentIndex,
   getPlayerRemainingCount,
@@ -16,16 +25,11 @@ import {
 } from "./game-state.service";
 import {isDisplayConnected, isPlayerConnected} from "./game-presence.service";
 import {
-  getGameMetaOrThrow,
-  getGameSettingsOrThrow,
   getMovieRecords,
-  getPoolEntries,
-  getPoolSize,
-  getRejectedMovieIds,
-  getMatchedMovieIds,
   getPlayerRecord,
   listPlayers,
 } from "./game-redis.service";
+import {getGameMetaOrThrow} from "../rooms/room-meta.service";
 
 const buildSummary = async (gameCode: string): Promise<GameSummary> => {
   const [meta, players, queueSize] = await Promise.all([

@@ -1,84 +1,22 @@
 import {zValidator} from "@hono/zod-validator";
-import {getBunServer, upgradeWebSocket} from "hono/bun";
-import {
-  decodeDisplayClientMessage,
-  decodePlayerClientMessage,
-  encodeDisplayServerMessage,
-  encodePlayerServerMessage,
-  joinGamePayloadSchema,
-  voteGamePayloadSchema,
-} from "@deckflix/shared";
+import {getBunServer} from "hono/bun";
+import {joinGamePayloadSchema} from "@deckflix/shared";
 import {createRouter} from "../common/hono";
 import {ensureSocketPubSub} from "../lib/redis";
 import {
+  activeDisplaySessionMiddleware,
+  activeRoomMiddleware,
   clearRoomSessionCookie,
   displaySessionMiddleware,
-  playerSessionMiddleware,
   readRoomSessionCookie,
   roomMiddleware,
   setRoomSessionCookie,
 } from "./rooms.middleware";
 import * as RoomsService from "./rooms.service";
+import {activeSwipeRoutes, playerSwipeRoutes} from "../swipe/swipe.controller";
+import {activeDisplayRoutes, displayRoutes} from "../display/display.controller";
 
 const playerRoutes = createRouter()
-  .get("/me", playerSessionMiddleware, async (c) => {
-    return c.json(await RoomsService.getPlayerState(c.get("playerSession")));
-  })
-  .get(
-    "/ws",
-    playerSessionMiddleware,
-    upgradeWebSocket((c) => {
-      const {gameCode} = c.get("roomRequest");
-      const {playerId, sessionToken} = c.get("playerSession");
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-
-      return {
-        onOpen: (_, ws) => {
-          void RoomsService.openPlayerConnection({
-            gameCode,
-            playerId,
-            sessionToken,
-            socket: ws,
-          })
-            .then(async () => {
-              ws.send(encodePlayerServerMessage({
-                type: "player.snapshot",
-                payload: await RoomsService.getPlayerState({gameCode, playerId}),
-              }));
-              RoomsService.publishState(server, gameCode);
-              RoomsService.subscribePlayer(ws, gameCode, playerId);
-            })
-            .catch(() => {
-              ws.close(4001, "Invalid player session");
-            });
-        },
-        onClose: (_, ws) => {
-          RoomsService.unsubscribePlayer(ws, gameCode, playerId);
-          RoomsService.closePlayerConnection({
-            gameCode,
-            playerId,
-            socket: ws,
-          });
-          RoomsService.publishState(server, gameCode);
-        },
-        onMessage: (event, ws) => {
-          try {
-            const parsed = decodePlayerClientMessage(event.data as string);
-            if (parsed.type === "ping") {
-              ws.send(encodePlayerServerMessage({type: "pong"}));
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Invalid websocket message";
-            ws.send(encodePlayerServerMessage({
-              type: "player.error",
-              payload: {message},
-            }));
-          }
-        },
-      };
-    }),
-  )
   .post("/", zValidator("json", joinGamePayloadSchema), async (c) => {
     const {gameCode} = c.get("roomRequest");
     const input = c.req.valid("json");
@@ -108,94 +46,7 @@ const playerRoutes = createRouter()
       playerSession: result.playerSession,
     }, 201);
   })
-  .post(
-    "/:playerId/votes",
-    playerSessionMiddleware,
-    zValidator("json", voteGamePayloadSchema),
-    async (c) => {
-      const input = c.req.valid("json");
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const result = await RoomsService.vote({
-        player: c.get("playerSession"),
-        assignmentId: input.assignmentId,
-        movieId: input.movieId,
-        choice: input.choice,
-        server,
-      });
-
-      return c.json({state: result.state}, 201);
-    },
-  )
-  .post("/:playerId/leave", playerSessionMiddleware, async (c) => {
-    const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-    void ensureSocketPubSub(server);
-    await RoomsService.leave({
-      player: c.get("playerSession"),
-      server,
-    });
-    clearRoomSessionCookie(c);
-    return c.body(null, 204);
-  });
-
-const displayRoutes = createRouter()
-  .get("/state", displaySessionMiddleware, async (c) => {
-    return c.json(await RoomsService.getDisplayState(c.get("roomRequest").gameCode));
-  })
-  .get(
-    "/ws",
-    displaySessionMiddleware,
-    upgradeWebSocket((c) => {
-      const {gameCode} = c.get("roomRequest");
-      const {displayId, sessionToken} = c.get("displaySession");
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-
-      return {
-        onOpen: (_, ws) => {
-          void RoomsService.openDisplayConnection({
-            gameCode,
-            displayId,
-            sessionToken,
-            socket: ws,
-          })
-            .then(async () => {
-              ws.send(encodeDisplayServerMessage({
-                type: "display.snapshot",
-                payload: await RoomsService.getDisplayState(gameCode),
-              }));
-              RoomsService.publishState(server, gameCode);
-              RoomsService.subscribeDisplay(ws, gameCode);
-            })
-            .catch(() => {
-              ws.close(4001, "Invalid display session");
-            });
-        },
-        onClose: (_, ws) => {
-          RoomsService.unsubscribeDisplay(ws, gameCode);
-          RoomsService.closeDisplayConnection({
-            gameCode,
-            socket: ws,
-          });
-          RoomsService.publishState(server, gameCode);
-        },
-        onMessage: (event, ws) => {
-          try {
-            const parsed = decodeDisplayClientMessage(event.data as string);
-            if (parsed.type === "ping") {
-              ws.send(encodeDisplayServerMessage({type: "pong"}));
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Invalid websocket message";
-            ws.send(encodeDisplayServerMessage({
-              type: "display.error",
-              payload: {message},
-            }));
-          }
-        },
-      };
-    }),
-  );
+  .route("/", playerSwipeRoutes);
 
 export const roomsController = createRouter()
   .get("/session", async (c) => {
@@ -205,6 +56,28 @@ export const roomsController = createRouter()
       clearRoomSessionCookie(c);
     }
     return c.json(activeClient);
+  })
+  .use("/me/*", activeRoomMiddleware)
+  .get("/me/client", async (c) => {
+    const {gameCode, session} = c.get("roomRequest");
+    const client = await RoomsService.getClient({gameCode, session});
+    return c.json(client);
+  })
+  .get("/me/meta", async (c) => {
+    return c.json(await RoomsService.getMeta(c.get("roomRequest").gameCode));
+  })
+  .get("/me/players", async (c) => {
+    return c.json(await RoomsService.getPlayers(c.get("roomRequest").gameCode));
+  })
+  .get("/me/results", async (c) => {
+    return c.json(await RoomsService.getResults(c.get("roomRequest").gameCode));
+  })
+  .route("/me/display", activeDisplayRoutes)
+  .route("/me/player", activeSwipeRoutes)
+  .delete("/me", activeDisplaySessionMiddleware, async (c) => {
+    await RoomsService.remove(c.get("displaySession"));
+    clearRoomSessionCookie(c);
+    return c.body(null, 204);
   })
   .use("/:gameCode/*", roomMiddleware)
   .get("/:gameCode/client", async (c) => {

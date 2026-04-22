@@ -1,5 +1,32 @@
 import type {GameSettings, GameSettingsInput} from "@deckflix/shared";
-import {getTmdbMovieGenres} from "../tmdb/tmdb.service";
+import {gameSettingsSchema} from "@deckflix/shared";
+import {NotFoundException} from "../common/errors";
+import {getTmdbMovieGenres} from "../lib/tmdb";
+import {ensureRedis, redis} from "../lib/redis";
+
+const GAME_TTL_SECONDS = 60 * 60 * 24;
+
+const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCase();
+
+const settingsKey = (gameCode: string) =>
+  `game:${normalizeGameCode(gameCode)}:settings`;
+
+const parseSettings = (raw: string, gameCode: string) => {
+  let parsedValue: unknown;
+
+  try {
+    parsedValue = JSON.parse(raw);
+  } catch {
+    throw new NotFoundException(`Game ${normalizeGameCode(gameCode)} not found`);
+  }
+
+  const parsed = gameSettingsSchema.safeParse(parsedValue);
+  if (!parsed.success) {
+    throw new NotFoundException(`Game ${normalizeGameCode(gameCode)} not found`);
+  }
+
+  return parsed.data;
+};
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   minLikesToMatch: 2,
@@ -23,3 +50,20 @@ export const buildMovieDiscoveryFilters = (settings: GameSettings) => ({
 
 export const getSelectableMovieGenres = async (language = "en-US") =>
   getTmdbMovieGenres(language);
+
+export const getGameSettingsOrThrow = async (gameCode: string) => {
+  await ensureRedis();
+  const raw = await redis.get(settingsKey(gameCode));
+  if (!raw) {
+    throw new NotFoundException(`Game ${normalizeGameCode(gameCode)} not found`);
+  }
+
+  return parseSettings(raw, gameCode);
+};
+
+export const setGameSettings = async (gameCode: string, settings: GameSettings) => {
+  await ensureRedis();
+  await redis.set(settingsKey(gameCode), JSON.stringify(settings), {
+    EX: GAME_TTL_SECONDS,
+  });
+};

@@ -1,13 +1,11 @@
-import type {GamePlayerPresence, SwipeChoice} from "@deckflix/shared";
 import type {DisplaySession, PlayerSession} from "@deckflix/shared";
 import {
-  publishDisplayMessage,
-  publishPlayerMessage,
   subscribeToDisplay,
   subscribeToPlayer,
   unsubscribeFromDisplay,
   unsubscribeFromPlayer,
 } from "../ws/topics";
+import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
 import {getDisplayGameState, getPlayerGameState} from "./game-snapshot.service";
 import {verifyDisplaySession, verifyPlayerSession} from "./game-session.service";
 
@@ -157,65 +155,4 @@ export const publishRoomState = (
 ) => {
   publishDisplayState(server, gameCode);
   publishPlayerStates(server, gameCode, playerIds);
-};
-
-export const publishPlayerJoined = (
-  server: SocketServer,
-  gameCode: string,
-  player: GamePlayerPresence,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.player_joined",
-    payload: player,
-  });
-};
-
-export const publishPlayerLeft = (
-  server: SocketServer,
-  gameCode: string,
-  playerId: string,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.player_left",
-    payload: {playerId},
-  });
-};
-
-export const publishMatchFound = (
-  server: SocketServer,
-  gameCode: string,
-  movieId: string,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.match_found",
-    payload: {movieId},
-  });
-};
-
-export const publishVoteRecorded = (input: {
-  server: SocketServer;
-  gameCode: string;
-  playerId: string;
-  movieId: string;
-  choice: SwipeChoice;
-}) => {
-  publishPlayerMessage(input.server as never, input.gameCode, input.playerId, {
-    type: "player.vote_recorded",
-    payload: {
-      movieId: input.movieId,
-      choice: input.choice,
-    },
-  });
-};
-
-export const publishPlayerMatch = (
-  server: SocketServer,
-  gameCode: string,
-  playerId: string,
-  movieId: string,
-) => {
-  publishPlayerMessage(server as never, gameCode, playerId, {
-    type: "player.match_found",
-    payload: {movieId},
-  });
 };

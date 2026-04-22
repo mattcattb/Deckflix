@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {createFileRoute, Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery} from "@tanstack/react-query";
 import type {GameVoteSummary, MovieCandidate, SwipeChoice} from "@deckflix/shared/game-core";
@@ -15,11 +15,19 @@ import {MovieCard} from "../components/games/movie-card";
 import {SwipeControls} from "../components/games/player/swipe-controls";
 import {SwipeDeck} from "../components/games/player/swipe-stack";
 import {
+  createActiveDisplayWebSocketUrl,
+  createActivePlayerWebSocketUrl,
   createDisplayWebSocketUrl,
   createPlayerWebSocketUrl,
+  deleteActiveRoom,
   deleteRoom,
   gameKeys,
   getActiveRoomClient,
+  getActiveDisplayGameState,
+  getActiveGameMeta,
+  getActiveGamePlayers,
+  getActiveGameResults,
+  getActivePlayerGameState,
   getDisplayGameState,
   getGameMeta,
   getGamePlayers,
@@ -27,9 +35,11 @@ import {
   getPlayerGameState,
   getRoomClient,
   joinGame,
+  leaveActiveGame,
   leaveGame,
   parseDisplayServerMessage,
   parsePlayerServerMessage,
+  voteForActiveMovie,
   voteForMovie,
 } from "../lib/games";
 
@@ -83,8 +93,7 @@ function RoomPage() {
 
     if (activeSessionQuery.data.gameCode !== gameCode) {
       navigate({
-        to: "/room/$gameCode",
-        params: {gameCode: activeSessionQuery.data.gameCode},
+        to: activeSessionQuery.data.role === "display" ? "/room" : "/play",
         replace: true,
       });
     }
@@ -265,12 +274,14 @@ function JoinRoomView({
   );
 }
 
-function DisplayRoomView({
+export function DisplayRoomView({
   gameCode,
   onSessionChange,
+  scopedToActiveRoom = false,
 }: {
   gameCode: string;
   onSessionChange: () => void;
+  scopedToActiveRoom?: boolean;
 }) {
   const navigate = useNavigate();
   const [gameError, setGameError] = useState<string | null>(null);
@@ -280,15 +291,19 @@ function DisplayRoomView({
 
   const metaQuery = useQuery<GameMeta>({
     queryKey: gameKeys.meta(gameCode),
-    queryFn: () => getGameMeta(gameCode),
+    queryFn: () => (scopedToActiveRoom ? getActiveGameMeta() : getGameMeta(gameCode)),
   });
   const playersQuery = useQuery<GamePlayers>({
     queryKey: gameKeys.players(gameCode),
-    queryFn: () => getGamePlayers(gameCode),
+    queryFn: () =>
+      scopedToActiveRoom ? getActiveGamePlayers() : getGamePlayers(gameCode),
   });
   const stateQuery = useQuery<DisplayGameState>({
     queryKey: gameKeys.displayState(gameCode),
-    queryFn: () => getDisplayGameState(gameCode),
+    queryFn: () =>
+      scopedToActiveRoom
+        ? getActiveDisplayGameState()
+        : getDisplayGameState(gameCode),
   });
 
   const [state, setState] = useState<DisplayGameState | null>(null);
@@ -302,7 +317,8 @@ function DisplayRoomView({
   }, [stateQuery.data]);
 
   const deleteRoomMutation = useMutation({
-    mutationFn: async () => deleteRoom(gameCode),
+    mutationFn: async () =>
+      scopedToActiveRoom ? deleteActiveRoom() : deleteRoom(gameCode),
     onSuccess: () => {
       navigate({
         to: "/",
@@ -315,7 +331,11 @@ function DisplayRoomView({
   });
 
   useEffect(() => {
-    const socket = new WebSocket(createDisplayWebSocketUrl(gameCode));
+    const socket = new WebSocket(
+      scopedToActiveRoom
+        ? createActiveDisplayWebSocketUrl()
+        : createDisplayWebSocketUrl(gameCode),
+    );
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -377,7 +397,7 @@ function DisplayRoomView({
       }
       socketRef.current = null;
     };
-  }, [gameCode, onSessionChange, refetchMeta, refetchPlayers]);
+  }, [gameCode, onSessionChange, refetchMeta, refetchPlayers, scopedToActiveRoom]);
 
   if (metaQuery.isLoading || playersQuery.isLoading || stateQuery.isLoading || !state) {
     return null;
@@ -399,7 +419,7 @@ function DisplayRoomView({
     );
   }
 
-  const board = useMemo(() => getBoardSections(state), [state]);
+  const board = getBoardSections(state);
   const latestMatch =
     state.queue.find((item) => item.movie.id === latestMatchMovieId)?.movie ?? null;
 
@@ -525,12 +545,14 @@ function DisplayRoomView({
   );
 }
 
-function PlayerRoomView({
+export function PlayerRoomView({
   gameCode,
   onSessionChange,
+  scopedToActiveRoom = false,
 }: {
   gameCode: string;
   onSessionChange: () => void;
+  scopedToActiveRoom?: boolean;
 }) {
   const navigate = useNavigate();
   const [gameError, setGameError] = useState<string | null>(null);
@@ -540,19 +562,22 @@ function PlayerRoomView({
 
   const metaQuery = useQuery<GameMeta>({
     queryKey: gameKeys.meta(gameCode),
-    queryFn: () => getGameMeta(gameCode),
+    queryFn: () => (scopedToActiveRoom ? getActiveGameMeta() : getGameMeta(gameCode)),
   });
   const playersQuery = useQuery<GamePlayers>({
     queryKey: gameKeys.players(gameCode),
-    queryFn: () => getGamePlayers(gameCode),
+    queryFn: () =>
+      scopedToActiveRoom ? getActiveGamePlayers() : getGamePlayers(gameCode),
   });
   const resultsQuery = useQuery<GameResults>({
     queryKey: gameKeys.results(gameCode),
-    queryFn: () => getGameResults(gameCode),
+    queryFn: () =>
+      scopedToActiveRoom ? getActiveGameResults() : getGameResults(gameCode),
   });
   const stateQuery = useQuery<PlayerGameState>({
     queryKey: gameKeys.playerState(gameCode),
-    queryFn: () => getPlayerGameState(gameCode),
+    queryFn: () =>
+      scopedToActiveRoom ? getActivePlayerGameState() : getPlayerGameState(gameCode),
   });
 
   const [state, setState] = useState<PlayerGameState | null>(null);
@@ -580,13 +605,19 @@ function PlayerRoomView({
       choice: SwipeChoice;
       playerId: string;
     }) =>
-      voteForMovie({
-        gameCode,
-        assignmentId: payload.assignmentId,
-        playerId: payload.playerId,
-        movieId: payload.movieId,
-        choice: payload.choice,
-      }),
+      scopedToActiveRoom
+        ? voteForActiveMovie({
+            assignmentId: payload.assignmentId,
+            movieId: payload.movieId,
+            choice: payload.choice,
+          })
+        : voteForMovie({
+            gameCode,
+            assignmentId: payload.assignmentId,
+            playerId: payload.playerId,
+            movieId: payload.movieId,
+            choice: payload.choice,
+          }),
     onSuccess: (result) => {
       setState(result.state);
       void resultsQuery.refetch();
@@ -597,7 +628,8 @@ function PlayerRoomView({
   });
 
   const leaveMutation = useMutation({
-    mutationFn: async (playerId: string) => leaveGame({gameCode, playerId}),
+    mutationFn: async (playerId: string) =>
+      scopedToActiveRoom ? leaveActiveGame() : leaveGame({gameCode, playerId}),
     onSuccess: () => {
       onSessionChange();
       navigate({
@@ -608,7 +640,11 @@ function PlayerRoomView({
   });
 
   useEffect(() => {
-    const socket = new WebSocket(createPlayerWebSocketUrl(gameCode));
+    const socket = new WebSocket(
+      scopedToActiveRoom
+        ? createActivePlayerWebSocketUrl()
+        : createPlayerWebSocketUrl(gameCode),
+    );
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -667,7 +703,14 @@ function PlayerRoomView({
 
       socketRef.current = null;
     };
-  }, [gameCode, onSessionChange, refetchMeta, refetchPlayers, refetchResults]);
+  }, [
+    gameCode,
+    onSessionChange,
+    refetchMeta,
+    refetchPlayers,
+    refetchResults,
+    scopedToActiveRoom,
+  ]);
 
   if (
     metaQuery.isLoading ||

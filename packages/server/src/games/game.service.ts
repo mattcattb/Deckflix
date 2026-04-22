@@ -1,11 +1,16 @@
 import {randomUUID} from "node:crypto";
 import type {CreateGameResult, GameSettingsInput} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
-import {buildInitialPool} from "./game-pool.service";
+import {buildInitialPool, saveInitialPool} from "./game-pool.service";
 import {clearPresenceState} from "./game-presence.service";
-import {createGameState, deleteRoomKeys, withGameLock} from "./game-redis.service";
+import {
+  deleteRoomKeys,
+  touchRoomKeys,
+  withGameLock,
+} from "./game-redis.service";
 import {verifyDisplaySession} from "./game-session.service";
-import {resolveGameSettings} from "../settings/game-settings.service";
+import {resolveGameSettings, setGameSettings} from "../settings/game-settings.service";
+import {createGameMeta} from "../rooms/room-meta.service";
 
 const generateGameCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -29,24 +34,23 @@ export const createGame = async (input: {
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const gameCode = generateGameCode();
-    const created = await createGameState({
-      meta: {
-        id: randomUUID(),
-        code: gameCode,
-        roomName,
-        status: "lobby",
-        createdAt,
-        endedAt: null,
-        display: {
-          id: displayId,
-          sessionToken,
-        },
+    const created = await createGameMeta({
+      id: randomUUID(),
+      code: gameCode,
+      roomName,
+      status: "lobby",
+      createdAt,
+      endedAt: null,
+      display: {
+        id: displayId,
+        sessionToken,
       },
-      settings,
-      movies,
     });
 
     if (created) {
+      await saveInitialPool(gameCode, movies);
+      await setGameSettings(gameCode, settings);
+      await touchRoomKeys(gameCode);
       return {
         gameCode,
         displaySession: {

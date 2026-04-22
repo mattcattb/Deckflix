@@ -1,4 +1,4 @@
-import type {SwipeChoice} from "@deckflix/shared/game-core";
+import type {GameSettings, GameSettingsInput, SwipeChoice} from "@deckflix/shared/game-core";
 import type {ActiveRoomClient, RoomClient} from "@deckflix/shared/game-sessions";
 import type {
   CreateGameResult,
@@ -28,12 +28,19 @@ const expectJson = async <T>(response: Response, label: string) => {
 
 export const gameKeys = {
   activeClient: ["active-room-client"] as const,
+  settingsDefaults: ["game-settings-defaults"] as const,
+  movieGenres: (language = "en-US") => ["movie-genres", language] as const,
   roomClient: (gameCode: string) => ["room-client", normalizeGameCode(gameCode)] as const,
   meta: (gameCode: string) => ["game-meta", normalizeGameCode(gameCode)] as const,
   players: (gameCode: string) => ["game-players", normalizeGameCode(gameCode)] as const,
   results: (gameCode: string) => ["game-results", normalizeGameCode(gameCode)] as const,
   displayState: (gameCode: string) => ["display-state", normalizeGameCode(gameCode)] as const,
   playerState: (gameCode: string) => ["player-state", normalizeGameCode(gameCode)] as const,
+};
+
+export type SelectableMovieGenre = {
+  id: number;
+  name: string;
 };
 
 export const getActiveRoomClient = async () =>
@@ -52,6 +59,12 @@ export const getRoomClient = async (gameCode: string) => {
   );
 };
 
+export const getActiveRoomClientRole = async () =>
+  expectJson<RoomClient>(
+    await api.api.rooms.me.client.$get(),
+    "GET /api/rooms/me/client",
+  );
+
 export const getGameMeta = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
   return expectJson<GameMeta>(
@@ -61,6 +74,12 @@ export const getGameMeta = async (gameCode: string) => {
     `GET /api/rooms/${normalized}/meta`,
   );
 };
+
+export const getActiveGameMeta = async () =>
+  expectJson<GameMeta>(
+    await api.api.rooms.me.meta.$get(),
+    "GET /api/rooms/me/meta",
+  );
 
 export const getGamePlayers = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
@@ -72,6 +91,12 @@ export const getGamePlayers = async (gameCode: string) => {
   );
 };
 
+export const getActiveGamePlayers = async () =>
+  expectJson<GamePlayers>(
+    await api.api.rooms.me.players.$get(),
+    "GET /api/rooms/me/players",
+  );
+
 export const getGameResults = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
   return expectJson<GameResults>(
@@ -81,6 +106,12 @@ export const getGameResults = async (gameCode: string) => {
     `GET /api/rooms/${normalized}/results`,
   );
 };
+
+export const getActiveGameResults = async () =>
+  expectJson<GameResults>(
+    await api.api.rooms.me.results.$get(),
+    "GET /api/rooms/me/results",
+  );
 
 export const getDisplayGameState = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
@@ -92,6 +123,12 @@ export const getDisplayGameState = async (gameCode: string) => {
   );
 };
 
+export const getActiveDisplayGameState = async () =>
+  expectJson<DisplayGameState>(
+    await api.api.rooms.me.display.state.$get(),
+    "GET /api/rooms/me/display/state",
+  );
+
 export const getPlayerGameState = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
   return expectJson<PlayerGameState>(
@@ -102,11 +139,35 @@ export const getPlayerGameState = async (gameCode: string) => {
   );
 };
 
-export const createGame = async (input: {roomName?: string}) =>
+export const getActivePlayerGameState = async () =>
+  expectJson<PlayerGameState>(
+    await api.api.rooms.me.player.state.$get(),
+    "GET /api/rooms/me/player/state",
+  );
+
+export const getGameSettingsDefaults = async () =>
+  expectJson<{defaults: GameSettings}>(
+    await api.api.settings.game.$get(),
+    "GET /api/settings/game",
+  );
+
+export const getSelectableMovieGenres = async (language = "en-US") =>
+  expectJson<{items: SelectableMovieGenre[]}>(
+    await api.api.settings.game["movie-genres"].$get({
+      query: {language},
+    }),
+    "GET /api/settings/game/movie-genres",
+  );
+
+export const createGame = async (input: {
+  roomName?: string;
+  settings?: GameSettingsInput;
+}) =>
   expectJson<CreateGameResult>(
     await api.api.games.$post({
       json: {
         roomName: input.roomName?.trim() || undefined,
+        settings: input.settings,
       },
     }),
     "POST /api/games",
@@ -149,6 +210,22 @@ export const voteForMovie = async (input: {
   );
 };
 
+export const voteForActiveMovie = async (input: {
+  assignmentId: string;
+  movieId: string;
+  choice: SwipeChoice;
+}) =>
+  expectJson<VoteGameResult>(
+    await api.api.rooms.me.player.votes.$post({
+      json: {
+        assignmentId: input.assignmentId,
+        movieId: input.movieId,
+        choice: input.choice,
+      },
+    }),
+    "POST /api/rooms/me/player/votes",
+  );
+
 export const leaveGame = async (input: {gameCode: string; playerId: string}) => {
   const normalized = normalizeGameCode(input.gameCode);
   const response = await api.api.rooms[":gameCode"].players[":playerId"].leave.$post({
@@ -166,6 +243,14 @@ export const leaveGame = async (input: {gameCode: string; playerId: string}) => 
   }
 };
 
+export const leaveActiveGame = async () => {
+  const response = await api.api.rooms.me.player.leave.$post();
+
+  if (!response.ok) {
+    await throwApiError(response, "POST /api/rooms/me/player/leave");
+  }
+};
+
 export const deleteRoom = async (gameCode: string) => {
   const normalized = normalizeGameCode(gameCode);
   const response = await api.api.rooms[":gameCode"].$delete({
@@ -177,15 +262,35 @@ export const deleteRoom = async (gameCode: string) => {
   }
 };
 
+export const deleteActiveRoom = async () => {
+  const response = await api.api.rooms.me.$delete();
+
+  if (!response.ok) {
+    await throwApiError(response, "DELETE /api/rooms/me");
+  }
+};
+
 export const createDisplayWebSocketUrl = (gameCode: string) => {
   const wsBase = API_BASE_URL.replace(/^http/, "ws");
   const url = new URL(`/api/rooms/${normalizeGameCode(gameCode)}/display/ws`, wsBase);
   return url.toString();
 };
 
+export const createActiveDisplayWebSocketUrl = () => {
+  const wsBase = API_BASE_URL.replace(/^http/, "ws");
+  const url = new URL("/api/rooms/me/display/ws", wsBase);
+  return url.toString();
+};
+
 export const createPlayerWebSocketUrl = (gameCode: string) => {
   const wsBase = API_BASE_URL.replace(/^http/, "ws");
   const url = new URL(`/api/rooms/${normalizeGameCode(gameCode)}/players/ws`, wsBase);
+  return url.toString();
+};
+
+export const createActivePlayerWebSocketUrl = () => {
+  const wsBase = API_BASE_URL.replace(/^http/, "ws");
+  const url = new URL("/api/rooms/me/player/ws", wsBase);
   return url.toString();
 };
 
