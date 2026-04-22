@@ -64,7 +64,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       movieId: string;
     }) =>
       parseRpc(
-        api.api.rooms.me.player.vote.$post({
+        api.api.swipe.vote.$post({
           json: {
             assignmentId: payload.assignmentId,
             movieId: payload.movieId,
@@ -84,7 +84,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.rooms.me.player.leave.$post()),
+    mutationFn: async () => parseRpc(api.api.swipe.leave.$post()),
     onSuccess: () => {
       queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
         role: "none",

@@ -27,9 +27,6 @@ export const app = baseApp
   .route("/api/settings", settingsController)
   .route("/api/tmdb", tmdbController)
   .route("/api/rooms", roomsController)
-  .route("/api/rooms/me", roomController)
-  .route("/api/rooms/me/display", displayController)
-  .route("/api/rooms/me/player", swipeController)
   .route("/api/room", roomController)
   .route("/api/display", displayController)
   .route("/api/swipe", swipeController);

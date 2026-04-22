@@ -16,8 +16,8 @@ import * as SwipeService from "./swipe.service";
 
 const createPlayerSocketHandler = () =>
   upgradeWebSocket((c) => {
-    const {gameCode} = c.get("roomRequest");
-    const {playerId, sessionToken} = c.get("playerSession");
+    const {gameCode} = c.get("room");
+    const {playerId, sessionToken} = c.get("playerActor");
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
 
@@ -77,7 +77,8 @@ const createPlayerSocketHandler = () =>
 export const swipeController = createRouter()
   .use("*", activePlayerSessionMiddleware)
   .get("/state", async (c) => {
-    const {gameCode, playerId} = c.get("playerSession");
+    const {gameCode} = c.get("room");
+    const {playerId} = c.get("playerActor");
     return c.json(await SwipeService.getSwipeState({gameCode, playerId}));
   })
   .get("/ws", createPlayerSocketHandler())
@@ -89,8 +90,14 @@ export const swipeController = createRouter()
       const input = c.req.valid("json");
       const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
       void ensureSocketPubSub(server);
+      const {gameCode} = c.get("room");
+      const {playerId, sessionToken} = c.get("playerActor");
       const result = await SwipeService.recordSwipe({
-        player: c.get("playerSession"),
+        player: {
+          gameCode,
+          playerId,
+          sessionToken,
+        },
         assignmentId: input.assignmentId,
         movieId: input.movieId,
         choice: input.choice,
@@ -103,8 +110,14 @@ export const swipeController = createRouter()
   .post("/leave", async (c) => {
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
+    const {gameCode} = c.get("room");
+    const {playerId, sessionToken} = c.get("playerActor");
     await SwipeService.leaveSwipe({
-      player: c.get("playerSession"),
+      player: {
+        gameCode,
+        playerId,
+        sessionToken,
+      },
       server,
     });
     clearRoomSessionCookie(c);

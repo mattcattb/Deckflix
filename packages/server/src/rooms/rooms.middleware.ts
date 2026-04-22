@@ -83,9 +83,11 @@ export const roomMiddleware = createMiddleware(async (c, next) => {
     throw new UnauthorizedException("Missing game code");
   }
 
-  c.set("roomRequest", {
-    gameCode,
-    session: await resolveRoomScopedSession(c, gameCode),
+  const normalizedGameCode = gameCode.trim().toUpperCase();
+  c.set("room", {
+    gameCode: normalizedGameCode,
+    session: await resolveRoomScopedSession(c, normalizedGameCode),
+    meta: await RoomMetaService.getGameMetaOrThrow(normalizedGameCode),
   });
 
   await next();
@@ -111,24 +113,28 @@ const getRequiredRoomSession = async (c: CookieContext) => {
 
 export const activeRoomMiddleware = createMiddleware(async (c, next) => {
   const session = await getRequiredRoomSession(c);
-  c.set("roomRequest", {
+  c.set("room", {
     gameCode: session.gameCode,
     session,
+    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
   });
 
   await next();
 });
 
-export const displaySessionMiddleware = createMiddleware(async (c, next) => {
-  const {gameCode, session} = c.get("roomRequest");
-  if (!session || session.role !== "display") {
-    throw new UnauthorizedException("Missing display session");
+export const activePlayerSessionMiddleware = createMiddleware(async (c, next) => {
+  const session = await getRequiredRoomSession(c);
+  if (session.role !== "player") {
+    throw new NotFoundException("Room not found");
   }
 
-  c.set("roomSession", session);
-  c.set("displaySession", {
-    gameCode,
-    displayId: session.roleId,
+  c.set("room", {
+    gameCode: session.gameCode,
+    session,
+    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
+  });
+  c.set("playerActor", {
+    playerId: session.roleId,
     sessionToken: session.sessionToken,
   });
 
@@ -141,55 +147,13 @@ export const activeDisplaySessionMiddleware = createMiddleware(async (c, next) =
     throw new NotFoundException("Room not found");
   }
 
-  c.set("roomRequest", {
+  c.set("room", {
     gameCode: session.gameCode,
     session,
+    meta: await RoomMetaService.getGameMetaOrThrow(session.gameCode),
   });
-  c.set("roomSession", session);
-  c.set("displaySession", {
-    gameCode: session.gameCode,
+  c.set("displayActor", {
     displayId: session.roleId,
-    sessionToken: session.sessionToken,
-  });
-
-  await next();
-});
-
-export const playerSessionMiddleware = createMiddleware(async (c, next) => {
-  const {gameCode, session} = c.get("roomRequest");
-  if (!session || session.role !== "player") {
-    throw new UnauthorizedException("Missing player session");
-  }
-
-  const playerId = c.req.param("playerId") ?? session.roleId;
-  if (playerId !== session.roleId) {
-    throw new UnauthorizedException("Player session does not match requested player");
-  }
-
-  c.set("roomSession", session);
-  c.set("playerSession", {
-    gameCode,
-    playerId,
-    sessionToken: session.sessionToken,
-  });
-
-  await next();
-});
-
-export const activePlayerSessionMiddleware = createMiddleware(async (c, next) => {
-  const session = await getRequiredRoomSession(c);
-  if (session.role !== "player") {
-    throw new NotFoundException("Room not found");
-  }
-
-  c.set("roomRequest", {
-    gameCode: session.gameCode,
-    session,
-  });
-  c.set("roomSession", session);
-  c.set("playerSession", {
-    gameCode: session.gameCode,
-    playerId: session.roleId,
     sessionToken: session.sessionToken,
   });
 
@@ -201,8 +165,12 @@ const requireRoomStatus = (
   message: string,
 ) =>
   createMiddleware(async (c, next) => {
-    const meta = await RoomMetaService.getGameMetaOrThrow(c.get("roomRequest").gameCode);
-    c.set("roomMeta", meta);
+    const room = c.get("room");
+    const meta = await RoomMetaService.getGameMetaOrThrow(room.gameCode);
+    c.set("room", {
+      ...room,
+      meta,
+    });
     if (!statuses.includes(meta.status)) {
       throw new ConflictException(message);
     }

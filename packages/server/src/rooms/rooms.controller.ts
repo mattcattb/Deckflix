@@ -77,10 +77,10 @@ export const roomsController = createRouter()
   })
   .use("/:gameCode/*", roomMiddleware)
   .get("/:gameCode/meta", async (c) => {
-    return c.json(await RoomsService.getMeta(c.get("roomRequest").gameCode));
+    return c.json(await RoomsService.getMeta(c.get("room").gameCode));
   })
   .get("/:gameCode/players", async (c) => {
-    return c.json(await RoomsService.getPlayers(c.get("roomRequest").gameCode));
+    return c.json(await RoomsService.getPlayers(c.get("room").gameCode));
   })
   .post("/:gameCode/players", requireGameLobby, zValidator("json", joinGamePayloadSchema), async (c) => {
     const session = readRoomSessionCookie(c);
@@ -92,7 +92,7 @@ export const roomsController = createRouter()
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
     const result = await RoomsService.join({
-      gameCode: c.get("roomRequest").gameCode,
+      gameCode: c.get("room").gameCode,
       displayName: c.req.valid("json").displayName,
       server,
     });

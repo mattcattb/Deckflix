@@ -8,8 +8,8 @@ import * as DisplayService from "./display.service";
 
 export const createDisplaySocketHandler = () =>
   upgradeWebSocket((c) => {
-    const {gameCode} = c.get("roomRequest");
-    const {displayId, sessionToken} = c.get("displaySession");
+    const {gameCode} = c.get("room");
+    const {displayId, sessionToken} = c.get("displayActor");
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
 

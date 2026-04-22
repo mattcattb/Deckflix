@@ -116,7 +116,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   const settingsMutation = useMutation({
     mutationFn: async () =>
       parseRpc(
-        api.api.rooms.me.display.settings.$patch({
+        api.api.display.settings.$patch({
           json: draftSettings ?? {},
         }),
       ),
@@ -132,7 +132,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   });
 
   const startGameMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.rooms.me.display.start.$post()),
+    mutationFn: async () => parseRpc(api.api.display.start.$post()),
     onSuccess: () => {
       setGameError(null);
       void metaQuery.refetch();
@@ -146,7 +146,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   });
 
   const deleteRoomMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.rooms.me.display.$delete()),
+    mutationFn: async () => parseRpc(api.api.display.$delete()),
     onSuccess: () => {
       queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
         role: "none",

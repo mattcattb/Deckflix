@@ -15,16 +15,10 @@ import {HTTPException} from "hono/http-exception";
 
 declare module "hono" {
   interface ContextVariableMap {
-    roomRequest: {
+    room: {
       gameCode: string;
       session: RoomSession | null;
-    };
-    roomMeta: GameMetaRecord;
-    roomSession: {
-      gameCode: RoomSession["gameCode"];
-      role: RoomSession["role"];
-      roleId: RoomSession["roleId"];
-      sessionToken: RoomSession["sessionToken"];
+      meta: GameMetaRecord;
     };
     userId: string;
     user: {
@@ -37,13 +31,11 @@ declare module "hono" {
       id: string;
       expiresAt: Date;
     };
-    displaySession: {
-      gameCode: string;
+    displayActor: {
       displayId: string;
       sessionToken: string;
     };
-    playerSession: {
-      gameCode: string;
+    playerActor: {
       playerId: string;
       sessionToken: string;
     };

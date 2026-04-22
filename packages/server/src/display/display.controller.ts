@@ -15,7 +15,7 @@ import * as RoomsService from "../rooms/rooms.service";
 export const displayController = createRouter()
   .use("*", activeDisplaySessionMiddleware)
   .get("/state", async (c) => {
-    return c.json(await DisplayService.getDisplayState(c.get("roomRequest").gameCode));
+    return c.json(await DisplayService.getDisplayState(c.get("room").gameCode));
   })
   .get("/ws", createDisplaySocketHandler())
   .patch(
@@ -24,7 +24,7 @@ export const displayController = createRouter()
     zValidator("json", gameSettingsInputSchema),
     async (c) => {
       const result = await RoomsService.updateSettings({
-        gameCode: c.get("roomRequest").gameCode,
+        gameCode: c.get("room").gameCode,
         settings: c.req.valid("json"),
       });
       return c.json(result);
@@ -34,13 +34,19 @@ export const displayController = createRouter()
     const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
     void ensureSocketPubSub(server);
     await RoomsService.start({
-      gameCode: c.get("roomRequest").gameCode,
+      gameCode: c.get("room").gameCode,
       server,
     });
     return c.body(null, 204);
   })
   .delete("/", async (c) => {
-    await RoomsService.remove(c.get("displaySession"));
+    const {gameCode} = c.get("room");
+    const {displayId, sessionToken} = c.get("displayActor");
+    await RoomsService.remove({
+      gameCode,
+      displayId,
+      sessionToken,
+    });
     clearRoomSessionCookie(c);
     return c.body(null, 204);
   });
