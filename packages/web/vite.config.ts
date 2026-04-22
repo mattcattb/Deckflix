@@ -6,6 +6,12 @@ import tailwindVite from "@tailwindcss/vite";
 
 export default defineConfig(({mode}) => {
   loadEnv(mode, process.cwd(), "");
+  const previewPort = Number(process.env.PORT || "4173");
+  const allowedHosts = [".railway.app"];
+
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    allowedHosts.unshift(process.env.RAILWAY_PUBLIC_DOMAIN);
+  }
 
   return {
     plugins: [
@@ -14,12 +20,16 @@ export default defineConfig(({mode}) => {
       react(),
     ],
     server: {
+      host: true,
       port: 4173,
       strictPort: true,
+      allowedHosts,
     },
     preview: {
-      port: Number(process.env.PORT || "4173"),
+      host: true,
+      port: previewPort,
       strictPort: true,
+      allowedHosts,
     },
   };
 });
