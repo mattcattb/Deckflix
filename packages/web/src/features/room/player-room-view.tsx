@@ -3,7 +3,6 @@ import {Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
   ActiveRoomClient,
-  GameResults,
   PlayerGameState,
   SwipeChoice,
 } from "@deckflix/shared";
@@ -29,7 +28,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   const socketRef = useRef<WebSocket | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
   const [state, setState] = useState<PlayerGameState | null>(null);
-  const [results, setResults] = useState<GameResults | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
   const resultsQuery = useQuery(activeRoomResultsQueryOptions(gameCode));
@@ -43,12 +41,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       setState(stateQuery.data);
     }
   }, [stateQuery.data]);
-
-  useEffect(() => {
-    if (resultsQuery.data) {
-      setResults(resultsQuery.data);
-    }
-  }, [resultsQuery.data]);
 
   const voteMutation = useMutation({
     mutationFn: async (payload: {
@@ -177,8 +169,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
     playersQuery.isLoading ||
     resultsQuery.isLoading ||
     stateQuery.isLoading ||
-    !state ||
-    !results
+    !state
   ) {
     return null;
   }
@@ -222,112 +213,124 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   };
 
   const viewMode = getPlayerRoomViewMode(state.summary.status);
-  const progressLabel = `${Math.min(state.me.currentIndex + 1, state.summary.queueSize)}/${state.summary.queueSize}`;
+  const profileInitial = state.me.displayName.trim().charAt(0).toUpperCase() || "?";
 
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="border-b border-white/[0.06] bg-white/[0.02] px-5 py-3">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Link to="/play" className="text-lg font-bold tracking-tight font-display">
-              {state.summary.code}
+    <div className="flex min-h-screen w-full flex-col bg-black text-white">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-black/92 backdrop-blur-md">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              to="/play"
+              className="netflix-wordmark text-2xl uppercase tracking-[0.08em] sm:text-3xl">
+              Deck<span className="flame-text">flix</span>
             </Link>
-            <div className="h-4 w-px bg-white/[0.1]" />
-            <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-              {viewMode}
-            </span>
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm bg-gradient-to-br from-red-500 to-rose-700 text-sm font-semibold text-white">
+                {profileInitial}
+              </div>
+              <div className="min-w-0 truncate text-sm font-medium text-white">
+                {state.me.displayName}
+              </div>
+            </div>
           </div>
+
+            <button
+              type="button"
+              className="absolute left-1/2 -translate-x-1/2 font-mono text-xl font-bold tracking-[0.24em] text-primary transition hover:text-[hsl(357_92%_55%)] sm:text-2xl"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(state.summary.code);
+                  setGameError(null);
+                } catch {
+                  setGameError("Unable to copy room code");
+                }
+              }}>
+              {state.summary.code}
+            </button>
+
           <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">
+            <div className="text-[11px] uppercase tracking-[0.28em] text-white/45">
               {playersQuery.data.players.length} player
               {playersQuery.data.players.length === 1 ? "" : "s"}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {progressLabel}
-            </span>
+            </div>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => leaveMutation.mutate()}
               disabled={leaveMutation.isPending}>
-              Leave game
+              Leave
             </Button>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 pt-6">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          {playersQuery.data.players.map((player) => (
-            <span
-              key={player.id}
-              className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-              {player.displayName}
-            </span>
-          ))}
-        </div>
+      <main className="flex flex-1 px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
 
-        {gameError ? (
-          <div className="rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
-            {gameError}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex flex-1 flex-col items-center justify-center px-5 py-8">
-        {viewMode === "waiting" ? (
-          <div className="text-center text-muted-foreground">
-            <p className="text-lg font-semibold">
-              {state.summary.playerCount < 2
-                ? "Waiting for another player"
-                : "Waiting for the display to start"}
-            </p>
-            <p className="mt-1 text-sm">
-              {state.summary.playerCount < 2
-                ? "Voting starts once at least two players are in the room."
-                : "The room is ready. The display can start the round any time."}
-            </p>
-          </div>
-        ) : viewMode === "completed" ? (
-          <div className="text-center text-muted-foreground">
-            <p className="text-lg font-semibold">This round is complete</p>
-            <p className="mt-1 text-sm">
-              Watch the display for the final board and matches.
-            </p>
-          </div>
-        ) : state.currentItem ? (
-          <div className="w-full max-w-sm space-y-5">
-            <div className="text-center">
-              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Your controller
-              </div>
-              <h1 className="mt-2 text-2xl font-semibold font-display">
-                {state.me.displayName}
-              </h1>
+          {gameError ? (
+            <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+              {gameError}
             </div>
-            <SwipeDeck
-              item={state.currentItem}
-              onSwipe={(choice, movieId) => vote(choice, movieId)}
-              disabled={voteMutation.isPending}
-            />
-            <SwipeControls
-              onSwipe={(choice) => vote(choice)}
-              disabled={voteMutation.isPending}
-              allowMaybe={state.settings.gameplay.allowMaybe}
-              allowSuperLike={state.settings.gameplay.allowSuperLike}
-            />
+          ) : null}
+
+          <div className="flex flex-1 items-center justify-center py-4">
+            {viewMode === "waiting" ? (
+              <div className="max-w-2xl rounded-[2rem] border border-white/10 bg-[#111] px-8 py-10 text-center">
+                <div className="text-[11px] uppercase tracking-[0.34em] text-white/45">
+                  Controller
+                </div>
+                <p className="mt-4 text-2xl font-medium font-display text-white">
+                  {state.summary.playerCount < 2
+                    ? "Waiting for another player"
+                    : "Waiting for the display to start"}
+                </p>
+                <p className="mt-3 text-sm leading-6 text-white/62">
+                  {state.summary.playerCount < 2
+                    ? "Voting starts once at least two players are in the room."
+                    : "The room is ready. The display can start the round any time."}
+                </p>
+              </div>
+            ) : viewMode === "completed" ? (
+              <div className="max-w-2xl rounded-[2rem] border border-white/10 bg-[#111] px-8 py-10 text-center">
+                <div className="text-[11px] uppercase tracking-[0.34em] text-white/45">
+                  Controller
+                </div>
+                <p className="mt-4 text-2xl font-medium font-display text-white">
+                  This round is complete
+                </p>
+                <p className="mt-3 text-sm leading-6 text-white/62">
+                  Watch the display for the final board and matches.
+                </p>
+              </div>
+            ) : state.currentItem ? (
+              <div className="w-full max-w-sm space-y-4">
+                <SwipeDeck
+                  item={state.currentItem}
+                  onSwipe={(choice, movieId) => vote(choice, movieId)}
+                  disabled={voteMutation.isPending}
+                />
+                <SwipeControls
+                  onSwipe={(choice) => vote(choice)}
+                  disabled={voteMutation.isPending}
+                />
+              </div>
+            ) : (
+              <div className="max-w-2xl rounded-[2rem] border border-white/10 bg-[#111] px-8 py-10 text-center">
+                <div className="text-[11px] uppercase tracking-[0.34em] text-white/45">
+                  Controller
+                </div>
+                <p className="mt-4 text-2xl font-medium font-display text-white">
+                  You are done for this round
+                </p>
+                <p className="mt-3 text-sm leading-6 text-white/62">
+                  Watch the display while everyone else finishes swiping.
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="text-center text-muted-foreground">
-            <p className="text-lg font-semibold">
-              You are done for this round
-            </p>
-            <p className="mt-1 text-sm">
-              Watch the display while everyone else finishes swiping.
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

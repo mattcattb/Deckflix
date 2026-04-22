@@ -6,13 +6,24 @@ const allowedOrigins = (appEnv.CORS_ORIGINS || appEnv.BETTER_AUTH_URL)
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const isLocalhostOrigin = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+};
+
 export const corsMiddleware = cors({
   origin: (origin) => {
     if (!origin) {
       return null;
     }
 
-    return allowedOrigins.length === 0 || allowedOrigins.includes(origin)
+    return allowedOrigins.length === 0 ||
+      allowedOrigins.includes(origin) ||
+      (appEnv.NODE_ENV !== "production" && isLocalhostOrigin(origin))
       ? origin
       : null;
   },

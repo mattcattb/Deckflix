@@ -1,5 +1,16 @@
-import {useEffect, useRef, useState} from "react";
-import {Link, useNavigate} from "@tanstack/react-router";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Link,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
   ActiveRoomClient,
@@ -21,15 +32,13 @@ import {
 } from "../../lib/games";
 import {
   Button,
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
 } from "../../components/ui";
 import {GameSettingsSection} from "../../components/games/game-settings-section";
 import {RoomUnavailable} from "./room-unavailable";
-import {getDisplayRoomViewMode} from "./room-view-modes";
+import {
+  getDisplayRoomPath,
+  getDisplayRoomViewMode,
+} from "./room-view-modes";
 
 type DisplayBoardItem = {
   movie: MovieCandidate;
@@ -37,10 +46,53 @@ type DisplayBoardItem = {
   outcome: "match" | "rejected";
 };
 
+type RailKey = "matches" | "recentHistory" | "stinkers";
+type PlayerVoteFlashTone = "positive" | "negative";
+
+type DisplayBoard = {
+  matches: DisplayBoardItem[];
+  recentHistory: DisplayBoardItem[];
+  stinkers: DisplayBoardItem[];
+};
+
+type MatchReveal = {
+  id: string;
+  movie: MovieCandidate;
+};
+
+type MovieGenre = {
+  id: number;
+  name: string;
+};
+
 type PlayerRailPlayer = Pick<
   GamePlayerPresence,
   "id" | "displayName" | "connectedAsPlayer"
 >;
+
+type DisplayRoomContextValue = {
+  board: DisplayBoard;
+  deleteRoom: () => void;
+  deleteRoomPending: boolean;
+  draftSettings: GameSettings;
+  gameError: string | null;
+  gameCode: string;
+  meta: GameMeta;
+  movieGenres: MovieGenre[];
+  movieGenresError: string | null;
+  players: GamePlayerPresence[];
+  progressByPlayerId: Map<
+    string,
+    DisplayGameState["playerProgress"][number]
+  >;
+  saveSettings: () => void;
+  saveSettingsPending: boolean;
+  setDraftSettings: (settings: GameSettings) => void;
+  startGame: () => void;
+  startGamePending: boolean;
+  state: DisplayGameState;
+  viewMode: ReturnType<typeof getDisplayRoomViewMode>;
+};
 
 const PLAYER_TILE_GRADIENTS = [
   "from-red-500 to-rose-700",
@@ -51,21 +103,35 @@ const PLAYER_TILE_GRADIENTS = [
   "from-pink-400 to-rose-600",
 ] as const;
 
-const getBoardSections = (state: DisplayGameState | null) => {
+const DisplayRoomContext = createContext<DisplayRoomContextValue | null>(null);
+
+const getTimestamp = (value: string | null | undefined) =>
+  value ? Date.parse(value) : 0;
+
+const sortByLastActivity = (left: DisplayBoardItem, right: DisplayBoardItem) =>
+  getTimestamp(right.votes.lastActivityAt) - getTimestamp(left.votes.lastActivityAt);
+
+const sortByMatchedAt = (left: DisplayBoardItem, right: DisplayBoardItem) =>
+  getTimestamp(right.votes.matchedAt) - getTimestamp(left.votes.matchedAt) ||
+  sortByLastActivity(left, right);
+
+const getBoardSections = (state: DisplayGameState | null): DisplayBoard => {
   if (!state) {
     return {
-      matches: [] as DisplayBoardItem[],
-      history: [] as DisplayBoardItem[],
+      matches: [],
+      recentHistory: [],
+      stinkers: [],
     };
   }
 
   const rejectedIds = new Set(state.results.rejectedMovieIds);
+  const voteSummaryByMovieId = new Map(
+    state.results.voteSummary.map((entry) => [entry.movieId, entry] as const),
+  );
   const boardItems = state.queue
     .map((item) => {
-      const votes = state.results.voteSummary.find(
-        (entry) => entry.movieId === item.movie.id,
-      );
-      if (!votes) {
+      const votes = voteSummaryByMovieId.get(item.movie.id);
+      if (!votes || !votes.resolvedAt) {
         return null;
       }
 
@@ -89,19 +155,41 @@ const getBoardSections = (state: DisplayGameState | null) => {
     })
     .filter((item): item is DisplayBoardItem => Boolean(item));
 
+  const matches = boardItems.filter((item) => item.outcome === "match").sort(sortByMatchedAt);
+  const recentHistory = [...boardItems].sort(sortByLastActivity);
+  const stinkers = boardItems
+    .filter((item) => item.outcome === "rejected")
+    .sort(sortByLastActivity);
+
   return {
-    matches: boardItems.filter((item) => item.outcome === "match"),
-    history: boardItems,
+    matches,
+    recentHistory,
+    stinkers,
   };
 };
 
-export function DisplayRoomView({gameCode}: {gameCode: string}) {
+const useDisplayRoom = () => {
+  const context = useContext(DisplayRoomContext);
+  if (!context) {
+    throw new Error("Display room context is not available");
+  }
+
+  return context;
+};
+
+export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
   const [state, setState] = useState<DisplayGameState | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
+  const [activeMatch, setActiveMatch] = useState<MatchReveal | null>(null);
+  const [queuedMatchIds, setQueuedMatchIds] = useState<string[]>([]);
+  const [playerVoteFlashById, setPlayerVoteFlashById] = useState<
+    Record<string, PlayerVoteFlashTone>
+  >({});
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
   const stateQuery = useQuery(activeDisplayStateQueryOptions(gameCode));
@@ -134,6 +222,42 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
       setDraftSettings(metaQuery.data.settings);
     }
   }, [metaQuery.data]);
+
+  useEffect(() => {
+    if (activeMatch || queuedMatchIds.length === 0) {
+      return;
+    }
+
+    const nextMatchId = queuedMatchIds[0];
+    const matchMovie =
+      state?.queue.find((item) => item.movie.id === nextMatchId)?.movie ??
+      stateQuery.data?.queue.find((item) => item.movie.id === nextMatchId)?.movie;
+
+    if (!matchMovie) {
+      setQueuedMatchIds((current) => current.slice(1));
+      return;
+    }
+
+    setActiveMatch({
+      id: nextMatchId,
+      movie: matchMovie,
+    });
+    setQueuedMatchIds((current) => current.slice(1));
+  }, [activeMatch, queuedMatchIds, state, stateQuery.data]);
+
+  useEffect(() => {
+    if (!activeMatch) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setActiveMatch((current) =>
+        current?.id === activeMatch.id ? null : current,
+      );
+    }, 2600);
+
+    return () => window.clearTimeout(timeout);
+  }, [activeMatch]);
 
   const settingsMutation = useMutation({
     mutationFn: async () =>
@@ -251,6 +375,34 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "swipe.match_found") {
+        setQueuedMatchIds((current) =>
+          current.includes(message.payload.movieId)
+            ? current
+            : [...current, message.payload.movieId],
+        );
+        return;
+      }
+
+      if (message.type === "swipe.vote_recorded") {
+        const tone =
+          message.payload.choice === "like" || message.payload.choice === "super_like"
+            ? "positive"
+            : "negative";
+        setPlayerVoteFlashById((current) => ({
+          ...current,
+          [message.payload.playerId]: tone,
+        }));
+        window.setTimeout(() => {
+          setPlayerVoteFlashById((current) => {
+            if (current[message.payload.playerId] !== tone) {
+              return current;
+            }
+
+            const next = {...current};
+            delete next[message.payload.playerId];
+            return next;
+          });
+        }, 650);
         return;
       }
 
@@ -270,6 +422,17 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
       socketRef.current = null;
     };
   }, [navigate, queryClient, refetchMeta, refetchPlayers]);
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+
+    const nextPath = getDisplayRoomPath(state.summary.status);
+    if (location.pathname !== nextPath) {
+      navigate({to: nextPath, replace: true});
+    }
+  }, [location.pathname, navigate, state]);
 
   if (
     metaQuery.isLoading ||
@@ -308,357 +471,390 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   const progressByPlayerId = new Map(
     state.playerProgress.map((progress) => [progress.playerId, progress] as const),
   );
+  const contextValue: DisplayRoomContextValue = {
+    board,
+    deleteRoom: () => deleteRoomMutation.mutate(),
+    deleteRoomPending: deleteRoomMutation.isPending,
+    draftSettings,
+    gameCode,
+    gameError,
+    meta: metaQuery.data,
+    movieGenres: movieGenresQuery.data?.items ?? [],
+    movieGenresError,
+    players: playersQuery.data.players,
+    progressByPlayerId,
+    saveSettings: () => settingsMutation.mutate(),
+    saveSettingsPending: settingsMutation.isPending,
+    setDraftSettings,
+    startGame: () => startGameMutation.mutate(),
+    startGamePending: startGameMutation.isPending,
+    state,
+    viewMode,
+  };
 
   return (
-    <div className="flex w-full flex-1 flex-col">
-      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-gradient-to-b from-black via-black/95 to-black/70 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-3">
-          <Link
-            to="/room"
-            className="netflix-wordmark text-2xl uppercase tracking-[0.08em]">
-            Deck<span className="flame-text">flix</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            <StatusBadge label={viewMode} />
-            <Button
-              variant="ghost"
-              size="sm"
-              title="End room"
-              onClick={() => deleteRoomMutation.mutate()}
-              disabled={deleteRoomMutation.isPending}>
-              End room
-            </Button>
-          </div>
-        </div>
-      </header>
+    <DisplayRoomContext.Provider value={contextValue}>
+      <div className="flex min-h-screen w-full flex-col bg-black text-white">
+        {activeMatch && location.pathname === "/room/live" ? (
+          <MatchFoundOverlay movie={activeMatch.movie} />
+        ) : null}
 
-      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-5 px-5 py-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
-        <div className="space-y-5">
-          <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  Join code
-                </div>
-                <button
-                  type="button"
-                  className="mt-2 font-mono text-3xl font-bold tracking-[0.28em] text-foreground transition hover:text-accent sm:text-4xl"
-                  title="Copy code"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(state.summary.code);
-                    } catch {
-                      setGameError("Unable to copy game code");
-                    }
-                  }}>
-                  {state.summary.code}
-                </button>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {metaQuery.data.summary.roomName || "Tap code to copy"}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-2 text-xs text-muted-foreground">
-                <StatPill value={state.summary.playerCount} label="players" />
-                <StatPill value={board.matches.length} label="matches" />
-                <StatPill value={board.history.length} label="resolved" />
+        <header className="sticky top-0 z-30 border-b border-white/10 bg-black/92 backdrop-blur-md">
+          <div className="flex w-full items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link
+                to="/room"
+                className="netflix-wordmark text-2xl uppercase tracking-[0.08em] sm:text-3xl">
+                Deck<span className="flame-text">flix</span>
+              </Link>
+              <div className="h-8 w-px bg-white/10" />
+              <div className="min-w-0 truncate text-xs font-medium text-white sm:text-sm">
+                {metaQuery.data.summary.roomName || "Movie night"}
               </div>
             </div>
-          </section>
 
-          {gameError ? (
-            <div className="rounded-2xl border border-swipe-nope/20 bg-swipe-nope/10 px-4 py-3 text-sm text-swipe-nope">
-              {gameError}
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                title="End room"
+                onClick={() => deleteRoomMutation.mutate()}
+                disabled={deleteRoomMutation.isPending}>
+                <span className="hidden sm:inline">End room</span>
+                <span className="sm:hidden">End</span>
+              </Button>
             </div>
-          ) : null}
+          </div>
+        </header>
 
-          {viewMode === "lobby" ? (
-            <Card className="rounded-[1.75rem] border-white/[0.08] bg-white/[0.03]">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Settings</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <GameSettingsSection
-                  settings={draftSettings}
-                  onChange={setDraftSettings}
-                  movieGenres={movieGenresQuery.data?.items ?? []}
-                  movieGenresError={movieGenresError}
-                />
-              </CardContent>
-              <CardFooter className="justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => settingsMutation.mutate()}
-                  disabled={settingsMutation.isPending}>
-                  {settingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-                <Button
-                  effect="glow"
-                  onClick={() => startGameMutation.mutate()}
-                  disabled={
-                    startGameMutation.isPending ||
-                    playersQuery.data.players.length < 2
-                  }>
-                  {startGameMutation.isPending ? "Starting..." : "Start game"}
-                </Button>
-              </CardFooter>
-            </Card>
-          ) : (
-            <>
-              <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-swipe-like">
-                      <HeartIcon size={16} />
-                      <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                        {viewMode === "completed" ? "Final matches" : "Matches"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Cleaner winners grid with the extra columns reclaimed from split decisions.
-                    </p>
-                  </div>
-                  <div className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-                    {board.matches.length}
-                  </div>
+        <div className="flex w-full flex-1 gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <aside className="hidden w-60 shrink-0 lg:block">
+            <div className="sticky top-24 h-[calc(100vh-7.5rem)] border-r border-white/10 pr-6">
+              <div className="pb-5">
+                <div className="text-[11px] uppercase tracking-[0.34em] text-white/45">
+                  Who&apos;s Playing
                 </div>
+              </div>
+              <div className="h-[calc(100%-5.75rem)] overflow-y-auto">
+                {playersQuery.data.players.map((player) => {
+                  const progress = progressByPlayerId.get(player.id);
+                  return (
+                    <PlayerSidebarRow
+                      key={player.id}
+                      player={player}
+                      currentIndex={progress?.currentIndex ?? 0}
+                      completed={progress?.completed ?? false}
+                      queueSize={state.summary.queueSize}
+                      flashTone={playerVoteFlashById[player.id]}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
 
-                {board.matches.length > 0 ? (
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {board.matches.map(({movie, votes}) => (
-                      <DisplayMovieCard
-                        key={movie.id}
-                        movie={movie}
-                        votes={votes}
-                        outcome="match"
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No matches yet</p>
-                )}
-              </section>
-
-              <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <XCircleIcon size={16} />
-                      <span className="text-xs font-semibold uppercase tracking-[0.22em]">
-                        Swipe history
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Small horizontal strip for resolved titles.
-                    </p>
-                  </div>
-                  <div className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-                    {board.history.length}
-                  </div>
+          <main className="min-w-0 flex-1">
+            <div className="mx-auto w-full max-w-[1600px]">
+              <div className="mb-5 space-y-3 lg:hidden">
+                <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                  Who&apos;s Playing
                 </div>
-
-                {board.history.length > 0 ? (
-                  <div className="flex gap-3 overflow-x-auto pb-1">
-                    {board.history.map(({movie, votes, outcome}) => (
-                      <DisplayMovieCard
-                        key={movie.id}
-                        movie={movie}
-                        votes={votes}
-                        outcome={outcome}
-                        compact
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Nothing resolved yet
-                  </p>
-                )}
-              </section>
-            </>
-          )}
+                <div className="flex gap-4 overflow-x-auto border-b border-white/10 pb-3">
+                  {playersQuery.data.players.map((player) => {
+                    const progress = progressByPlayerId.get(player.id);
+                    return (
+                      <div key={player.id} className="w-56 shrink-0">
+                        <PlayerSidebarRow
+                          player={player}
+                          currentIndex={progress?.currentIndex ?? 0}
+                          completed={progress?.completed ?? false}
+                          queueSize={state.summary.queueSize}
+                          flashTone={playerVoteFlashById[player.id]}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {gameError ? (
+                <div className="mb-5 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+                  {gameError}
+                </div>
+              ) : null}
+              <Outlet />
+            </div>
+          </main>
         </div>
-
-        <aside className="mx-auto w-[19rem] max-w-full rounded-[1.75rem] border border-white/[0.08] bg-[#111] p-5 xl:sticky xl:top-24 xl:mx-0 xl:h-fit">
-          <div className="mb-5 text-center">
-            <div className="font-display text-3xl tracking-[0.04em] text-white">
-              Who&apos;s Playing?
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {playersQuery.data.players.map((player) => {
-              const progress = progressByPlayerId.get(player.id);
-              return (
-                <PlayerRailTile
-                  key={player.id}
-                  player={player}
-                  currentIndex={progress?.currentIndex ?? 0}
-                  completed={progress?.completed ?? false}
-                  queueSize={state.summary.queueSize}
-                />
-              );
-            })}
-          </div>
-        </aside>
       </div>
+    </DisplayRoomContext.Provider>
+  );
+}
+
+export function DisplayRoomLobbyView() {
+  const {
+    draftSettings,
+    meta,
+    movieGenres,
+    movieGenresError,
+    players,
+    saveSettings,
+    saveSettingsPending,
+    setDraftSettings,
+    startGame,
+    startGamePending,
+  } = useDisplayRoom();
+
+  return (
+    <section className="max-w-5xl">
+      <div className="border-b border-white/10 pb-4">
+        <div className="text-[11px] uppercase tracking-[0.34em] text-white/45">
+          Room code
+        </div>
+        <button
+          type="button"
+          className="mt-2 font-mono text-3xl font-bold tracking-[0.24em] text-primary transition hover:text-[hsl(357_92%_55%)]"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(meta.summary.code);
+            } catch {
+              // noop
+            }
+          }}>
+          {meta.summary.code}
+        </button>
+      </div>
+      <div className="py-6">
+        <GameSettingsSection
+          settings={draftSettings}
+          onChange={setDraftSettings}
+          movieGenres={movieGenres}
+          movieGenresError={movieGenresError}
+        />
+      </div>
+      <div className="flex justify-end gap-3 border-t border-white/10 pt-5">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={saveSettings}
+          disabled={saveSettingsPending}>
+          {saveSettingsPending ? "Saving..." : "Save"}
+        </Button>
+        <Button
+          effect="glow"
+          onClick={startGame}
+          disabled={startGamePending || players.length < 2}>
+          {startGamePending ? "Starting..." : "Start game"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+export function DisplayRoomLiveView() {
+  return <DisplayBrowseView mode="live" />;
+}
+
+export function DisplayRoomResultsView() {
+  return <DisplayBrowseView mode="results" />;
+}
+
+function DisplayBrowseView({mode}: {mode: "live" | "results"}) {
+  const {board} = useDisplayRoom();
+  const isResults = mode === "results";
+  const seenByRailRef = useRef<Record<RailKey, Set<string>>>({
+    matches: new Set(),
+    recentHistory: new Set(),
+    stinkers: new Set(),
+  });
+  const [newCardIdsByRail, setNewCardIdsByRail] = useState<Record<RailKey, string[]>>({
+    matches: [],
+    recentHistory: [],
+    stinkers: [],
+  });
+
+  useEffect(() => {
+    const rails: Record<RailKey, DisplayBoardItem[]> = {
+      matches: board.matches,
+      recentHistory: board.recentHistory,
+      stinkers: board.stinkers,
+    };
+    const nextNewIds: Record<RailKey, string[]> = {
+      matches: [],
+      recentHistory: [],
+      stinkers: [],
+    };
+
+    (Object.keys(rails) as RailKey[]).forEach((railKey) => {
+      const seen = seenByRailRef.current[railKey];
+      const ids = rails[railKey].map((item) => item.movie.id);
+      if (seen.size === 0) {
+        ids.forEach((id) => seen.add(id));
+        return;
+      }
+
+      nextNewIds[railKey] = ids.filter((id) => !seen.has(id));
+      ids.forEach((id) => seen.add(id));
+    });
+
+    if (
+      nextNewIds.matches.length === 0 &&
+      nextNewIds.recentHistory.length === 0 &&
+      nextNewIds.stinkers.length === 0
+    ) {
+      return;
+    }
+
+    setNewCardIdsByRail(nextNewIds);
+    const timeout = window.setTimeout(() => {
+      setNewCardIdsByRail({
+        matches: [],
+        recentHistory: [],
+        stinkers: [],
+      });
+    }, 700);
+
+    return () => window.clearTimeout(timeout);
+  }, [board.matches, board.recentHistory, board.stinkers]);
+
+  return (
+    <div className="space-y-6">
+      <BrowseRail
+        title={isResults ? "Final Matches" : "Matches"}
+        items={board.matches}
+        newCardIds={newCardIdsByRail.matches}
+        tone="match"
+      />
+
+      <BrowseRail
+        title="Recent History"
+        items={board.recentHistory}
+        newCardIds={newCardIdsByRail.recentHistory}
+        tone="mixed"
+      />
+
+      <BrowseRail
+        title="Stinkers"
+        items={board.stinkers}
+        newCardIds={newCardIdsByRail.stinkers}
+        tone="stinker"
+      />
     </div>
   );
 }
 
-function DisplayMovieCard({
-  movie,
-  votes,
-  outcome,
-  compact = false,
+function BrowseRail({
+  title,
+  items,
+  newCardIds,
+  tone,
 }: {
-  movie: MovieCandidate;
-  votes: GameVoteSummary;
-  outcome: "match" | "rejected";
-  compact?: boolean;
+  title: string;
+  items: DisplayBoardItem[];
+  newCardIds: string[];
+  tone: "match" | "mixed" | "stinker";
 }) {
-  const positiveVotes = votes.like + votes.superLike;
-  const negativeVotes = votes.dislike + votes.skip;
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-2xl font-medium font-display text-white">{title}</h2>
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {items.map((item) => (
+          <BrowseRailCard
+            key={`${title}-${item.movie.id}`}
+            item={item}
+            isNew={newCardIds.includes(item.movie.id)}
+            tone={tone}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BrowseRailCard({
+  item,
+  isNew,
+  tone,
+}: {
+  item: DisplayBoardItem;
+  isNew: boolean;
+  tone: "match" | "mixed" | "stinker";
+}) {
+  const isMatch = item.outcome === "match";
+  const positiveVotes = item.votes.like + item.votes.superLike;
+  const negativeVotes = item.votes.dislike + item.votes.skip + item.votes.maybe;
+  const accentTone =
+    tone === "mixed" ? (isMatch ? "match" : "stinker") : tone;
+  const frameClass =
+    accentTone === "match"
+      ? "ring-1 ring-swipe-like/35"
+      : "ring-1 ring-danger/35";
+  const badgeClass =
+    accentTone === "match"
+      ? "border-swipe-like/35 bg-swipe-like/15 text-swipe-like"
+      : "border-danger/35 bg-danger/15 text-danger";
 
   return (
     <article
-      className={`overflow-hidden rounded-[1.4rem] border border-white/[0.08] bg-white/[0.04] ${
-        compact ? "w-40 shrink-0" : ""
+      className={`group relative h-56 w-[14rem] shrink-0 overflow-hidden rounded-md bg-[#181818] transition-transform duration-200 hover:scale-[1.02] ${frameClass} ${
+        isNew ? "rail-card-enter" : ""
       }`}>
-      <div className="relative">
-        <img
-          src={movie.posterUrl}
-          alt={movie.title}
-          className={`w-full object-cover ${compact ? "h-40" : "h-60"}`}
-        />
-        <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">
-          {outcome === "match" ? "Match" : "Out"}
-        </div>
-        <div
-          className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent ${
-            compact ? "px-3 pb-3 pt-10" : "px-4 pb-4 pt-14"
-          }`}>
-          <div className={`font-display leading-tight text-white ${compact ? "text-lg" : "text-xl"}`}>
-            {movie.title}
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-white/70">
-            <span>{movie.year}</span>
-            <span className="text-white/30">&bull;</span>
-            <span>{movie.rating.toFixed(1)}</span>
-          </div>
+      <img
+        src={item.movie.posterUrl}
+        alt={item.movie.title}
+        className="h-full w-full object-cover"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/18 to-transparent" />
+      <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-3 pt-3">
+        <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${badgeClass}`}>
+          {isMatch ? <HeartIcon size={12} /> : <XIcon size={12} />}
+          <span>{isMatch ? positiveVotes : negativeVotes}</span>
         </div>
       </div>
-
-      <div className={`flex flex-wrap gap-2 ${compact ? "px-3 py-3 text-[11px]" : "px-4 py-3 text-xs"}`}>
-        <VotePill label="Like" value={positiveVotes} tone="like" />
-        <VotePill label="Nope" value={negativeVotes} tone="nope" />
-        {votes.maybe > 0 ? <VotePill label="Maybe" value={votes.maybe} tone="maybe" /> : null}
+      <div className="absolute inset-x-0 bottom-0 px-4 pb-4">
+        <div className="line-clamp-2 text-xl font-medium leading-tight font-display text-white">
+          {item.movie.title}
+        </div>
       </div>
     </article>
   );
 }
 
-function PlayerRailTile({
-  player,
-  currentIndex,
-  completed,
-  queueSize,
-}: {
-  player: PlayerRailPlayer;
-  currentIndex: number;
-  completed: boolean;
-  queueSize: number;
-}) {
-  const initial = player.displayName.trim().charAt(0).toUpperCase() || "?";
-  const gradient =
-    PLAYER_TILE_GRADIENTS[hashString(player.displayName) % PLAYER_TILE_GRADIENTS.length];
-  const tileTone = completed
-    ? "ring-2 ring-swipe-like/70 shadow-[0_0_28px_hsl(145_65%_42%/0.16)]"
-    : currentIndex > 0
-      ? "ring-2 ring-primary/60 shadow-[0_0_24px_hsl(357_92%_47%/0.14)]"
-      : "ring-1 ring-white/10";
-
+function MatchFoundOverlay({movie}: {movie: MovieCandidate}) {
   return (
-    <div
-      className={`group flex flex-col items-center gap-2 text-center transition-opacity ${
-        player.connectedAsPlayer ? "" : "opacity-45"
-      }`}>
-      <div
-        className={`flex h-18 w-18 items-center justify-center rounded-md bg-gradient-to-br ${gradient} font-display text-4xl text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition-transform duration-150 group-hover:scale-[1.03] ${tileTone}`}>
-        {initial}
-      </div>
-
-      <div className="w-full">
-        <div className="truncate text-sm font-medium text-zinc-300 group-hover:text-white">
-          {player.displayName}
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-black/78 backdrop-blur-md">
+      <div className="match-overlay-glow absolute inset-0 bg-[radial-gradient(circle_at_top,_hsl(357_92%_47%_/_0.4),_transparent_38%),radial-gradient(circle_at_bottom,_hsl(145_65%_42%_/_0.24),_transparent_32%)]" />
+      <div className="match-overlay-card relative mx-6 flex w-full max-w-4xl items-center gap-6 rounded-[2rem] border border-white/10 bg-white/[0.06] p-6 shadow-[0_30px_120px_rgba(0,0,0,0.5)]">
+        <img
+          src={movie.posterUrl}
+          alt={movie.title}
+          className="match-overlay-poster h-72 w-48 shrink-0 rounded-[1.5rem] object-cover shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+        />
+        <div className="max-w-xl">
+          <div className="match-overlay-badge inline-flex items-center rounded-full border border-swipe-like/35 bg-swipe-like/12 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-swipe-like">
+            It&apos;s a match
+          </div>
+          <h2 className="match-overlay-title mt-5 text-5xl font-semibold leading-none text-white text-balance font-display">
+            {movie.title}
+          </h2>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/74">
+            <span>{movie.year}</span>
+            <span className="text-white/20">&bull;</span>
+            <span>{movie.rating.toFixed(1)} TMDB</span>
+          </div>
+          <p className="mt-5 max-w-lg text-sm leading-6 text-white/68">
+            Everyone swiped right. Queue this one up.
+          </p>
         </div>
-        {!player.connectedAsPlayer ? (
-          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            Away
-          </div>
-        ) : completed ? (
-          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-swipe-like">
-            Finished
-          </div>
-        ) : (
-          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
-            {Math.min(currentIndex, queueSize)}/{queueSize}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-function VotePill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "like" | "nope" | "maybe";
-}) {
-  const toneClass =
-    tone === "like"
-      ? "bg-success/15 text-success"
-      : tone === "nope"
-        ? "bg-danger/15 text-danger"
-        : "bg-warning/15 text-warning";
-
-  return (
-    <span className={`rounded-full px-2.5 py-1 ${toneClass}`}>
-      {value} {label}
-    </span>
-  );
-}
-
-function StatPill({value, label}: {value: number; label: string}) {
-  return (
-    <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1">
-      {value} {label}
-    </span>
-  );
-}
-
-function hashString(value: string) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash);
-}
-
-function StatusBadge({label}: {label: string}) {
-  return (
-    <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-      {label}
-    </span>
-  );
-}
-
-function HeartIcon({size = 20}: {size?: number}) {
+function HeartIcon({size = 14}: {size?: number}) {
   return (
     <svg
       width={size}
@@ -671,7 +867,7 @@ function HeartIcon({size = 20}: {size?: number}) {
   );
 }
 
-function XCircleIcon({size = 20}: {size?: number}) {
+function XIcon({size = 14}: {size?: number}) {
   return (
     <svg
       width={size}
@@ -679,12 +875,68 @@ function XCircleIcon({size = 20}: {size?: number}) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.4"
       strokeLinecap="round"
       strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-      <line x1="9" y1="9" x2="15" y2="15" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   );
+}
+
+function PlayerSidebarRow({
+  player,
+  currentIndex,
+  completed,
+  queueSize,
+  flashTone,
+}: {
+  player: PlayerRailPlayer;
+  currentIndex: number;
+  completed: boolean;
+  queueSize: number;
+  flashTone?: PlayerVoteFlashTone;
+}) {
+  const initial = player.displayName.trim().charAt(0).toUpperCase() || "?";
+  const gradient =
+    PLAYER_TILE_GRADIENTS[hashString(player.displayName) % PLAYER_TILE_GRADIENTS.length];
+  const progressLabel = !player.connectedAsPlayer
+    ? "Away"
+    : completed
+      ? "Finished"
+      : `${Math.min(currentIndex, queueSize)}/${queueSize}`;
+
+  return (
+    <div
+      className={`flex items-center gap-3 border-b border-white/10 py-3 transition ${
+        player.connectedAsPlayer ? "" : "opacity-45"
+      }`}>
+      <div
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-sm bg-gradient-to-br ${gradient} text-lg font-semibold text-white ${
+          flashTone === "positive"
+            ? "player-vote-flash-positive"
+            : flashTone === "negative"
+              ? "player-vote-flash-negative"
+              : ""
+        }`}>
+        {initial}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-white">
+          {player.displayName}
+        </div>
+        <div className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/45">
+          {progressLabel}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
 }

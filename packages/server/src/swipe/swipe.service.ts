@@ -17,7 +17,6 @@ import * as RoomSessionService from "../rooms/room-session.service";
 import type {RealtimeServer} from "../realtime/socket-bus";
 import {
   publishMatchFound,
-  publishPlayerMatch,
   publishVoteRecorded,
 } from "./swipe.pubsub";
 import {publishPlayerLeft} from "../ws/presence.pubsub";
@@ -73,16 +72,78 @@ const hydrateAssignment = async (
   };
 };
 
+const isMoviePending = async (gameCode: string, movieId: string) => {
+  const movieRecord = await GameRedisService.getMovieRecordOrThrow(gameCode, movieId);
+  return movieRecord.status === "pending";
+};
+
+const filterPendingQueueEntries = async (
+  gameCode: string,
+  entries: SwipeQueueService.PlayerQueueEntry[],
+) => {
+  const keepStates = await Promise.all(
+    entries.map(async (entry) => ({
+      entry,
+      keep: await isMoviePending(gameCode, entry.movieId),
+    })),
+  );
+
+  return keepStates
+    .filter((state) => state.keep)
+    .map((state) => state.entry);
+};
+
+const sanitizePlayerQueueState = async (gameCode: string, playerId: string) => {
+  const [currentAssignment, queueEntries] = await Promise.all([
+    SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId),
+    SwipeQueueService.getPlayerQueueEntries(gameCode, playerId),
+  ]);
+
+  let nextCurrentAssignment = currentAssignment;
+  if (currentAssignment) {
+    const [pending, existingVote] = await Promise.all([
+      isMoviePending(gameCode, currentAssignment.movieId),
+      SwipeLedgerService.getPlayerVote(
+        gameCode,
+        currentAssignment.movieId,
+        playerId,
+      ),
+    ]);
+
+    if (!pending || existingVote) {
+      if (existingVote) {
+        await SwipeQueueService.markPlayerSeenMovie(
+          gameCode,
+          playerId,
+          currentAssignment.movieId,
+        );
+      }
+      await SwipeQueueService.clearPlayerCurrentAssignment(gameCode, playerId);
+      nextCurrentAssignment = null;
+    }
+  }
+
+  const nextQueueEntries = await filterPendingQueueEntries(gameCode, queueEntries);
+  if (nextQueueEntries.length !== queueEntries.length) {
+    await SwipeQueueService.clearPlayerQueue(gameCode, playerId);
+    await SwipeQueueService.pushPlayerQueueEntries(gameCode, playerId, nextQueueEntries);
+  }
+
+  return {
+    currentAssignment: nextCurrentAssignment,
+    queueEntries: nextQueueEntries,
+  };
+};
+
 const listAssignableEntries = async (
   gameCode: string,
   playerId: string,
 ): Promise<SwipeQueueService.PlayerQueueEntry[]> => {
-  const [poolEntries, seenMovieIds, queuedEntries, currentAssignment] =
+  const [{currentAssignment, queueEntries: queuedEntries}, poolEntries, seenMovieIds] =
     await Promise.all([
+      sanitizePlayerQueueState(gameCode, playerId),
       GamePoolService.getPoolEntries(gameCode),
       SwipeQueueService.getPlayerSeenMovieIds(gameCode, playerId),
-      SwipeQueueService.getPlayerQueueEntries(gameCode, playerId),
-      SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId),
     ]);
 
   const excludedMovieIds = new Set<string>(seenMovieIds);
@@ -120,10 +181,11 @@ export const refillPlayerQueue = async (
 ) => {
   await GamePoolService.maybeRefillPool({gameCode});
 
-  const [queueLength, poolSeed] = await Promise.all([
-    SwipeQueueService.getPlayerQueueLength(gameCode, playerId),
+  const [{queueEntries}, poolSeed] = await Promise.all([
+    sanitizePlayerQueueState(gameCode, playerId),
     GamePoolService.getPoolSeedOrThrow(gameCode),
   ]);
+  const queueLength = queueEntries.length;
   if (queueLength >= targetDepth) {
     return;
   }
@@ -149,7 +211,7 @@ export const getCurrentMovie = async (
   gameCode: string,
   playerId: string,
 ): Promise<ActiveGameQueueItem | null> => {
-  const current = await SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId);
+  const {currentAssignment: current} = await sanitizePlayerQueueState(gameCode, playerId);
   if (!current) {
     return null;
   }
@@ -161,19 +223,28 @@ export const getCurrentOrNextMovie = async (
   gameCode: string,
   playerId: string,
 ): Promise<ActiveGameQueueItem | null> => {
-  const current = await SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId);
+  const {currentAssignment: current, queueEntries} = await sanitizePlayerQueueState(
+    gameCode,
+    playerId,
+  );
   if (current) {
     return hydrateAssignment(gameCode, current);
   }
 
-  const queueLength = await SwipeQueueService.getPlayerQueueLength(gameCode, playerId);
-  if (queueLength === 0) {
+  if (queueEntries.length === 0) {
     await refillPlayerQueue(gameCode, playerId);
   }
 
-  const nextEntry = await SwipeQueueService.popPlayerQueueEntry(gameCode, playerId);
-  if (!nextEntry) {
-    return null;
+  let nextEntry: SwipeQueueService.PlayerQueueEntry | null = null;
+  while (true) {
+    nextEntry = await SwipeQueueService.popPlayerQueueEntry(gameCode, playerId);
+    if (!nextEntry) {
+      return null;
+    }
+
+    if (await isMoviePending(gameCode, nextEntry.movieId)) {
+      break;
+    }
   }
 
   const assignment: SwipeQueueService.PlayerCurrentAssignment = {
@@ -203,9 +274,8 @@ export const getPlayerCurrentIndex = async (gameCode: string, playerId: string) 
   SwipeQueueService.getPlayerSeenCount(gameCode, playerId);
 
 export const getPlayerRemainingCount = async (gameCode: string, playerId: string) => {
-  const [current, queueEntries, assignableEntries] = await Promise.all([
-    SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId),
-    SwipeQueueService.getPlayerQueueEntries(gameCode, playerId),
+  const [{currentAssignment: current, queueEntries}, assignableEntries] = await Promise.all([
+    sanitizePlayerQueueState(gameCode, playerId),
     listAssignableEntries(gameCode, playerId),
   ]);
 
@@ -213,9 +283,8 @@ export const getPlayerRemainingCount = async (gameCode: string, playerId: string
 };
 
 export const isPlayerCompleted = async (gameCode: string, playerId: string) => {
-  const [current, queueEntries, assignableEntries] = await Promise.all([
-    SwipeQueueService.getPlayerCurrentAssignment(gameCode, playerId),
-    SwipeQueueService.getPlayerQueueEntries(gameCode, playerId),
+  const [{currentAssignment: current, queueEntries}, assignableEntries] = await Promise.all([
+    sanitizePlayerQueueState(gameCode, playerId),
     listAssignableEntries(gameCode, playerId),
   ]);
 
@@ -242,9 +311,12 @@ const incrementVoteCounts = (
   movieRecord: GameRedisService.MovieRecord,
   choice: SwipeChoice,
 ): GameRedisService.MovieRecord => {
-  const nextRecord = {
+  const nextRecord: GameRedisService.MovieRecord = {
     ...movieRecord,
     totalVotes: movieRecord.totalVotes + 1,
+    resolvedAt: movieRecord.resolvedAt ?? null,
+    lastActivityAt: new Date().toISOString(),
+    matchedAt: movieRecord.matchedAt ?? null,
   };
 
   if (choice === "like") nextRecord.likeCount += 1;
@@ -260,18 +332,25 @@ const determineMovieStatus = async (
   gameCode: string,
   movieRecord: GameRedisService.MovieRecord,
 ): Promise<GameRedisService.MovieStatus> => {
-  if (movieRecord.status === "matched") {
-    return "matched";
-  }
-
-  const settings = await GameSettingsService.getGameSettingsOrThrow(gameCode);
-  if (getPositiveVotes(movieRecord) >= settings.gameplay.minLikesToMatch) {
-    return "matched";
-  }
-
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
   if (playerIds.length === 0 || movieRecord.totalVotes === 0) {
     return "pending";
+  }
+
+  const totalPlayers = playerIds.length;
+  if (
+    movieRecord.totalVotes === totalPlayers &&
+    getPositiveVotes(movieRecord) === totalPlayers
+  ) {
+    return "matched";
+  }
+
+  const hasBlockingVote =
+    movieRecord.dislikeCount > 0 ||
+    movieRecord.maybeCount > 0 ||
+    movieRecord.skipCount > 0;
+  if (hasBlockingVote) {
+    return "rejected";
   }
 
   const seenStates = await Promise.all(
@@ -284,15 +363,35 @@ const determineMovieStatus = async (
 };
 
 export const refreshMovieOutcome = async (gameCode: string, movieId: string) => {
-  const movieRecord = await GameRedisService.getMovieRecordOrThrow(gameCode, movieId);
+  const storedRecord = await GameRedisService.getMovieRecordOrThrow(gameCode, movieId);
+  const movieRecord: GameRedisService.MovieRecord = {
+    ...storedRecord,
+    resolvedAt: storedRecord.resolvedAt ?? null,
+    lastActivityAt: storedRecord.lastActivityAt ?? null,
+    matchedAt: storedRecord.matchedAt ?? null,
+  };
   const nextStatus = await determineMovieStatus(gameCode, movieRecord);
   const justMatched =
     movieRecord.status !== "matched" && nextStatus === "matched";
+  const resolvedAt =
+    nextStatus === "pending"
+      ? null
+      : movieRecord.resolvedAt ?? new Date().toISOString();
+  const matchedAt =
+    nextStatus === "matched"
+      ? (movieRecord.matchedAt ?? new Date().toISOString())
+      : null;
 
-  if (movieRecord.status !== nextStatus) {
+  if (
+    movieRecord.status !== nextStatus ||
+    movieRecord.resolvedAt !== resolvedAt ||
+    movieRecord.matchedAt !== matchedAt
+  ) {
     await GameRedisService.setMovieRecord(gameCode, movieId, {
       ...movieRecord,
       status: nextStatus,
+      resolvedAt,
+      matchedAt,
     });
   }
 
@@ -330,10 +429,16 @@ const recordMovieVote = async (input: {
     input.choice,
   );
 
-  const movieRecord = await GameRedisService.getMovieRecordOrThrow(
+  const storedRecord = await GameRedisService.getMovieRecordOrThrow(
     input.gameCode,
     input.movieId,
   );
+  const movieRecord: GameRedisService.MovieRecord = {
+    ...storedRecord,
+    resolvedAt: storedRecord.resolvedAt ?? null,
+    lastActivityAt: storedRecord.lastActivityAt ?? null,
+    matchedAt: storedRecord.matchedAt ?? null,
+  };
   const nextRecord = incrementVoteCounts(movieRecord, input.choice);
   await GameRedisService.setMovieRecord(input.gameCode, input.movieId, nextRecord);
 
@@ -478,10 +583,6 @@ export const recordSwipe = async (input: {
 
   if (result.justMatched) {
     publishMatchFound(input.server, input.player.gameCode, result.movieId);
-    const playerIds = await GameRedisService.listPlayerIds(input.player.gameCode);
-    for (const playerId of playerIds) {
-      publishPlayerMatch(input.server, input.player.gameCode, playerId, result.movieId);
-    }
   }
 
   if (result.statusChange.changed) {

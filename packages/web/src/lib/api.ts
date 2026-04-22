@@ -10,9 +10,11 @@ import {apiErrorResponseSchema, type ApiError} from "@deckflix/shared";
 const rawBaseUrl =
   import.meta.env.VITE_PUBLIC_API_URL ||
   import.meta.env.VITE_API_URL ||
-  "http://localhost:3100";
+  (import.meta.env.DEV ? "/api" : "http://localhost:3100");
 
-export const API_BASE_URL = rawBaseUrl.startsWith("http")
+export const API_BASE_URL = rawBaseUrl.startsWith("/")
+  ? rawBaseUrl
+  : rawBaseUrl.startsWith("http")
   ? rawBaseUrl
   : `http://${rawBaseUrl}`;
 

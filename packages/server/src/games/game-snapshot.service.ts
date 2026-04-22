@@ -71,6 +71,9 @@ const buildResults = async (gameCode: string): Promise<GameResults> => {
       skip: movieRecord.skipCount,
       totalVotes: movieRecord.totalVotes,
       matched: movieRecord.status === "matched",
+      resolvedAt: movieRecord.resolvedAt ?? null,
+      lastActivityAt: movieRecord.lastActivityAt ?? null,
+      matchedAt: movieRecord.matchedAt ?? null,
     };
   });
 
@@ -140,15 +143,17 @@ export const getPlayerGameState = async (input: {
     throw new UnauthorizedException("Player not found");
   }
 
-  const [summary, settings, currentItem, currentIndex, completed, remainingCount] =
-    await Promise.all([
-      buildSummary(input.gameCode),
-      GameSettingsService.getGameSettingsOrThrow(input.gameCode),
-      SwipeService.getCurrentMovie(input.gameCode, input.playerId),
-      SwipeService.getPlayerCurrentIndex(input.gameCode, input.playerId),
-      SwipeService.isPlayerCompleted(input.gameCode, input.playerId),
-      SwipeService.getPlayerRemainingCount(input.gameCode, input.playerId),
-    ]);
+  const [summary, settings, currentIndex, completed, currentItem] = await Promise.all([
+    buildSummary(input.gameCode),
+    GameSettingsService.getGameSettingsOrThrow(input.gameCode),
+    SwipeService.getPlayerCurrentIndex(input.gameCode, input.playerId),
+    SwipeService.isPlayerCompleted(input.gameCode, input.playerId),
+    SwipeService.getCurrentOrNextMovie(input.gameCode, input.playerId),
+  ]);
+  const remainingCount = await SwipeService.getPlayerRemainingCount(
+    input.gameCode,
+    input.playerId,
+  );
 
   return {
     summary,

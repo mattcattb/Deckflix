@@ -1,6 +1,6 @@
 import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect} from "@tanstack/react-router";
-import {DisplayRoomView} from "../features/room";
+import {DisplayRoomShell} from "../features/room";
 import {
   activeDisplayStateQueryOptions,
   activeRoomClientQueryOptions,
@@ -48,5 +48,5 @@ export const Route = createFileRoute("/room")({
 
 function ActiveRoomPage() {
   const activeClient = Route.useLoaderData();
-  return <DisplayRoomView gameCode={activeClient.gameCode} />;
+  return <DisplayRoomShell gameCode={activeClient.gameCode} />;
 }

@@ -16,7 +16,6 @@ export const gameStatusSchema = z.enum(gameStatuses);
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 const gameplaySettingsSchema = z.object({
-  minLikesToMatch: z.number().int().min(1).max(50),
   maxMovies: z.number().int().min(1).max(500),
   allowMaybe: z.boolean(),
   allowSuperLike: z.boolean(),
@@ -118,6 +117,9 @@ export const gameVoteSummarySchema = z.object({
   skip: z.number().int().min(0),
   totalVotes: z.number().int().min(0),
   matched: z.boolean(),
+  resolvedAt: z.string().datetime().nullable().default(null),
+  lastActivityAt: z.string().datetime().nullable().default(null),
+  matchedAt: z.string().datetime().nullable().default(null),
 });
 
 export const gameQueueItemSchema = z.object({

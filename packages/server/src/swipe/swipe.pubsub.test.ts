@@ -27,7 +27,6 @@ describe("swipe.pubsub", () => {
       choice: "like",
     });
     SwipePubSub.publishMatchFound({publish: mock()}, "ABC123", "movie-1");
-    SwipePubSub.publishPlayerMatch({publish: mock()}, "ABC123", "player-1", "movie-1");
 
     expect(publishPlayerMessage).toHaveBeenCalledWith(
       expect.anything(),
@@ -36,23 +35,23 @@ describe("swipe.pubsub", () => {
       {
         type: "swipe.vote_recorded",
         payload: {
+          playerId: "player-1",
           movieId: "movie-1",
           choice: "like",
         },
       },
     );
     expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+      type: "swipe.vote_recorded",
+      payload: {
+        playerId: "player-1",
+        movieId: "movie-1",
+        choice: "like",
+      },
+    });
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
       type: "swipe.match_found",
       payload: {movieId: "movie-1"},
     });
-    expect(publishPlayerMessage).toHaveBeenCalledWith(
-      expect.anything(),
-      "ABC123",
-      "player-1",
-      {
-        type: "swipe.match_found",
-        payload: {movieId: "movie-1"},
-      },
-    );
   });
 });

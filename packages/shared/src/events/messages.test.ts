@@ -19,6 +19,7 @@ describe("shared event messages", () => {
     const playerRaw = encodePlayerServerMessage({
       type: "swipe.vote_recorded",
       payload: {
+        playerId: "player-1",
         movieId: "movie-1",
         choice: "like",
       },
@@ -34,6 +35,7 @@ describe("shared event messages", () => {
     expect(parsePlayerServerMessage(playerRaw)).toEqual({
       type: "swipe.vote_recorded",
       payload: {
+        playerId: "player-1",
         movieId: "movie-1",
         choice: "like",
       },

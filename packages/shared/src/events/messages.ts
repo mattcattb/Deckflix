@@ -47,6 +47,7 @@ export const displayServerMessageSchema = z.discriminatedUnion("type", [
   roomDeletedEventSchema,
   presencePlayerJoinedEventSchema,
   presencePlayerLeftEventSchema,
+  swipeVoteRecordedEventSchema,
   swipeMatchFoundEventSchema,
   socketErrorEventSchema,
   socketPongEventSchema,

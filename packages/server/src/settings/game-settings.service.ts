@@ -13,7 +13,6 @@ const settingsKey = (gameCode: string) =>
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   gameplay: {
-    minLikesToMatch: 2,
     maxMovies: 100,
     allowMaybe: true,
     allowSuperLike: true,

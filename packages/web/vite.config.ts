@@ -8,6 +8,11 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, process.cwd(), "");
   const previewPort = Number(env.PORT || process.env.PORT || "4173");
   const allowedHosts = [".railway.app"];
+  const apiProxyTarget =
+    env.VITE_DEV_API_PROXY_TARGET ||
+    env.VITE_PUBLIC_API_URL ||
+    env.VITE_API_URL ||
+    "http://localhost:3100";
 
   if (env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_PUBLIC_DOMAIN) {
     allowedHosts.unshift(env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_PUBLIC_DOMAIN!);
@@ -24,6 +29,13 @@ export default defineConfig(({mode}) => {
       port: 4173,
       strictPort: true,
       allowedHosts,
+      proxy: {
+        "/api": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          ws: true,
+        },
+      },
     },
     preview: {
       host: true,

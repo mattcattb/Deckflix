@@ -13,7 +13,6 @@ const isTmdbConfigured = mock(() => true);
 
 const gameSettingsSchema = z.object({
   gameplay: z.object({
-    minLikesToMatch: z.number().int().min(1).max(50),
     maxMovies: z.number().int().min(1).max(500),
     allowMaybe: z.boolean(),
     allowSuperLike: z.boolean(),

@@ -1068,6 +1068,9 @@ export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]
       superLikeCount: 0,
       skipCount: 0,
       totalVotes: 0,
+      resolvedAt: null,
+      lastActivityAt: null,
+      matchedAt: null,
     };
     await GameRedisService.setMovieRecord(gameCode, movie.id, record);
   }

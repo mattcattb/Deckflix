@@ -1,5 +1,5 @@
 import type {GameSettings} from "@deckflix/shared";
-import {Input, Label, RangeSlider, Switch} from "../ui";
+import {Input, Label, RangeSlider} from "../ui";
 import {GenrePicker} from "./genre-picker";
 
 type MovieGenre = {
@@ -104,26 +104,6 @@ export function GameSettingsSection({
 
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <Label htmlFor="minLikesToMatch" className="text-sm">
-              Likes to match
-            </Label>
-            <Input
-              id="minLikesToMatch"
-              type="number"
-              min={1}
-              max={50}
-              className="w-16 text-center"
-              value={settings.gameplay.minLikesToMatch}
-              onChange={(event) =>
-                updateGameplaySetting(
-                  "minLikesToMatch",
-                  Number.parseInt(event.target.value, 10) || 1,
-                )
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
             <Label htmlFor="maxMovies" className="text-sm">
               Movies
             </Label>
@@ -142,27 +122,11 @@ export function GameSettingsSection({
               }
             />
           </div>
-
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <span className="text-sm">Maybe votes</span>
-            <Switch
-              checked={settings.gameplay.allowMaybe}
-              onCheckedChange={(checked) =>
-                updateGameplaySetting("allowMaybe", checked)
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <span className="text-sm">Super likes</span>
-            <Switch
-              checked={settings.gameplay.allowSuperLike}
-              onCheckedChange={(checked) =>
-                updateGameplaySetting("allowSuperLike", checked)
-              }
-            />
-          </div>
         </div>
+
+        <p className="rounded-xl border border-swipe-like/20 bg-swipe-like/10 px-3 py-2 text-sm text-swipe-like">
+          A match happens only when every player likes the same movie.
+        </p>
       </section>
 
       <section className="space-y-3">

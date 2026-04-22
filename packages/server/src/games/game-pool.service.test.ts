@@ -64,7 +64,6 @@ const GamePoolService = await import(new URL("./game-pool.service.ts", import.me
 
 const settings = {
   gameplay: {
-    minLikesToMatch: 2,
     maxMovies: 6,
     allowMaybe: true,
     allowSuperLike: true,

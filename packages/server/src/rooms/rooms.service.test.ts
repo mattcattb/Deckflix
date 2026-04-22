@@ -44,7 +44,6 @@ const publishPlayerMessage = mock();
 
 const defaultSettings = {
   gameplay: {
-    minLikesToMatch: 2,
     maxMovies: 100,
     allowMaybe: true,
     allowSuperLike: true,
@@ -150,9 +149,15 @@ mock.module(new URL("./rooms.pubsub.ts", import.meta.url).href, () => ({
 }));
 mock.module(new URL("../realtime/display-channel.ts", import.meta.url).href, () => ({
   publishDisplayMessage,
+  subscribeDisplaySocket: mock(),
+  unsubscribeDisplaySocket: mock(),
+  getDisplayTopic: mock(),
 }));
 mock.module(new URL("../realtime/player-channel.ts", import.meta.url).href, () => ({
   publishPlayerMessage,
+  subscribePlayerSocket: mock(),
+  unsubscribePlayerSocket: mock(),
+  getPlayerTopic: mock(),
 }));
 
 const RoomsService = await import(new URL("./rooms.service.ts", import.meta.url).href);

@@ -29,6 +29,9 @@ const movieRecordSchema = z.object({
   superLikeCount: z.number().int().min(0),
   skipCount: z.number().int().min(0),
   totalVotes: z.number().int().min(0),
+  resolvedAt: z.string().datetime().nullable().default(null),
+  lastActivityAt: z.string().datetime().nullable().default(null),
+  matchedAt: z.string().datetime().nullable().default(null),
 });
 
 export type PlayerRecord = z.infer<typeof playerRecordSchema>;
