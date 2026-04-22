@@ -1,5 +1,6 @@
 import type {RoomSession} from "@deckflix/shared";
 import {Hono} from "hono";
+import type {GameMetaRecord} from "../rooms/room-meta.service";
 import {corsMiddleware} from "./cors";
 import {createChildLogger, getPinoLogger} from "./logger";
 import {ZodError} from "zod/v4";
@@ -18,6 +19,7 @@ declare module "hono" {
       gameCode: string;
       session: RoomSession | null;
     };
+    roomMeta: GameMetaRecord;
     roomSession: {
       gameCode: RoomSession["gameCode"];
       role: RoomSession["role"];

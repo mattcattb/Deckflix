@@ -1,41 +1,29 @@
-import {useEffect} from "react";
-import {createFileRoute, useNavigate} from "@tanstack/react-router";
+import {createFileRoute, redirect} from "@tanstack/react-router";
 import {useQuery} from "@tanstack/react-query";
-import type {ActiveRoomClient} from "@deckflix/shared/game-sessions";
-import {gameKeys, getActiveRoomClient} from "../lib/games";
-import {PlayerRoomView} from "./room.$gameCode";
+import {PlayerRoomView} from "../features/room/room-views";
+import {activeRoomClientQueryOptions} from "../lib/games";
 
 export const Route = createFileRoute("/play")({
+  beforeLoad: async ({context}) => {
+    const session = await context.queryClient.ensureQueryData(
+      activeRoomClientQueryOptions,
+    );
+
+    if (session.role === "none") {
+      throw redirect({to: "/", replace: true});
+    }
+
+    if (session.role === "display") {
+      throw redirect({to: "/room", replace: true});
+    }
+  },
+  loader: ({context}) =>
+    context.queryClient.ensureQueryData(activeRoomClientQueryOptions),
   component: ActivePlayPage,
 });
 
 function ActivePlayPage() {
-  const navigate = useNavigate();
-  const activeSessionQuery = useQuery<ActiveRoomClient>({
-    queryKey: gameKeys.activeClient,
-    queryFn: getActiveRoomClient,
-  });
-
-  useEffect(() => {
-    if (!activeSessionQuery.data) {
-      return;
-    }
-
-    if (activeSessionQuery.data.role === "none") {
-      navigate({
-        to: "/",
-        replace: true,
-      });
-      return;
-    }
-
-    if (activeSessionQuery.data.role === "display") {
-      navigate({
-        to: "/room",
-        replace: true,
-      });
-    }
-  }, [activeSessionQuery.data, navigate]);
+  const activeSessionQuery = useQuery(activeRoomClientQueryOptions);
 
   if (
     activeSessionQuery.isLoading ||

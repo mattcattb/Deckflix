@@ -1,8 +1,13 @@
 import {roomSessionSchema, type RoomSession} from "@deckflix/shared";
 import {deleteCookie, getCookie, setCookie} from "hono/cookie";
 import {createMiddleware} from "hono/factory";
-import {NotFoundException, UnauthorizedException} from "../common/errors";
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from "../common/errors";
 import * as RoomSessionService from "./room-session.service";
+import * as RoomMetaService from "./room-meta.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
 
@@ -190,3 +195,27 @@ export const activePlayerSessionMiddleware = createMiddleware(async (c, next) =>
 
   await next();
 });
+
+const requireRoomStatus = (
+  statuses: Array<RoomMetaService.GameMetaRecord["status"]>,
+  message: string,
+) =>
+  createMiddleware(async (c, next) => {
+    const meta = await RoomMetaService.getGameMetaOrThrow(c.get("roomRequest").gameCode);
+    c.set("roomMeta", meta);
+    if (!statuses.includes(meta.status)) {
+      throw new ConflictException(message);
+    }
+
+    await next();
+  });
+
+export const requireGameLobby = requireRoomStatus(
+  ["lobby"],
+  "Game must be in the lobby",
+);
+
+export const requireStartedGame = requireRoomStatus(
+  ["swiping"],
+  "Game must be started",
+);

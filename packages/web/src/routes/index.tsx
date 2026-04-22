@@ -1,14 +1,11 @@
 import {useEffect, useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery} from "@tanstack/react-query";
+import {api, parseRpc} from "../lib/api";
 import {Button, Checkbox, Input, Label} from "../components/ui";
 import {
-  createGame,
   gameKeys,
   getActiveRoomClient,
-  getGameSettingsDefaults,
-  getSelectableMovieGenres,
-  joinGame,
 } from "../lib/games";
 
 export const Route = createFileRoute("/")({
@@ -32,13 +29,18 @@ function HomePage() {
 
   const settingsDefaultsQuery = useQuery({
     queryKey: gameKeys.settingsDefaults,
-    queryFn: getGameSettingsDefaults,
+    queryFn: () => parseRpc(api.api.settings.game.$get()),
     staleTime: 1000 * 60 * 10,
   });
 
   const movieGenresQuery = useQuery({
     queryKey: gameKeys.movieGenres(),
-    queryFn: () => getSelectableMovieGenres(),
+    queryFn: () =>
+      parseRpc(
+        api.api.settings.game["movie-genres"].$get({
+          query: {language: "en-US"},
+        }),
+      ),
     staleTime: 1000 * 60 * 60,
   });
 
@@ -69,12 +71,16 @@ function HomePage() {
 
   const createGameMutation = useMutation({
     mutationFn: async () =>
-      createGame({
-        roomName,
-        settings: {
-          selectedGenreIds,
-        },
-      }),
+      parseRpc(
+        api.api.games.$post({
+          json: {
+            roomName: roomName.trim() || undefined,
+            settings: {
+              selectedGenreIds,
+            },
+          },
+        }),
+      ),
     onSuccess: () => {
       navigate({
         to: "/room",
@@ -83,7 +89,15 @@ function HomePage() {
   });
 
   const joinGameMutation = useMutation({
-    mutationFn: async () => joinGame({gameCode, displayName}),
+    mutationFn: async () =>
+      parseRpc(
+        api.api.rooms[":gameCode"].players.$post({
+          param: {gameCode: gameCode.trim().toUpperCase()},
+          json: {
+            displayName: displayName.trim(),
+          },
+        }),
+      ),
     onSuccess: () => {
       navigate({
         to: "/play",
@@ -188,7 +202,7 @@ function HomePage() {
                   </p>
                 ) : (
                   <div className="grid max-h-52 grid-cols-2 gap-2 overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-                    {movieGenresQuery.data?.items.map((genre) => (
+                    {movieGenresQuery.data?.items.map((genre: {id: number; name: string}) => (
                       <Checkbox
                         key={genre.id}
                         checked={selectedGenreIds.includes(genre.id)}

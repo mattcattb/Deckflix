@@ -11,6 +11,7 @@ import {
   activePlayerSessionMiddleware,
   clearRoomSessionCookie,
   playerSessionMiddleware,
+  requireStartedGame,
 } from "../rooms/rooms.middleware";
 import * as SwipeService from "./swipe.service";
 
@@ -82,6 +83,7 @@ export const playerSwipeRoutes = createRouter()
   .post(
     "/:playerId/votes",
     playerSessionMiddleware,
+    requireStartedGame,
     zValidator("json", voteGamePayloadSchema),
     async (c) => {
       const input = c.req.valid("json");
@@ -119,6 +121,7 @@ export const activeSwipeRoutes = createRouter()
   .post(
     "/votes",
     activePlayerSessionMiddleware,
+    requireStartedGame,
     zValidator("json", voteGamePayloadSchema),
     async (c) => {
       // only swipe on the most recent one? or have to have the id for this too?

@@ -1,6 +1,6 @@
 import {zValidator} from "@hono/zod-validator";
 import {getBunServer} from "hono/bun";
-import {joinGamePayloadSchema} from "@deckflix/shared";
+import {gameSettingsInputSchema, joinGamePayloadSchema} from "@deckflix/shared";
 import {createRouter} from "../common/hono";
 import {ensureSocketPubSub} from "../lib/redis";
 import {
@@ -8,6 +8,7 @@ import {
   activeRoomMiddleware,
   clearRoomSessionCookie,
   displaySessionMiddleware,
+  requireGameLobby,
   readRoomSessionCookie,
   roomMiddleware,
   setRoomSessionCookie,
@@ -17,7 +18,7 @@ import {activeSwipeRoutes, playerSwipeRoutes} from "../swipe/swipe.controller";
 import {activeDisplayRoutes, displayRoutes} from "../display/display.controller";
 
 const playerRoutes = createRouter()
-  .post("/", zValidator("json", joinGamePayloadSchema), async (c) => {
+  .post("/", requireGameLobby, zValidator("json", joinGamePayloadSchema), async (c) => {
     const {gameCode} = c.get("roomRequest");
     const input = c.req.valid("json");
     const session = readRoomSessionCookie(c);
@@ -72,6 +73,28 @@ export const roomsController = createRouter()
   .get("/me/results", async (c) => {
     return c.json(await RoomsService.getResults(c.get("roomRequest").gameCode));
   })
+  .patch(
+    "/me/settings",
+    activeDisplaySessionMiddleware,
+    requireGameLobby,
+    zValidator("json", gameSettingsInputSchema),
+    async (c) => {
+      const result = await RoomsService.updateSettings({
+        gameCode: c.get("roomRequest").gameCode,
+        settings: c.req.valid("json"),
+      });
+      return c.json(result);
+    },
+  )
+  .post("/me/start", activeDisplaySessionMiddleware, requireGameLobby, async (c) => {
+    const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+    void ensureSocketPubSub(server);
+    await RoomsService.start({
+      gameCode: c.get("roomRequest").gameCode,
+      server,
+    });
+    return c.body(null, 204);
+  })
   .route("/me/display", activeDisplayRoutes)
   .route("/me/player", activeSwipeRoutes)
   .delete("/me", activeDisplaySessionMiddleware, async (c) => {
@@ -96,6 +119,28 @@ export const roomsController = createRouter()
   })
   .get("/:gameCode/results", async (c) => {
     return c.json(await RoomsService.getResults(c.get("roomRequest").gameCode));
+  })
+  .patch(
+    "/:gameCode/settings",
+    displaySessionMiddleware,
+    requireGameLobby,
+    zValidator("json", gameSettingsInputSchema),
+    async (c) => {
+      const result = await RoomsService.updateSettings({
+        gameCode: c.get("roomRequest").gameCode,
+        settings: c.req.valid("json"),
+      });
+      return c.json(result);
+    },
+  )
+  .post("/:gameCode/start", displaySessionMiddleware, requireGameLobby, async (c) => {
+    const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+    void ensureSocketPubSub(server);
+    await RoomsService.start({
+      gameCode: c.get("roomRequest").gameCode,
+      server,
+    });
+    return c.body(null, 204);
   })
   .route("/:gameCode/display", displayRoutes)
   .route("/:gameCode/players", playerRoutes)

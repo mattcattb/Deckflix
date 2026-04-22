@@ -156,6 +156,10 @@ export const getCurrentOrNextMovie = async (
   return hydrateAssignment(gameCode, assignment);
 };
 
+export const clearPlayerState = async (gameCode: string, playerId: string) => {
+  await SwipeQueueService.deleteSwipeState(gameCode, playerId);
+};
+
 export const getPlayerCurrentIndex = async (gameCode: string, playerId: string) =>
   SwipeQueueService.getPlayerSeenCount(gameCode, playerId);
 
@@ -299,20 +303,13 @@ const recordMovieVote = async (input: {
 
 export const syncRoomStatus = async (gameCode: string) => {
   const meta = await RoomMetaService.getGameMetaOrThrow(gameCode);
-  if (meta.status === "completed") {
+  if (meta.status === "completed" || meta.status === "lobby") {
     return meta;
   }
 
-  const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  let nextStatus: GameStatus = meta.status;
-
-  if (playerIds.length < 2) {
-    nextStatus = "lobby";
-  } else if (await areAllPlayersCompleted(gameCode)) {
-    nextStatus = "completed";
-  } else {
-    nextStatus = "swiping";
-  }
+  const nextStatus: GameStatus = await areAllPlayersCompleted(gameCode)
+    ? "completed"
+    : "swiping";
 
   if (nextStatus === meta.status) {
     return meta;

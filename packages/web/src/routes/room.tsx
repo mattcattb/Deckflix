@@ -1,41 +1,44 @@
-import {useEffect} from "react";
-import {createFileRoute, useNavigate} from "@tanstack/react-router";
+import {Outlet, createFileRoute, redirect, useLocation} from "@tanstack/react-router";
 import {useQuery} from "@tanstack/react-query";
-import type {ActiveRoomClient} from "@deckflix/shared/game-sessions";
-import {gameKeys, getActiveRoomClient} from "../lib/games";
-import {DisplayRoomView} from "./room.$gameCode";
+import {DisplayRoomView} from "../features/room/room-views";
+import {activeRoomClientQueryOptions} from "../lib/games";
 
 export const Route = createFileRoute("/room")({
+  beforeLoad: async ({context, location}) => {
+    if (location.pathname !== "/room") {
+      return;
+    }
+
+    const session = await context.queryClient.ensureQueryData(
+      activeRoomClientQueryOptions,
+    );
+
+    if (session.role === "none") {
+      throw redirect({to: "/", replace: true});
+    }
+
+    if (session.role === "player") {
+      throw redirect({to: "/play", replace: true});
+    }
+  },
+  loader: ({context, location}) =>
+    location.pathname === "/room"
+      ? context.queryClient.ensureQueryData(activeRoomClientQueryOptions)
+      : null,
   component: ActiveRoomPage,
 });
 
 function ActiveRoomPage() {
-  const navigate = useNavigate();
-  const activeSessionQuery = useQuery<ActiveRoomClient>({
-    queryKey: gameKeys.activeClient,
-    queryFn: getActiveRoomClient,
+  const location = useLocation();
+  const isExactRoomRoute = location.pathname === "/room";
+  const activeSessionQuery = useQuery({
+    ...activeRoomClientQueryOptions,
+    enabled: isExactRoomRoute,
   });
 
-  useEffect(() => {
-    if (!activeSessionQuery.data) {
-      return;
-    }
-
-    if (activeSessionQuery.data.role === "none") {
-      navigate({
-        to: "/",
-        replace: true,
-      });
-      return;
-    }
-
-    if (activeSessionQuery.data.role === "player") {
-      navigate({
-        to: "/play",
-        replace: true,
-      });
-    }
-  }, [activeSessionQuery.data, navigate]);
+  if (!isExactRoomRoute) {
+    return <Outlet />;
+  }
 
   if (
     activeSessionQuery.isLoading ||

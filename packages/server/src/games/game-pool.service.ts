@@ -62,6 +62,7 @@ export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]
   }
 
   await ensureRedis();
+  await redis.del(poolKey(gameCode));
   await redis.zAdd(
     poolKey(gameCode),
     movies.map((movie, order) => ({

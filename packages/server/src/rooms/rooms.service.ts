@@ -75,9 +75,6 @@ export const join = async (input: {
       sessionToken,
     });
 
-    await SwipeService.refillPlayerQueue(input.gameCode, playerId);
-    await SwipeService.getCurrentOrNextMovie(input.gameCode, playerId);
-    await SwipeService.syncRoomStatus(input.gameCode);
     await GameRedisService.touchRoomKeys(input.gameCode);
   });
 
@@ -143,6 +140,59 @@ export const create = async (input: {
 
   throw new BadRequestException("Unable to generate game code");
 };
+
+export const updateSettings = async (input: {
+  gameCode: string;
+  settings: import("@deckflix/shared").GameSettingsInput;
+}) =>
+  GameRedisService.withGameLock(input.gameCode, async () => {
+    const currentSettings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
+    const nextSettings = GameSettingsService.resolveGameSettings({
+      ...currentSettings,
+      ...input.settings,
+    });
+
+    await GameSettingsService.setGameSettings(input.gameCode, nextSettings);
+    await GameRedisService.touchRoomKeys(input.gameCode);
+
+    return GameSnapshotService.getGameMeta(input.gameCode);
+  });
+
+export const start = async (input: {
+  gameCode: string;
+  server: RealtimeServer;
+}) =>
+  GameRedisService.withGameLock(input.gameCode, async () => {
+    const playerIds = await GameRedisService.listPlayerIds(input.gameCode);
+    if (playerIds.length < 2) {
+      throw new BadRequestException("Need at least 2 players to start");
+    }
+
+    const settings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
+    const movies = await GamePoolService.buildInitialPool({settings});
+    await GamePoolService.saveInitialPool(input.gameCode, movies);
+
+    for (const playerId of playerIds) {
+      await SwipeService.clearPlayerState(input.gameCode, playerId);
+      await SwipeService.refillPlayerQueue(input.gameCode, playerId);
+      await SwipeService.getCurrentOrNextMovie(input.gameCode, playerId);
+    }
+
+    const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
+    await RoomMetaService.setGameMeta(input.gameCode, {
+      ...meta,
+      status: "swiping",
+      endedAt: null,
+    });
+    await GameRedisService.touchRoomKeys(input.gameCode);
+
+    return {
+      gameCode: input.gameCode.trim().toUpperCase(),
+    };
+  }).then(async (result) => {
+    await publishStateForGame(input.server, result.gameCode);
+    return result;
+  });
 
 export const remove = (input: {
   gameCode: string;
