@@ -1,16 +1,16 @@
 import type {PlayerSession, SwipeChoice} from "@deckflix/shared";
-import * as GamePresenceService from "../games/game-presence.service";
-import {getPlayerGameState} from "../games/game-snapshot.service";
-import {getGamePlayerIds, leaveGame, recordVote} from "../games/game-state.service";
+import * as GamePresenceService from "../ws/presence.ws";
+import * as GameSnapshotService from "../games/game-snapshot.service";
+import * as GameStateService from "../games/game-state.service";
 import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
 
 type RealtimeServer = {publish: (topic: string, payload: string) => void};
 
 export const getSwipeState = (player: {gameCode: string; playerId: string}) =>
-  getPlayerGameState(player);
+  GameSnapshotService.getPlayerGameState(player);
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
-  const playerIds = await getGamePlayerIds(gameCode);
+  const playerIds = await GameStateService.getGamePlayerIds(gameCode);
   GamePresenceService.publishRoomState(server, gameCode, playerIds);
 };
 
@@ -73,7 +73,7 @@ export const recordSwipe = async (input: {
   choice: SwipeChoice;
   server: RealtimeServer;
 }) => {
-  const result = await recordVote({
+  const result = await GameStateService.recordVote({
     player: input.player,
     assignmentId: input.assignmentId,
     movieId: input.movieId,
@@ -90,7 +90,7 @@ export const recordSwipe = async (input: {
 
   if (result.justMatched) {
     publishMatchFound(input.server, input.player.gameCode, result.movieId);
-    const playerIds = await getGamePlayerIds(input.player.gameCode);
+    const playerIds = await GameStateService.getGamePlayerIds(input.player.gameCode);
     for (const playerId of playerIds) {
       publishPlayerMatch(input.server, input.player.gameCode, playerId, result.movieId);
     }
@@ -104,7 +104,7 @@ export const leaveSwipe = async (input: {
   player: PlayerSession;
   server: RealtimeServer;
 }) => {
-  const result = await leaveGame(input.player);
+  const result = await GameStateService.leaveGame(input.player);
   publishPlayerLeft(input.server, result.gameCode, result.playerId);
   await publishStateForGame(input.server, result.gameCode);
   return result;

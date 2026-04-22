@@ -1,13 +1,13 @@
 import type {SwipeChoice} from "@deckflix/shared";
 import {ensureRedis, redis} from "../lib/redis";
-import {normalizeGameCode, type MovieStatus} from "../games/game-redis.service";
+import * as GameRedisService from "../games/game-redis.service";
 
 const votesKey = (gameCode: string, movieId: string) =>
-  `game:${normalizeGameCode(gameCode)}:votes:${movieId}`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:votes:${movieId}`;
 const matchesKey = (gameCode: string) =>
-  `game:${normalizeGameCode(gameCode)}:matches`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:matches`;
 const rejectionsKey = (gameCode: string) =>
-  `game:${normalizeGameCode(gameCode)}:rejections`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:rejections`;
 
 export const getPlayerVote = async (
   gameCode: string,
@@ -31,7 +31,7 @@ export const setPlayerVote = async (
 export const syncMovieOutcomeSets = async (
   gameCode: string,
   movieId: string,
-  status: MovieStatus,
+  status: GameRedisService.MovieStatus,
 ) => {
   await ensureRedis();
 

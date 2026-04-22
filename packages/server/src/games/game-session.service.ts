@@ -12,8 +12,8 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
-import {getPlayerRecord} from "./game-redis.service";
-import {getGameMetaOrThrow} from "../rooms/room-meta.service";
+import * as GameRedisService from "./game-redis.service";
+import * as RoomMetaService from "../rooms/room-meta.service";
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
   role === "display"
@@ -26,7 +26,7 @@ const isInvalidRoomSessionError = (error: unknown) =>
 export const verifyDisplaySession = async (input: DisplaySession) => {
   let meta;
   try {
-    meta = await getGameMetaOrThrow(input.gameCode);
+    meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
   } catch (error) {
     if (error instanceof NotFoundException) {
       throw new UnauthorizedException("Invalid display session");
@@ -46,7 +46,7 @@ export const verifyDisplaySession = async (input: DisplaySession) => {
 };
 
 export const verifyPlayerSession = async (input: PlayerSession) => {
-  const player = await getPlayerRecord(input.gameCode, input.playerId);
+  const player = await GameRedisService.getPlayerRecord(input.gameCode, input.playerId);
   if (!player || player.sessionToken !== input.sessionToken) {
     throw new UnauthorizedException("Invalid player session");
   }
@@ -103,7 +103,7 @@ export const getActiveRoomClient = async (
 
   try {
     const verified = await verifyRoomSession(session);
-    const meta = await getGameMetaOrThrow(verified.gameCode);
+    const meta = await RoomMetaService.getGameMetaOrThrow(verified.gameCode);
     return activeRoomClientSchema.parse({
       role: verified.role,
       gameCode: verified.gameCode,

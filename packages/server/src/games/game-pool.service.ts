@@ -1,18 +1,15 @@
 import type {MovieCandidate} from "@deckflix/shared";
+import type {GameSettings} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
 import * as MoviesService from "../movies/movies.service";
 import {discoverTmdbMovies, isTmdbConfigured} from "../lib/tmdb";
-import {buildMovieDiscoveryFilters} from "../settings/game-settings.service";
-import type {GameSettings} from "@deckflix/shared";
+import * as GameSettingsService from "../settings/game-settings.service";
 import {ensureRedis, redis} from "../lib/redis";
-import {
-  normalizeGameCode,
-  setMovieRecord,
-  type MovieRecord,
-} from "./game-redis.service";
-import type {PlayerQueueEntry} from "../swipe/swipe-queue.service";
+import * as GameRedisService from "./game-redis.service";
+import type * as SwipeQueueService from "../swipe/swipe-queue.service";
 
-const poolKey = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:pool`;
+const poolKey = (gameCode: string) =>
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool`;
 
 export const buildInitialPool = async (input: {
   settings: GameSettings;
@@ -22,7 +19,7 @@ export const buildInitialPool = async (input: {
   let page = 1;
   let totalPages = 1;
   const maxMovies = input.settings.maxMovies;
-  const filters = buildMovieDiscoveryFilters(input.settings);
+  const filters = GameSettingsService.buildMovieDiscoveryFilters(input.settings);
 
   while (items.length < maxMovies && page <= totalPages) {
     const result = isTmdbConfigured()
@@ -74,7 +71,7 @@ export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]
   );
 
   for (const movie of movies) {
-    const record: MovieRecord = {
+    const record: GameRedisService.MovieRecord = {
       movie,
       status: "pending",
       likeCount: 0,
@@ -84,11 +81,13 @@ export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]
       skipCount: 0,
       totalVotes: 0,
     };
-    await setMovieRecord(gameCode, movie.id, record);
+    await GameRedisService.setMovieRecord(gameCode, movie.id, record);
   }
 };
 
-export const getPoolEntries = async (gameCode: string): Promise<PlayerQueueEntry[]> => {
+export const getPoolEntries = async (
+  gameCode: string,
+): Promise<SwipeQueueService.PlayerQueueEntry[]> => {
   await ensureRedis();
   const movieIds = await redis.zRange(poolKey(gameCode), 0, -1);
   return movieIds.map((movieId, order) => ({

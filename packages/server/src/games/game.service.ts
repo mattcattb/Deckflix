@@ -1,16 +1,12 @@
 import {randomUUID} from "node:crypto";
 import type {CreateGameResult, GameSettingsInput} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
-import {buildInitialPool, saveInitialPool} from "./game-pool.service";
-import {clearPresenceState} from "./game-presence.service";
-import {
-  deleteRoomKeys,
-  touchRoomKeys,
-  withGameLock,
-} from "./game-redis.service";
-import {verifyDisplaySession} from "./game-session.service";
-import {resolveGameSettings, setGameSettings} from "../settings/game-settings.service";
-import {createGameMeta} from "../rooms/room-meta.service";
+import * as GamePoolService from "./game-pool.service";
+import {clearPresenceState} from "../ws/presence.ws";
+import * as GameRedisService from "./game-redis.service";
+import * as GameSessionService from "./game-session.service";
+import * as GameSettingsService from "../settings/game-settings.service";
+import * as RoomMetaService from "../rooms/room-meta.service";
 
 const generateGameCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -26,15 +22,15 @@ export const createGame = async (input: {
   settings?: GameSettingsInput;
 }): Promise<CreateGameResult> => {
   const createdAt = new Date().toISOString();
-  const settings = resolveGameSettings(input.settings);
+  const settings = GameSettingsService.resolveGameSettings(input.settings);
   const roomName = input.roomName?.trim() || null;
-  const movies = await buildInitialPool({settings});
+  const movies = await GamePoolService.buildInitialPool({settings});
   const displayId = randomUUID();
   const sessionToken = randomUUID();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const gameCode = generateGameCode();
-    const created = await createGameMeta({
+    const created = await RoomMetaService.createGameMeta({
       id: randomUUID(),
       code: gameCode,
       roomName,
@@ -48,9 +44,9 @@ export const createGame = async (input: {
     });
 
     if (created) {
-      await saveInitialPool(gameCode, movies);
-      await setGameSettings(gameCode, settings);
-      await touchRoomKeys(gameCode);
+      await GamePoolService.saveInitialPool(gameCode, movies);
+      await GameSettingsService.setGameSettings(gameCode, settings);
+      await GameRedisService.touchRoomKeys(gameCode);
       return {
         gameCode,
         displaySession: {
@@ -70,13 +66,13 @@ export const deleteGame = async (input: {
   displayId: string;
   sessionToken: string;
 }) =>
-  withGameLock(input.gameCode, async () => {
-    await verifyDisplaySession({
+  GameRedisService.withGameLock(input.gameCode, async () => {
+    await GameSessionService.verifyDisplaySession({
       gameCode: input.gameCode,
       displayId: input.displayId,
       sessionToken: input.sessionToken,
     });
 
-    await deleteRoomKeys(input.gameCode);
+    await GameRedisService.deleteRoomKeys(input.gameCode);
     clearPresenceState(input.gameCode);
   });

@@ -1,16 +1,17 @@
-import * as GamePresenceService from "../games/game-presence.service";
-import {getDisplayGameState} from "../games/game-snapshot.service";
-import {getGamePlayerIds} from "../games/game-state.service";
+import * as GamePresenceService from "../ws/presence.ws";
+import * as GameSnapshotService from "../games/game-snapshot.service";
+import * as GameStateService from "../games/game-state.service";
 
 type RealtimeServer = {publish: (topic: string, payload: string) => void};
 
-export const getDisplayState = (gameCode: string) => getDisplayGameState(gameCode);
+export const getDisplayState = (gameCode: string) =>
+  GameSnapshotService.getDisplayGameState(gameCode);
 
 export const publishDisplayRoomState = async (
   server: RealtimeServer,
   gameCode: string,
 ) => {
-  const playerIds = await getGamePlayerIds(gameCode);
+  const playerIds = await GameStateService.getGamePlayerIds(gameCode);
   GamePresenceService.publishRoomState(server, gameCode, playerIds);
 };
 

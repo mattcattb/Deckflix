@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
-import {normalizeGameCode} from "../games/game-redis.service";
+import * as GameRedisService from "../games/game-redis.service";
 
 const playerQueueEntrySchema = z.object({
   movieId: z.string().min(1),
@@ -17,11 +17,11 @@ export type PlayerQueueEntry = z.infer<typeof playerQueueEntrySchema>;
 export type PlayerCurrentAssignment = z.infer<typeof playerCurrentAssignmentSchema>;
 
 const playerQueueKey = (gameCode: string, playerId: string) =>
-  `game:${normalizeGameCode(gameCode)}:player:${playerId}:queue`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:player:${playerId}:queue`;
 const playerCurrentKey = (gameCode: string, playerId: string) =>
-  `game:${normalizeGameCode(gameCode)}:player:${playerId}:current`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:player:${playerId}:current`;
 const playerSeenKey = (gameCode: string, playerId: string) =>
-  `game:${normalizeGameCode(gameCode)}:player:${playerId}:seen`;
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:player:${playerId}:seen`;
 
 const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
   let parsedValue: unknown;

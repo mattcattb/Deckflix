@@ -2,7 +2,7 @@ import {z} from "zod";
 import {gameStatusSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
-import {GAME_TTL_SECONDS, normalizeGameCode} from "../games/game-redis.service";
+import * as GameRedisService from "../games/game-redis.service";
 
 const displayRecordSchema = z.object({
   id: z.string().min(1),
@@ -22,7 +22,8 @@ const gameMetaRecordSchema = z.object({
 export type DisplayRecord = z.infer<typeof displayRecordSchema>;
 export type GameMetaRecord = z.infer<typeof gameMetaRecordSchema>;
 
-const metaKey = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:meta`;
+const metaKey = (gameCode: string) =>
+  `game:${GameRedisService.normalizeGameCode(gameCode)}:meta`;
 
 const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
   let parsedValue: unknown;
@@ -43,13 +44,13 @@ const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
 
 export const createGameMeta = async (meta: GameMetaRecord) => {
   await ensureRedis();
-  const normalized = normalizeGameCode(meta.code);
+  const normalized = GameRedisService.normalizeGameCode(meta.code);
   const created = await redis.set(metaKey(normalized), JSON.stringify({
     ...meta,
     code: normalized,
   }), {
     NX: true,
-    EX: GAME_TTL_SECONDS,
+    EX: GameRedisService.GAME_TTL_SECONDS,
   });
 
   return Boolean(created);
@@ -57,7 +58,7 @@ export const createGameMeta = async (meta: GameMetaRecord) => {
 
 export const getGameMetaOrThrow = async (gameCode: string) => {
   await ensureRedis();
-  const normalized = normalizeGameCode(gameCode);
+  const normalized = GameRedisService.normalizeGameCode(gameCode);
   const raw = await redis.get(metaKey(normalized));
   if (!raw) {
     throw new NotFoundException(`Game ${normalized} not found`);

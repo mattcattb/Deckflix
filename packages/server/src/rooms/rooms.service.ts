@@ -1,35 +1,29 @@
 import type {GamePlayerPresence, RoomSession} from "@deckflix/shared";
-import {deleteGame} from "../games/game.service";
-import * as GamePresenceService from "../games/game-presence.service";
-import {
-  assertRoomSessionAvailable,
-  getActiveRoomClient,
-  getRoomClient,
-} from "../games/game-session.service";
-import {
-  getGameMeta,
-  getGamePlayers,
-  getGameResults,
-} from "../games/game-snapshot.service";
-import {getGamePlayerIds, joinGame} from "../games/game-state.service";
+import * as GameService from "../games/game.service";
+import * as GamePresenceService from "../ws/presence.ws";
+import * as GameSessionService from "../games/game-session.service";
+import * as GameSnapshotService from "../games/game-snapshot.service";
+import * as GameStateService from "../games/game-state.service";
 import {publishDisplayMessage} from "../ws/topics";
 
 type RealtimeServer = {publish: (topic: string, payload: string) => void};
 
 export const getActiveClient = (session: RoomSession | null) =>
-  getActiveRoomClient(session);
+  GameSessionService.getActiveRoomClient(session);
 
 export const getClient = (input: {gameCode: string; session: RoomSession | null}) =>
-  getRoomClient(input);
+  GameSessionService.getRoomClient(input);
 
-export const getMeta = (gameCode: string) => getGameMeta(gameCode);
-export const getPlayers = (gameCode: string) => getGamePlayers(gameCode);
-export const getResults = (gameCode: string) => getGameResults(gameCode);
+export const getMeta = (gameCode: string) => GameSnapshotService.getGameMeta(gameCode);
+export const getPlayers = (gameCode: string) =>
+  GameSnapshotService.getGamePlayers(gameCode);
+export const getResults = (gameCode: string) =>
+  GameSnapshotService.getGameResults(gameCode);
 export const ensureRoomSessionAvailable = (session: RoomSession | null) =>
-  assertRoomSessionAvailable(session);
+  GameSessionService.assertRoomSessionAvailable(session);
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
-  const playerIds = await getGamePlayerIds(gameCode);
+  const playerIds = await GameStateService.getGamePlayerIds(gameCode);
   GamePresenceService.publishRoomState(server, gameCode, playerIds);
 };
 
@@ -49,7 +43,7 @@ export const join = async (input: {
   displayName: string;
   server: RealtimeServer;
 }) => {
-  const result = await joinGame(input);
+  const result = await GameStateService.joinGame(input);
   publishPlayerJoined(input.server, result.gameCode, result.player);
   await publishStateForGame(input.server, result.gameCode);
   return result;
@@ -59,4 +53,4 @@ export const remove = (input: {
   gameCode: string;
   displayId: string;
   sessionToken: string;
-}) => deleteGame(input);
+}) => GameService.deleteGame(input);

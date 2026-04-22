@@ -4,17 +4,22 @@ import {
   subscribeToPlayer,
   unsubscribeFromDisplay,
   unsubscribeFromPlayer,
-} from "../ws/topics";
-import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
-import {getDisplayGameState, getPlayerGameState} from "./game-snapshot.service";
-import {verifyDisplaySession, verifyPlayerSession} from "./game-session.service";
+} from "./topics";
+import {publishDisplayMessage, publishPlayerMessage} from "./topics";
+import * as GameSnapshotService from "../games/game-snapshot.service";
+import * as GameSessionService from "../games/game-session.service";
 
 export type SocketLike = {
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
 };
 
-type TopicSocket = {raw?: {subscribe: (topic: string) => void; unsubscribe: (topic: string) => void}};
+type TopicSocket = {
+  raw?: {
+    subscribe: (topic: string) => void;
+    unsubscribe: (topic: string) => void;
+  };
+};
 type SocketServer = {
   publish: (topic: string, payload: string) => void;
 };
@@ -39,7 +44,7 @@ export const clearPresenceState = (gameCode: string) => {
 };
 
 export const connectDisplay = async (input: DisplaySession & {socket: SocketLike}) => {
-  await verifyDisplaySession(input);
+  await GameSessionService.verifyDisplaySession(input);
   const key = normalizeGameCode(input.gameCode);
   const sockets = displaySocketsByGameCode.get(key) ?? new Set<SocketLike>();
   sockets.add(input.socket);
@@ -60,7 +65,7 @@ export const disconnectDisplay = (input: {gameCode: string; socket: SocketLike})
 };
 
 export const connectPlayer = async (input: PlayerSession & {socket: SocketLike}) => {
-  await verifyPlayerSession(input);
+  await GameSessionService.verifyPlayerSession(input);
   const key = normalizeGameCode(input.gameCode);
   const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
   const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();
@@ -120,7 +125,7 @@ export const unsubscribePlayerSocket = (
 };
 
 export const publishDisplayState = (server: SocketServer, gameCode: string) => {
-  void getDisplayGameState(gameCode)
+  void GameSnapshotService.getDisplayGameState(gameCode)
     .then((state) => {
       publishDisplayMessage(server as never, gameCode, {
         type: "display.snapshot",
@@ -139,7 +144,7 @@ export const publishPlayerStates = (
     playerIds.map(async (playerId) => {
       publishPlayerMessage(server as never, gameCode, playerId, {
         type: "player.snapshot",
-        payload: await getPlayerGameState({
+        payload: await GameSnapshotService.getPlayerGameState({
           gameCode,
           playerId,
         }),

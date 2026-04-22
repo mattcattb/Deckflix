@@ -8,34 +8,19 @@ import type {
   PlayerGameState,
 } from "@deckflix/shared";
 import {UnauthorizedException} from "../common/errors";
-import {
-  getPoolEntries,
-  getPoolSize,
-} from "./game-pool.service";
-import {getGameSettingsOrThrow} from "../settings/game-settings.service";
-import {
-  getMatchedMovieIds,
-  getRejectedMovieIds,
-} from "../swipe/swipe-ledger.service";
-import {
-  getCurrentMovie,
-  getPlayerCurrentIndex,
-  getPlayerRemainingCount,
-  isPlayerCompleted,
-} from "./game-state.service";
-import {isDisplayConnected, isPlayerConnected} from "./game-presence.service";
-import {
-  getMovieRecords,
-  getPlayerRecord,
-  listPlayers,
-} from "./game-redis.service";
-import {getGameMetaOrThrow} from "../rooms/room-meta.service";
+import * as GamePoolService from "./game-pool.service";
+import * as GameSettingsService from "../settings/game-settings.service";
+import * as SwipeLedgerService from "../swipe/swipe-ledger.service";
+import * as GameStateService from "./game-state.service";
+import {isDisplayConnected, isPlayerConnected} from "../ws/presence.ws";
+import * as GameRedisService from "./game-redis.service";
+import * as RoomMetaService from "../rooms/room-meta.service";
 
 const buildSummary = async (gameCode: string): Promise<GameSummary> => {
   const [meta, players, queueSize] = await Promise.all([
-    getGameMetaOrThrow(gameCode),
-    listPlayers(gameCode),
-    getPoolSize(gameCode),
+    RoomMetaService.getGameMetaOrThrow(gameCode),
+    GameRedisService.listPlayers(gameCode),
+    GamePoolService.getPoolSize(gameCode),
   ]);
 
   return {
@@ -51,7 +36,7 @@ const buildSummary = async (gameCode: string): Promise<GameSummary> => {
 };
 
 const buildPlayers = async (gameCode: string) => {
-  const players = await listPlayers(gameCode);
+  const players = await GameRedisService.listPlayers(gameCode);
   return players.map((player) => ({
     id: player.id,
     displayName: player.displayName,
@@ -62,11 +47,11 @@ const buildPlayers = async (gameCode: string) => {
 
 const buildResults = async (gameCode: string): Promise<GameResults> => {
   const [poolEntries, matchedMovieIds, rejectedMovieIds] = await Promise.all([
-    getPoolEntries(gameCode),
-    getMatchedMovieIds(gameCode),
-    getRejectedMovieIds(gameCode),
+    GamePoolService.getPoolEntries(gameCode),
+    SwipeLedgerService.getMatchedMovieIds(gameCode),
+    SwipeLedgerService.getRejectedMovieIds(gameCode),
   ]);
-  const movieRecords = await getMovieRecords(
+  const movieRecords = await GameRedisService.getMovieRecords(
     gameCode,
     poolEntries.map((entry) => entry.movieId),
   );
@@ -97,7 +82,7 @@ export const getGameSummary = async (gameCode: string) => buildSummary(gameCode)
 export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
   const [summary, settings] = await Promise.all([
     buildSummary(gameCode),
-    getGameSettingsOrThrow(gameCode),
+    GameSettingsService.getGameSettingsOrThrow(gameCode),
   ]);
 
   return {
@@ -116,11 +101,11 @@ export const getGameResults = async (gameCode: string): Promise<GameResults> =>
 export const getDisplayGameState = async (gameCode: string): Promise<DisplayGameState> => {
   const [summary, poolEntries, players, results] = await Promise.all([
     buildSummary(gameCode),
-    getPoolEntries(gameCode),
-    listPlayers(gameCode),
+    GamePoolService.getPoolEntries(gameCode),
+    GameRedisService.listPlayers(gameCode),
     buildResults(gameCode),
   ]);
-  const movieRecords = await getMovieRecords(
+  const movieRecords = await GameRedisService.getMovieRecords(
     gameCode,
     poolEntries.map((entry) => entry.movieId),
   );
@@ -134,8 +119,8 @@ export const getDisplayGameState = async (gameCode: string): Promise<DisplayGame
     playerProgress: await Promise.all(
       players.map(async (player) => ({
         playerId: player.id,
-        currentIndex: await getPlayerCurrentIndex(gameCode, player.id),
-        completed: await isPlayerCompleted(gameCode, player.id),
+        currentIndex: await GameStateService.getPlayerCurrentIndex(gameCode, player.id),
+        completed: await GameStateService.isPlayerCompleted(gameCode, player.id),
       })),
     ),
     results,
@@ -146,7 +131,7 @@ export const getPlayerGameState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => {
-  const player = await getPlayerRecord(input.gameCode, input.playerId);
+  const player = await GameRedisService.getPlayerRecord(input.gameCode, input.playerId);
   if (!player) {
     throw new UnauthorizedException("Player not found");
   }
@@ -154,11 +139,11 @@ export const getPlayerGameState = async (input: {
   const [summary, settings, currentItem, currentIndex, completed, remainingCount] =
     await Promise.all([
       buildSummary(input.gameCode),
-      getGameSettingsOrThrow(input.gameCode),
-      getCurrentMovie(input.gameCode, input.playerId),
-      getPlayerCurrentIndex(input.gameCode, input.playerId),
-      isPlayerCompleted(input.gameCode, input.playerId),
-      getPlayerRemainingCount(input.gameCode, input.playerId),
+      GameSettingsService.getGameSettingsOrThrow(input.gameCode),
+      GameStateService.getCurrentMovie(input.gameCode, input.playerId),
+      GameStateService.getPlayerCurrentIndex(input.gameCode, input.playerId),
+      GameStateService.isPlayerCompleted(input.gameCode, input.playerId),
+      GameStateService.getPlayerRemainingCount(input.gameCode, input.playerId),
     ]);
 
   return {
