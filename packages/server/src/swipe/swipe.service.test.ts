@@ -176,21 +176,21 @@ beforeEach(() => {
 
 describe("swipe.service", () => {
   test("refillPlayerQueue randomizes deterministically per player within the top queue window", async () => {
-    await SwipeService.refillPlayerQueue("ABC123", "player-1", 4);
+    await SwipeService.refillPlayerQueue("ABCD", "player-1", 4);
     const firstPlayerInitialOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
       (entry: {movieId: string}) => entry.movieId,
     );
 
     pushPlayerQueueEntries.mockReset();
 
-    await SwipeService.refillPlayerQueue("ABC123", "player-1", 4);
+    await SwipeService.refillPlayerQueue("ABCD", "player-1", 4);
     const firstPlayerRepeatOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
       (entry: {movieId: string}) => entry.movieId,
     );
 
     pushPlayerQueueEntries.mockReset();
 
-    await SwipeService.refillPlayerQueue("ABC123", "player-2", 4);
+    await SwipeService.refillPlayerQueue("ABCD", "player-2", 4);
     const secondPlayerOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
       (entry: {movieId: string}) => entry.movieId,
     );
@@ -227,14 +227,14 @@ describe("swipe.service", () => {
       matchedAt: null,
     });
 
-    const result = await SwipeService.refreshMovieOutcome("ABC123", "movie-1");
+    const result = await SwipeService.refreshMovieOutcome("ABCD", "movie-1");
 
     expect(result).toEqual({
       justMatched: true,
       status: "matched",
     });
     expect(setMovieRecord).toHaveBeenCalledWith(
-      "ABC123",
+      "ABCD",
       "movie-1",
       expect.objectContaining({
         status: "matched",
@@ -267,14 +267,14 @@ describe("swipe.service", () => {
       matchedAt: null,
     });
 
-    const result = await SwipeService.refreshMovieOutcome("ABC123", "movie-2");
+    const result = await SwipeService.refreshMovieOutcome("ABCD", "movie-2");
 
     expect(result).toEqual({
       justMatched: false,
       status: "rejected",
     });
     expect(setMovieRecord).toHaveBeenCalledWith(
-      "ABC123",
+      "ABCD",
       "movie-2",
       expect.objectContaining({
         status: "rejected",
@@ -296,19 +296,19 @@ describe("swipe.service", () => {
     );
     popPlayerQueueEntry.mockResolvedValue({movieId: "movie-2", order: 1});
 
-    const result = await SwipeService.getCurrentOrNextMovie("ABC123", "player-1");
+    const result = await SwipeService.getCurrentOrNextMovie("ABCD", "player-1");
 
     expect(markPlayerSeenMovie).toHaveBeenCalledWith(
-      "ABC123",
+      "ABCD",
       "player-1",
       "movie-1",
     );
     expect(clearPlayerCurrentAssignment).toHaveBeenCalledWith(
-      "ABC123",
+      "ABCD",
       "player-1",
     );
     expect(setPlayerCurrentAssignment).toHaveBeenCalledWith(
-      "ABC123",
+      "ABCD",
       "player-1",
       expect.objectContaining({
         movieId: "movie-2",

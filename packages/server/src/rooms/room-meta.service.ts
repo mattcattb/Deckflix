@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {gameStatusSchema} from "@deckflix/shared";
+import {gameCodeSchema, gameStatusSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
 import * as GameRedisService from "../games/game-redis.service";
@@ -11,7 +11,7 @@ const displayRecordSchema = z.object({
 
 const gameMetaRecordSchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
+  code: gameCodeSchema,
   roomName: z.string().min(1).max(60).nullable(),
   status: gameStatusSchema,
   createdAt: z.string().datetime(),

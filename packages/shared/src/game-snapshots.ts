@@ -1,5 +1,6 @@
 import {z} from "zod";
 import {
+  gameCodeSchema,
   gameQueueItemSchema,
   gamePlayerProgressSchema,
   gameSettingsInputSchema,
@@ -29,7 +30,7 @@ const activeGameQueueItemSchema = gameQueueItemSchema.extend({
 
 const gameSummarySchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
+  code: gameCodeSchema,
   roomName: z.string().min(1).max(60).nullable(),
   status: gameStatusSchema,
   createdAt: z.string().datetime(),

@@ -24,7 +24,7 @@ const setGameSettings = mock();
 const createGameMeta = mock(async () => true);
 const getGameMetaOrThrow = mock(async () => ({
   id: "game-1",
-  code: "ABC123",
+  code: "ABCD",
   roomName: "Room",
   status: "lobby",
   createdAt: new Date().toISOString(),
@@ -201,7 +201,7 @@ beforeEach(() => {
   createGameMeta.mockResolvedValue(true);
   getGameMetaOrThrow.mockResolvedValue({
     id: "game-1",
-    code: "ABC123",
+    code: "ABCD",
     roomName: "Room",
     status: "lobby",
     createdAt: new Date().toISOString(),
@@ -242,28 +242,28 @@ describe("rooms.service", () => {
     ]);
 
     await RoomsService.start({
-      gameCode: "ABC123",
+      gameCode: "ABCD",
       server: {
         publish: mock(),
       },
     });
 
     expect(buildInitialPool).toHaveBeenCalledWith({
-      gameCode: "ABC123",
+      gameCode: "ABCD",
       settings: defaultSettings,
     });
     expect(saveInitialPool).toHaveBeenCalledTimes(1);
     expect(clearPlayerState).toHaveBeenCalledTimes(2);
     expect(refillPlayerQueue).toHaveBeenCalledTimes(2);
     expect(getCurrentOrNextMovie).toHaveBeenCalledTimes(2);
-    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABCD", {
       type: "room.status_changed",
       payload: {
         previousStatus: "lobby",
         nextStatus: "swiping",
       },
     });
-    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABCD", {
       type: "room.started",
     });
   });
@@ -272,7 +272,7 @@ describe("rooms.service", () => {
     listPlayerIds.mockResolvedValue(["player-1", "player-2"]);
 
     await RoomsService.end({
-      gameCode: "ABC123",
+      gameCode: "ABCD",
       displayId: "display-1",
       sessionToken: "display-session",
       server: {
@@ -281,24 +281,24 @@ describe("rooms.service", () => {
     });
 
     expect(verifyDisplaySession).toHaveBeenCalledWith({
-      gameCode: "ABC123",
+      gameCode: "ABCD",
       displayId: "display-1",
       sessionToken: "display-session",
     });
     expect(setGameMeta).toHaveBeenCalledTimes(1);
-    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABCD", {
       type: "room.status_changed",
       payload: {
         previousStatus: "lobby",
         nextStatus: "completed",
       },
     });
-    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABCD", {
       type: "room.deleted",
     });
     expect(publishPlayerMessage).toHaveBeenCalledWith(
       expect.anything(),
-      "ABC123",
+      "ABCD",
       "player-1",
       {
         type: "room.status_changed",
@@ -310,13 +310,13 @@ describe("rooms.service", () => {
     );
     expect(publishPlayerMessage).toHaveBeenCalledWith(
       expect.anything(),
-      "ABC123",
+      "ABCD",
       "player-1",
       {
         type: "room.deleted",
       },
     );
-    expect(deleteRoomKeys).toHaveBeenCalledWith("ABC123");
-    expect(clearPresenceState).toHaveBeenCalledWith("ABC123");
+    expect(deleteRoomKeys).toHaveBeenCalledWith("ABCD");
+    expect(clearPresenceState).toHaveBeenCalledWith("ABCD");
   });
 });

@@ -35,7 +35,7 @@ export const ensureRoomSessionAvailable = (session: RoomSession | null) =>
 const generateGameCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 4; i += 1) {
     code += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
   return code;

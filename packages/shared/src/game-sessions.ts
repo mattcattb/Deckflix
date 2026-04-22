@@ -1,23 +1,31 @@
 import {z} from "zod";
 
 const roomRoles = ["display", "player"] as const;
+export const GAME_CODE_LENGTH = 4;
+export const gameCodeSchema = z
+  .string()
+  .trim()
+  .regex(
+    new RegExp(`^[A-Z0-9]{${GAME_CODE_LENGTH}}$`),
+    `Room codes must be ${GAME_CODE_LENGTH} characters`,
+  );
 
 const roomRoleSchema = z.enum(roomRoles);
 
 const displaySessionSchema = z.object({
-  gameCode: z.string().min(1),
+  gameCode: gameCodeSchema,
   displayId: z.string().min(1),
   sessionToken: z.string().min(1),
 });
 
 const playerSessionSchema = z.object({
-  gameCode: z.string().min(1),
+  gameCode: gameCodeSchema,
   playerId: z.string().min(1),
   sessionToken: z.string().min(1),
 });
 
 export const roomSessionSchema = z.object({
-  gameCode: z.string().min(1),
+  gameCode: gameCodeSchema,
   role: roomRoleSchema,
   roleId: z.string().min(1),
   sessionToken: z.string().min(1),
@@ -38,12 +46,12 @@ export const roomClientSchema = z.discriminatedUnion("role", [
 export const activeRoomClientSchema = z.discriminatedUnion("role", [
   z.object({
     role: z.literal("display"),
-    gameCode: z.string().min(1),
+    gameCode: gameCodeSchema,
     roomName: z.string().min(1).max(60).nullable(),
   }),
   z.object({
     role: z.literal("player"),
-    gameCode: z.string().min(1),
+    gameCode: gameCodeSchema,
     roomName: z.string().min(1).max(60).nullable(),
   }),
   z.object({

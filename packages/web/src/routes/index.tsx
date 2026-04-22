@@ -1,12 +1,14 @@
 import {useState} from "react";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
+import {GAME_CODE_LENGTH} from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
 import {Button, Input, Label, useToast} from "../components/ui";
 import {
   activeRoomClientQueryOptions,
   gameKeys,
   getActiveRoomPath,
+  normalizeGameCode,
 } from "../lib/games";
 
 export const Route = createFileRoute("/")({
@@ -31,7 +33,7 @@ function HomePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const {notify} = useToast();
-  const [mode, setMode] = useState<HomeMode>("display");
+  const [mode, setMode] = useState<HomeMode>("play");
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -62,7 +64,7 @@ function HomePage() {
     mutationFn: async () =>
       parseRpc(
         api.api.room[":gameCode"].join.$post({
-          param: {gameCode: gameCode.trim().toUpperCase()},
+          param: {gameCode: normalizeGameCode(gameCode)},
           json: {
             displayName: displayName.trim(),
           },
@@ -99,6 +101,17 @@ function HomePage() {
           <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1.5">
             <button
               type="button"
+              onClick={() => setMode("play")}
+              className={
+                mode === "play"
+                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
+                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
+              }>
+              <PhoneIcon />
+              Join
+            </button>
+            <button
+              type="button"
               onClick={() => setMode("display")}
               className={
                 mode === "display"
@@ -108,20 +121,64 @@ function HomePage() {
               <TvIcon />
               Display
             </button>
-            <button
-              type="button"
-              onClick={() => setMode("play")}
-              className={
-                mode === "play"
-                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
-                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
-              }>
-              <PhoneIcon />
-              Play
-            </button>
           </div>
 
-          {mode === "display" ? (
+          {mode === "play" ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
+                  !displayName.trim()
+                ) {
+                  notify({
+                    type: "error",
+                    title: "Couldn’t join room",
+                    description: `Enter a ${GAME_CODE_LENGTH}-character room code and your name first.`,
+                  });
+                  return;
+                }
+
+                joinGameMutation.mutate();
+              }}>
+              <div className="space-y-2">
+                <Label htmlFor="gameCode">Room code</Label>
+                <Input
+                  id="gameCode"
+                  value={gameCode}
+                  onChange={(event) =>
+                    setGameCode(normalizeGameCode(event.target.value))
+                  }
+                  placeholder="ABCD"
+                  maxLength={GAME_CODE_LENGTH}
+                  className="text-center text-xl font-mono tracking-[0.3em] uppercase"
+                  autoFocus
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="displayName">Your name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder="What should the room call you?"
+                />
+              </div>
+
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={
+                  joinGameMutation.isPending ||
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
+                  !displayName.trim()
+                }>
+                {joinGameMutation.isPending ? "Joining room..." : "Join room"}
+              </Button>
+            </form>
+          ) : (
             <form
               className="space-y-4"
               onSubmit={(event) => {
@@ -147,53 +204,6 @@ function HomePage() {
                 {createGameMutation.isPending
                   ? "Creating room..."
                   : "Create room"}
-              </Button>
-            </form>
-          ) : (
-            <form
-              className="space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!gameCode.trim() || !displayName.trim()) {
-                  notify({
-                    type: "error",
-                    title: "Couldn’t join room",
-                    description: "Enter a room code and your name first.",
-                  });
-                  return;
-                }
-
-                joinGameMutation.mutate();
-              }}>
-              <div className="space-y-2">
-                <Label htmlFor="gameCode">Room code</Label>
-                <Input
-                  id="gameCode"
-                  value={gameCode}
-                  onChange={(event) =>
-                    setGameCode(event.target.value.toUpperCase())
-                  }
-                  placeholder="ABC123"
-                  className="text-center text-xl font-mono tracking-[0.3em] uppercase"
-                  autoFocus
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="displayName">Your name</Label>
-                <Input
-                  id="displayName"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="What should the room call you?"
-                />
-              </div>
-
-              <Button
-                className="w-full"
-                type="submit"
-                disabled={joinGameMutation.isPending}>
-                {joinGameMutation.isPending ? "Joining room..." : "Join room"}
               </Button>
             </form>
           )}

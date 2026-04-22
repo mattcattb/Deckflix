@@ -1,12 +1,13 @@
 import {queryOptions} from "@tanstack/react-query";
-import type {ActiveRoomClient} from "@deckflix/shared";
+import {GAME_CODE_LENGTH, type ActiveRoomClient} from "@deckflix/shared";
 import {
   parseDisplayServerMessage,
   parsePlayerServerMessage,
 } from "@deckflix/shared/game-messages";
 import {API_BASE_URL, api, parseRpc} from "./api";
 
-export const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCase();
+export const normalizeGameCode = (gameCode: string) =>
+  gameCode.replace(/[^A-Za-z0-9]/g, "").trim().toUpperCase().slice(0, GAME_CODE_LENGTH);
 
 export const gameKeys = {
   activeClient: ["active-room-client"] as const,
