@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server-integration:
+    name: Server Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      redis:
+        image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.35.1
+        ports:
+          - 16380:6379
+    env:
+      NODE_ENV: test
+      LOG_LEVEL: error
+      DO_NOT_TRACK: 1
+      REDIS_URL: redis://localhost:16380
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Build server
+        run: bun run --filter @deckflix/server build
+
+      - name: Run server tests
+        run: bun run --filter @deckflix/server test
