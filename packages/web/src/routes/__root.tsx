@@ -1,5 +1,6 @@
 import type {QueryClient} from "@tanstack/react-query";
 import {createRootRouteWithContext, Outlet} from "@tanstack/react-router";
+import {ToastProvider} from "../components/ui";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -9,8 +10,10 @@ export const Route = createRootRouteWithContext<{
 
 function RootLayout() {
   return (
-    <div className="min-h-screen flex flex-col">
-      <Outlet />
-    </div>
+    <ToastProvider>
+      <div className="min-h-screen flex flex-col">
+        <Outlet />
+      </div>
+    </ToastProvider>
   );
 }

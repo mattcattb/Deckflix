@@ -5,12 +5,12 @@ import TanStackRouterVite from "@tanstack/router-plugin/vite";
 import tailwindVite from "@tailwindcss/vite";
 
 export default defineConfig(({mode}) => {
-  loadEnv(mode, process.cwd(), "");
-  const previewPort = Number(process.env.PORT || "4173");
+  const env = loadEnv(mode, process.cwd(), "");
+  const previewPort = Number(env.PORT || process.env.PORT || "4173");
   const allowedHosts = [".railway.app"];
 
-  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
-    allowedHosts.unshift(process.env.RAILWAY_PUBLIC_DOMAIN);
+  if (env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_PUBLIC_DOMAIN) {
+    allowedHosts.unshift(env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_PUBLIC_DOMAIN!);
   }
 
   return {

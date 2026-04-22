@@ -2,7 +2,7 @@ import {useState} from "react";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
 import {api, parseRpc} from "../lib/api";
-import {Button, Input, Label} from "../components/ui";
+import {Button, Input, Label, useToast} from "../components/ui";
 import {
   activeRoomClientQueryOptions,
   gameKeys,
@@ -30,6 +30,7 @@ type HomeMode = "display" | "play";
 function HomePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const {notify} = useToast();
   const [mode, setMode] = useState<HomeMode>("display");
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
@@ -48,6 +49,13 @@ function HomePage() {
       queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
       navigate({to: "/room"});
     },
+    onError: (error) => {
+      notify({
+        type: "error",
+        title: "Couldn’t create room",
+        description: getErrorMessage(error),
+      });
+    },
   });
 
   const joinGameMutation = useMutation({
@@ -64,10 +72,14 @@ function HomePage() {
       queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
       navigate({to: "/play"});
     },
+    onError: (error) => {
+      notify({
+        type: "error",
+        title: "Couldn’t join room",
+        description: getErrorMessage(error),
+      });
+    },
   });
-
-  const error =
-    mode === "display" ? createGameMutation.error : joinGameMutation.error;
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-12">
@@ -143,6 +155,11 @@ function HomePage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!gameCode.trim() || !displayName.trim()) {
+                  notify({
+                    type: "error",
+                    title: "Couldn’t join room",
+                    description: "Enter a room code and your name first.",
+                  });
                   return;
                 }
 
@@ -180,16 +197,23 @@ function HomePage() {
               </Button>
             </form>
           )}
-
-          {error ? (
-            <p className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
-              {error instanceof Error ? error.message : "Unable to continue"}
-            </p>
-          ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+function getErrorMessage(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return "Unable to continue";
 }
 
 function TvIcon() {

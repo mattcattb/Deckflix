@@ -7,7 +7,10 @@ import {
 import type {AppType} from "@deckflix/server/app";
 import {apiErrorResponseSchema, type ApiError} from "@deckflix/shared";
 
-const rawBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:3100";
+const rawBaseUrl =
+  import.meta.env.VITE_PUBLIC_API_URL ||
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:3100";
 
 export const API_BASE_URL = rawBaseUrl.startsWith("http")
   ? rawBaseUrl

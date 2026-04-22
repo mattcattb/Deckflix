@@ -6,10 +6,21 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
+import {appEnv} from "../common/env";
 import * as RoomSessionService from "./room-session.service";
 import * as RoomMetaService from "./room-meta.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
+const isProduction =
+  appEnv.NODE_ENV === "production" ||
+  appEnv.BETTER_AUTH_URL.startsWith("https://") ||
+  appEnv.PUBLIC_APP_URL?.startsWith("https://") === true;
+const roomSessionCookieOptions = {
+  httpOnly: true,
+  sameSite: isProduction ? "None" : "Lax",
+  secure: isProduction,
+  path: "/api",
+} as const;
 
 type CookieContext = Parameters<typeof getCookie>[0];
 
@@ -40,20 +51,12 @@ export const setRoomSessionCookie = (
     c,
     ACTIVE_GAME_COOKIE_NAME,
     encodeRoomSessionCookieValue(session),
-    {
-      httpOnly: true,
-      sameSite: "Lax",
-      path: "/api",
-    },
+    roomSessionCookieOptions,
   );
 };
 
 export const clearRoomSessionCookie = (c: Parameters<typeof deleteCookie>[0]) => {
-  deleteCookie(c, ACTIVE_GAME_COOKIE_NAME, {
-    httpOnly: true,
-    sameSite: "Lax",
-    path: "/api",
-  });
+  deleteCookie(c, ACTIVE_GAME_COOKIE_NAME, roomSessionCookieOptions);
 };
 
 export const readRoomSessionCookie = (c: CookieContext) =>

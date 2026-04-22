@@ -74,6 +74,8 @@ If `DATABASE_URL` or `REDIS_URL` are unset, the server defaults to:
 DATABASE_URL=postgresql://postgres:postgres@localhost:15432/postgres
 REDIS_URL=redis://localhost:16380
 PORT=3100
+PUBLIC_API_URL=http://localhost:3100
+PUBLIC_APP_URL=http://localhost:4173
 VITE_API_URL=http://localhost:3100
 ```
 
@@ -85,9 +87,39 @@ REDIS_PORT=26380
 DATABASE_URL=postgresql://postgres:postgres@localhost:25432/postgres
 REDIS_URL=redis://localhost:26380
 PORT=3200
+PUBLIC_API_URL=http://localhost:3200
+PUBLIC_APP_URL=http://localhost:4273
 VITE_API_URL=http://localhost:3200
 BETTER_AUTH_URL=http://localhost:4273
 CORS_ORIGINS=http://localhost:4273
+```
+
+## Deployment Env Shape
+
+Use full URLs, not bare domains. The app has two public origins, so one generic `PUBLIC_DOMAIN` is usually the wrong abstraction unless web and API are served behind the same host.
+
+- `PUBLIC_APP_URL`
+  Public frontend origin. The server uses this as the default for `BETTER_AUTH_URL` and `CORS_ORIGINS`.
+- `PUBLIC_API_URL`
+  Public backend origin. Set `VITE_API_URL` or `VITE_PUBLIC_API_URL` from this for the web bundle.
+- `BETTER_AUTH_URL`
+  Optional override if auth should use something other than `PUBLIC_APP_URL`.
+- `CORS_ORIGINS`
+  Optional comma-separated override if the server should allow more than `PUBLIC_APP_URL`.
+
+On Railway, a clean setup is:
+
+```bash
+# shared
+PUBLIC_APP_URL=https://${{@deckflix/web.RAILWAY_PUBLIC_DOMAIN}}
+PUBLIC_API_URL=https://${{@deckflix/server.RAILWAY_PUBLIC_DOMAIN}}
+
+# web
+VITE_PUBLIC_API_URL=${{shared.PUBLIC_API_URL}}
+
+# server
+BETTER_AUTH_URL=${{shared.PUBLIC_APP_URL}}
+CORS_ORIGINS=${{shared.PUBLIC_APP_URL}}
 ```
 
 ## Scripts

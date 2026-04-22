@@ -3,10 +3,14 @@ import {z} from "zod";
 export const DEFAULT_DATABASE_URL =
   "postgresql://postgres:postgres@localhost:15432/postgres";
 export const DEFAULT_REDIS_URL = "redis://localhost:16380";
+export const DEFAULT_APP_URL = "http://localhost:4173";
+
+const firstNonEmpty = (...values: Array<string | undefined>) =>
+  values.find((value) => value && value.trim() !== "");
 
 const betterAuthSchema = z.object({
   BETTER_AUTH_SECRET: z.string().default("deckflix-local-dev-secret-change-me"),
-  BETTER_AUTH_URL: z.string().default("http://localhost:4173"),
+  BETTER_AUTH_URL: z.string().default(DEFAULT_APP_URL),
 });
 
 const googleEnvSchema = z.object({
@@ -24,6 +28,8 @@ const appEnvSchema = z.object({
   ...betterAuthSchema.shape,
   ...googleEnvSchema.shape,
   ...githubEnvSchema.shape,
+  PUBLIC_API_URL: z.string().optional(),
+  PUBLIC_APP_URL: z.string().optional(),
   DATABASE_URL: z.string().default(DEFAULT_DATABASE_URL),
   REDIS_URL: z.string().default(DEFAULT_REDIS_URL),
   LOG_LEVEL: z.string().optional(),
@@ -51,7 +57,14 @@ if (!process.env.BETTER_AUTH_SECRET) {
 }
 
 if (!process.env.BETTER_AUTH_URL) {
-  process.env.BETTER_AUTH_URL = "http://localhost:4173";
+  process.env.BETTER_AUTH_URL =
+    firstNonEmpty(process.env.PUBLIC_APP_URL, DEFAULT_APP_URL) || DEFAULT_APP_URL;
+}
+
+if (!process.env.CORS_ORIGINS) {
+  process.env.CORS_ORIGINS =
+    firstNonEmpty(process.env.PUBLIC_APP_URL, process.env.BETTER_AUTH_URL) ||
+    DEFAULT_APP_URL;
 }
 
 export const appEnv = appEnvSchema.parse(process.env);

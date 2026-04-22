@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Deckflix favicon</title>
+  <desc id="desc">A Netflix-inspired red D on a black rounded square.</desc>
+  <defs>
+    <linearGradient id="d-fill" x1="64" x2="224" y1="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B1060F" />
+      <stop offset="0.45" stop-color="#E50914" />
+      <stop offset="1" stop-color="#7A0008" />
+    </linearGradient>
+    <clipPath id="d-clip" clipPathUnits="userSpaceOnUse">
+      <path
+        clip-rule="evenodd"
+        d="M64 36h56c41 0 72 11 94 33 20 20 30 46 30 77s-10 57-30 77c-22 22-53 33-94 33H64V36Zm42 38v108h12c31 0 52-7 65-20 12-12 17-26 17-52s-5-40-17-52c-13-13-34-20-65-20h-12Z"
+      />
+    </clipPath>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="#000" />
+  <path
+    fill="url(#d-fill)"
+    fill-rule="evenodd"
+    d="M64 36h56c41 0 72 11 94 33 20 20 30 46 30 77s-10 57-30 77c-22 22-53 33-94 33H64V36Zm42 38v108h12c31 0 52-7 65-20 12-12 17-26 17-52s-5-40-17-52c-13-13-34-20-65-20h-12Z"
+  />
+  <path
+    clip-path="url(#d-clip)"
+    d="M91 36h38l51 220h-38L91 36Z"
+    fill="#650008"
+    opacity="0.9"
+  />
+  <path
+    clip-path="url(#d-clip)"
+    d="M105 36h20l51 220h-20L105 36Z"
+    fill="#FF3B30"
+    opacity="0.72"
+  />
+</svg>
