@@ -59,8 +59,8 @@ const defaultSettings = {
   },
 };
 
-mock.module(new URL("../ws/room-state-publisher.ts", import.meta.url).href, () => ({
-  publishRoomState,
+mock.module(new URL("../games/game-state.pubsub.ts", import.meta.url).href, () => ({
+  publishGameState: publishRoomState,
 }));
 mock.module(new URL("../games/game-snapshot.service.ts", import.meta.url).href, () => ({
   getGameMeta,
@@ -106,8 +106,52 @@ mock.module(new URL("../swipe/swipe.service.ts", import.meta.url).href, () => ({
 mock.module(new URL("../ws/presence.ws.ts", import.meta.url).href, () => ({
   clearPresenceState,
 }));
-mock.module(new URL("../ws/topics.ts", import.meta.url).href, () => ({
+mock.module(new URL("./rooms.pubsub.ts", import.meta.url).href, () => ({
+  publishRoomStarted: (server: unknown, gameCode: string) => {
+    publishDisplayMessage(server, gameCode, {
+      type: "room.started",
+    });
+  },
+  publishRoomStatusChanged: (...args: unknown[]) => {
+    const [server, gameCode, playerIds, previousStatus, nextStatus] = args as [
+      unknown,
+      string,
+      string[],
+      "lobby" | "swiping" | "completed",
+      "lobby" | "swiping" | "completed",
+    ];
+    const event = {
+      type: "room.status_changed" as const,
+      payload: {
+        previousStatus,
+        nextStatus,
+      },
+    };
+    publishDisplayMessage(server, gameCode, event);
+    for (const playerId of playerIds) {
+      publishPlayerMessage(server, gameCode, playerId, event);
+    }
+  },
+  publishRoomDeleted: (...args: unknown[]) => {
+    const [server, gameCode, playerIds] = args as [
+      unknown,
+      string,
+      string[],
+    ];
+    publishDisplayMessage(server, gameCode, {
+      type: "room.deleted",
+    });
+    for (const playerId of playerIds) {
+      publishPlayerMessage(server, gameCode, playerId, {
+        type: "room.deleted",
+      });
+    }
+  },
+}));
+mock.module(new URL("../realtime/display-channel.ts", import.meta.url).href, () => ({
   publishDisplayMessage,
+}));
+mock.module(new URL("../realtime/player-channel.ts", import.meta.url).href, () => ({
   publishPlayerMessage,
 }));
 
@@ -207,6 +251,16 @@ describe("rooms.service", () => {
     expect(clearPlayerState).toHaveBeenCalledTimes(2);
     expect(refillPlayerQueue).toHaveBeenCalledTimes(2);
     expect(getCurrentOrNextMovie).toHaveBeenCalledTimes(2);
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+      type: "room.status_changed",
+      payload: {
+        previousStatus: "lobby",
+        nextStatus: "swiping",
+      },
+    });
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+      type: "room.started",
+    });
   });
 
   test("end marks the room completed, notifies clients, and removes room state", async () => {
@@ -228,9 +282,35 @@ describe("rooms.service", () => {
     });
     expect(setGameMeta).toHaveBeenCalledTimes(1);
     expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
-      type: "display.room_ended",
+      type: "room.status_changed",
+      payload: {
+        previousStatus: "lobby",
+        nextStatus: "completed",
+      },
     });
-    expect(publishPlayerMessage).toHaveBeenCalledTimes(2);
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+      type: "room.deleted",
+    });
+    expect(publishPlayerMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "ABC123",
+      "player-1",
+      {
+        type: "room.status_changed",
+        payload: {
+          previousStatus: "lobby",
+          nextStatus: "completed",
+        },
+      },
+    );
+    expect(publishPlayerMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "ABC123",
+      "player-1",
+      {
+        type: "room.deleted",
+      },
+    );
     expect(deleteRoomKeys).toHaveBeenCalledWith("ABC123");
     expect(clearPresenceState).toHaveBeenCalledWith("ABC123");
   });

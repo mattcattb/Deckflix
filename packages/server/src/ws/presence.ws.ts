@@ -1,10 +1,12 @@
 import type {DisplaySession, PlayerSession} from "@deckflix/shared";
 import {
-  subscribeToDisplay,
-  subscribeToPlayer,
-  unsubscribeFromDisplay,
-  unsubscribeFromPlayer,
-} from "./topics";
+  subscribeDisplaySocket as subscribeToDisplay,
+  unsubscribeDisplaySocket as unsubscribeFromDisplay,
+} from "../realtime/display-channel";
+import {
+  subscribePlayerSocket as subscribeToPlayer,
+  unsubscribePlayerSocket as unsubscribeFromPlayer,
+} from "../realtime/player-channel";
 import * as RoomSessionService from "../rooms/room-session.service";
 
 export type SocketLike = {

@@ -131,7 +131,14 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "player.room_ended") {
+      if (message.type === "room.status_changed") {
+        void refetchMeta();
+        void refetchPlayers();
+        void refetchResults();
+        return;
+      }
+
+      if (message.type === "room.deleted") {
         void parseRpc(api.api.room.current.$delete()).catch(() => undefined);
         queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
           role: "none",
@@ -140,15 +147,15 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "player.vote_recorded") {
+      if (message.type === "swipe.vote_recorded") {
         return;
       }
 
-      if (message.type === "player.match_found") {
+      if (message.type === "swipe.match_found") {
         return;
       }
 
-      if (message.type === "player.error") {
+      if (message.type === "socket.error") {
         setGameError(message.payload.message);
       }
     };

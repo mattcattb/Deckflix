@@ -219,7 +219,18 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "display.room_ended") {
+      if (message.type === "room.started") {
+        void refetchMeta();
+        return;
+      }
+
+      if (message.type === "room.status_changed") {
+        void refetchMeta();
+        return;
+      }
+
+      if (message.type === "room.deleted") {
+        void parseRpc(api.api.room.current.$delete()).catch(() => undefined);
         queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
           role: "none",
         });
@@ -227,19 +238,23 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "display.player_joined") {
+      if (message.type === "presence.player_joined") {
         void refetchMeta();
         void refetchPlayers();
         return;
       }
 
-      if (message.type === "display.player_left") {
+      if (message.type === "presence.player_left") {
         void refetchMeta();
         void refetchPlayers();
         return;
       }
 
-      if (message.type === "display.error") {
+      if (message.type === "swipe.match_found") {
+        return;
+      }
+
+      if (message.type === "socket.error") {
         setGameError(message.payload.message);
       }
     };

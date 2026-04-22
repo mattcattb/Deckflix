@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import type {
   ActiveGameQueueItem,
   GameStatus,
@@ -9,17 +9,49 @@ import {BadRequestException} from "../common/errors";
 import * as GamePoolService from "../games/game-pool.service";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as GameRedisService from "../games/game-redis.service";
-import * as RoomStatePublisher from "../ws/room-state-publisher";
+import {publishGameState} from "../games/game-state.pubsub";
 import * as SwipeLedgerService from "./swipe-ledger.service";
 import * as SwipeQueueService from "./swipe-queue.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
 import * as RoomSessionService from "../rooms/room-session.service";
-import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
-
-type RealtimeServer = {publish: (topic: string, payload: string) => void};
+import type {RealtimeServer} from "../realtime/socket-bus";
+import {
+  publishMatchFound,
+  publishPlayerMatch,
+  publishVoteRecorded,
+} from "./swipe.pubsub";
+import {publishPlayerLeft} from "../ws/presence.pubsub";
+import {publishRoomStatusChanged} from "../rooms/rooms.pubsub";
 
 export const PLAYER_QUEUE_TARGET = 3;
 export const PLAYER_QUEUE_REFILL_THRESHOLD = 1;
+const PLAYER_QUEUE_RANDOMIZATION_WINDOW = PLAYER_QUEUE_TARGET * 2;
+
+const queueSeedValue = (value: string) =>
+  Number.parseInt(createHash("sha256").update(value).digest("hex").slice(0, 8), 16);
+
+const getQueueWindowIndex = (order: number) =>
+  Math.floor(order / PLAYER_QUEUE_RANDOMIZATION_WINDOW);
+
+const sortAssignableEntriesForPlayer = (
+  entries: SwipeQueueService.PlayerQueueEntry[],
+  seed: string,
+  playerId: string,
+) =>
+  [...entries].sort((left, right) => {
+    const windowDelta = getQueueWindowIndex(left.order) - getQueueWindowIndex(right.order);
+    if (windowDelta !== 0) {
+      return windowDelta;
+    }
+
+    const leftSeed = queueSeedValue(`${seed}:${playerId}:${left.movieId}`);
+    const rightSeed = queueSeedValue(`${seed}:${playerId}:${right.movieId}`);
+    if (leftSeed !== rightSeed) {
+      return leftSeed - rightSeed;
+    }
+
+    return left.order - right.order;
+  });
 
 export const getSwipeState = async (player: {gameCode: string; playerId: string}) => {
   const {getPlayerGameState} = await import("../games/game-snapshot.service");
@@ -88,12 +120,19 @@ export const refillPlayerQueue = async (
 ) => {
   await GamePoolService.maybeRefillPool({gameCode});
 
-  const queueLength = await SwipeQueueService.getPlayerQueueLength(gameCode, playerId);
+  const [queueLength, poolSeed] = await Promise.all([
+    SwipeQueueService.getPlayerQueueLength(gameCode, playerId),
+    GamePoolService.getPoolSeedOrThrow(gameCode),
+  ]);
   if (queueLength >= targetDepth) {
     return;
   }
 
-  const candidates = await listAssignableEntries(gameCode, playerId);
+  const candidates = sortAssignableEntriesForPlayer(
+    await listAssignableEntries(gameCode, playerId),
+    poolSeed,
+    playerId,
+  );
   const needed = Math.max(0, targetDepth - queueLength);
   if (needed === 0) {
     return;
@@ -304,7 +343,11 @@ const recordMovieVote = async (input: {
 export const syncRoomStatus = async (gameCode: string) => {
   const meta = await RoomMetaService.getGameMetaOrThrow(gameCode);
   if (meta.status === "completed" || meta.status === "lobby") {
-    return meta;
+    return {
+      meta,
+      previousStatus: meta.status,
+      changed: false,
+    };
   }
 
   const nextStatus: GameStatus = await areAllPlayersCompleted(gameCode)
@@ -312,11 +355,19 @@ export const syncRoomStatus = async (gameCode: string) => {
     : "swiping";
 
   if (nextStatus === meta.status) {
-    return meta;
+    return {
+      meta,
+      previousStatus: meta.status,
+      changed: false,
+    };
   }
 
   if (nextStatus === "completed" && meta.endedAt) {
-    return meta;
+    return {
+      meta,
+      previousStatus: meta.status,
+      changed: false,
+    };
   }
 
   const nextMeta = {
@@ -329,65 +380,19 @@ export const syncRoomStatus = async (gameCode: string) => {
   };
 
   await RoomMetaService.setGameMeta(gameCode, nextMeta);
-  return nextMeta;
+  return {
+    meta: nextMeta,
+    previousStatus: meta.status,
+    changed: true,
+  };
 };
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  RoomStatePublisher.publishRoomState(server, gameCode, playerIds);
+  publishGameState(server, gameCode, playerIds);
 };
 
 export const publishState = publishStateForGame;
-
-const publishVoteRecorded = (input: {
-  server: RealtimeServer;
-  gameCode: string;
-  playerId: string;
-  movieId: string;
-  choice: SwipeChoice;
-}) => {
-  publishPlayerMessage(input.server as never, input.gameCode, input.playerId, {
-    type: "player.vote_recorded",
-    payload: {
-      movieId: input.movieId,
-      choice: input.choice,
-    },
-  });
-};
-
-const publishMatchFound = (
-  server: RealtimeServer,
-  gameCode: string,
-  movieId: string,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.match_found",
-    payload: {movieId},
-  });
-};
-
-const publishPlayerMatch = (
-  server: RealtimeServer,
-  gameCode: string,
-  playerId: string,
-  movieId: string,
-) => {
-  publishPlayerMessage(server as never, gameCode, playerId, {
-    type: "player.match_found",
-    payload: {movieId},
-  });
-};
-
-const publishPlayerLeft = (
-  server: RealtimeServer,
-  gameCode: string,
-  playerId: string,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.player_left",
-    payload: {playerId},
-  });
-};
 
 export const recordSwipe = async (input: {
   player: PlayerSession;
@@ -447,13 +452,14 @@ export const recordSwipe = async (input: {
       input.player.playerId,
     );
     await getCurrentOrNextMovie(input.player.gameCode, input.player.playerId);
-    await syncRoomStatus(input.player.gameCode);
+    const statusChange = await syncRoomStatus(input.player.gameCode);
     await GameRedisService.touchRoomKeys(input.player.gameCode);
 
     return {
       movieId: input.movieId,
       choice: input.choice,
       justMatched,
+      statusChange,
     };
   });
 
@@ -478,6 +484,17 @@ export const recordSwipe = async (input: {
     }
   }
 
+  if (result.statusChange.changed) {
+    const playerIds = await GameRedisService.listPlayerIds(input.player.gameCode);
+    publishRoomStatusChanged(
+      input.server,
+      input.player.gameCode,
+      playerIds,
+      result.statusChange.previousStatus,
+      result.statusChange.meta.status,
+    );
+  }
+
   await publishStateForGame(input.server, input.player.gameCode);
   return {
     ...result,
@@ -494,16 +511,27 @@ export const leaveSwipe = async (input: {
     await SwipeQueueService.deleteSwipeState(input.player.gameCode, input.player.playerId);
     await GameRedisService.deletePlayerState(input.player.gameCode, input.player.playerId);
     await recalculateMovieOutcomes(input.player.gameCode);
-    await syncRoomStatus(input.player.gameCode);
+    const statusChange = await syncRoomStatus(input.player.gameCode);
     await GameRedisService.touchRoomKeys(input.player.gameCode);
 
     return {
       gameCode: input.player.gameCode.trim().toUpperCase(),
       playerId: input.player.playerId,
+      statusChange,
     };
   });
 
   publishPlayerLeft(input.server, result.gameCode, result.playerId);
+  if (result.statusChange.changed) {
+    const playerIds = await GameRedisService.listPlayerIds(result.gameCode);
+    publishRoomStatusChanged(
+      input.server,
+      result.gameCode,
+      playerIds,
+      result.statusChange.previousStatus,
+      result.statusChange.meta.status,
+    );
+  }
   await publishStateForGame(input.server, result.gameCode);
   return result;
 };

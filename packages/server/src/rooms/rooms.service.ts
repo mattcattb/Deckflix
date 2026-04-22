@@ -1,18 +1,22 @@
 import type {GamePlayerPresence, RoomSession} from "@deckflix/shared";
-import * as RoomStatePublisher from "../ws/room-state-publisher";
 import * as GameSnapshotService from "../games/game-snapshot.service";
 import * as GamePoolService from "../games/game-pool";
 import {BadRequestException, ConflictException} from "../common/errors";
 import {randomUUID} from "node:crypto";
 import {clearPresenceState} from "../ws/presence.ws";
 import * as GameRedisService from "../games/game-redis.service";
+import {publishGameState} from "../games/game-state.pubsub";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomMetaService from "./room-meta.service";
 import * as RoomSessionService from "./room-session.service";
+import {
+  publishRoomDeleted,
+  publishRoomStarted,
+  publishRoomStatusChanged,
+} from "./rooms.pubsub";
+import type {RealtimeServer} from "../realtime/socket-bus";
 import * as SwipeService from "../swipe/swipe.service";
-import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
-
-type RealtimeServer = {publish: (topic: string, payload: string) => void};
+import {publishPlayerJoined} from "../ws/presence.pubsub";
 
 export const getActiveClient = (session: RoomSession | null) =>
   RoomSessionService.getActiveRoomClient(session);
@@ -39,18 +43,7 @@ const generateGameCode = () => {
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  RoomStatePublisher.publishRoomState(server, gameCode, playerIds);
-};
-
-const publishPlayerJoined = (
-  server: RealtimeServer,
-  gameCode: string,
-  player: GamePlayerPresence,
-) => {
-  publishDisplayMessage(server as never, gameCode, {
-    type: "display.player_joined",
-    payload: player,
-  });
+  publishGameState(server, gameCode, playerIds);
 };
 
 export const join = async (input: {
@@ -185,6 +178,7 @@ export const start = async (input: {
     }
 
     const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
+    const previousStatus = meta.status;
     await RoomMetaService.setGameMeta(input.gameCode, {
       ...meta,
       status: "swiping",
@@ -194,8 +188,19 @@ export const start = async (input: {
 
     return {
       gameCode: input.gameCode.trim().toUpperCase(),
+      previousStatus,
+      nextStatus: "swiping" as const,
+      playerIds,
     };
   }).then(async (result) => {
+    publishRoomStatusChanged(
+      input.server,
+      result.gameCode,
+      result.playerIds,
+      result.previousStatus,
+      result.nextStatus,
+    );
+    publishRoomStarted(input.server, result.gameCode);
     await publishStateForGame(input.server, result.gameCode);
     return result;
   });
@@ -216,6 +221,7 @@ export const end = (input: {
     const playerIds = await GameRedisService.listPlayerIds(input.gameCode);
     const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
     const endedAt = new Date().toISOString();
+    const previousStatus = meta.status;
 
     await RoomMetaService.setGameMeta(input.gameCode, {
       ...meta,
@@ -224,14 +230,14 @@ export const end = (input: {
     });
     await GameRedisService.touchRoomKeys(input.gameCode);
 
-    publishDisplayMessage(input.server as never, input.gameCode, {
-      type: "display.room_ended",
-    });
-    for (const playerId of playerIds) {
-      publishPlayerMessage(input.server as never, input.gameCode, playerId, {
-        type: "player.room_ended",
-      });
-    }
+    publishRoomStatusChanged(
+      input.server,
+      input.gameCode,
+      playerIds,
+      previousStatus,
+      "completed",
+    );
+    publishRoomDeleted(input.server, input.gameCode, playerIds);
 
     await GameRedisService.deleteRoomKeys(input.gameCode);
     clearPresenceState(input.gameCode);

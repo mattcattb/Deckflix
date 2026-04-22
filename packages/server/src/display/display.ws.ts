@@ -45,13 +45,13 @@ export const createDisplaySocketHandler = () =>
       onMessage: (event, ws) => {
         try {
           const parsed = decodeDisplayClientMessage(event.data as string);
-          if (parsed.type === "ping") {
-            ws.send(encodeDisplayServerMessage({type: "pong"}));
+          if (parsed.type === "socket.ping") {
+            ws.send(encodeDisplayServerMessage({type: "socket.pong"}));
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : "Invalid websocket message";
           ws.send(encodeDisplayServerMessage({
-            type: "display.error",
+            type: "socket.error",
             payload: {message},
           }));
         }

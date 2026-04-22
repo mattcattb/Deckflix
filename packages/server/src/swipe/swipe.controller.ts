@@ -56,8 +56,8 @@ const createPlayerSocketHandler = () =>
       onMessage: (event, ws) => {
         try {
           const parsed = decodePlayerClientMessage(event.data as string);
-          if (parsed.type === "ping") {
-            ws.send(encodePlayerServerMessage({type: "pong"}));
+          if (parsed.type === "socket.ping") {
+            ws.send(encodePlayerServerMessage({type: "socket.pong"}));
           }
         } catch (error) {
           const message =
@@ -66,7 +66,7 @@ const createPlayerSocketHandler = () =>
               : "Invalid websocket message";
           ws.send(
             encodePlayerServerMessage({
-              type: "player.error",
+              type: "socket.error",
               payload: {message},
             }),
           );
