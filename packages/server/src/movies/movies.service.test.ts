@@ -79,8 +79,9 @@ describe("movies.service", () => {
 
     const movie = await getMovieById("movie-dune");
 
-    expect(getTmdbMovieById).toHaveBeenCalledWith("movie-dune");
+    expect(getTmdbMovieById).toHaveBeenCalledWith("movie-dune", "en-US", "US");
     expect(movie.title).toBe("Dune");
     expect(movie.genres).toEqual(["Sci-Fi", "Adventure"]);
+    expect(movie.directors[0]?.name).toBe("Denis Villeneuve");
   });
 });

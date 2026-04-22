@@ -18,6 +18,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
     allowSuperLike: true,
   },
   movieFilters: {
+    popularityPreset: "balanced",
     includedGenreIds: [],
     excludedGenreIds: [],
     primaryReleaseDateGte: null,
@@ -65,6 +66,9 @@ export const resolveGameSettings = (
       movieFilters: {
         ...DEFAULT_GAME_SETTINGS.movieFilters,
         ...movieFilterInput,
+        popularityPreset:
+          movieFilterInput.popularityPreset ??
+          DEFAULT_GAME_SETTINGS.movieFilters.popularityPreset,
         includedGenreIds:
           movieFilterInput.includedGenreIds ??
           DEFAULT_GAME_SETTINGS.movieFilters.includedGenreIds,

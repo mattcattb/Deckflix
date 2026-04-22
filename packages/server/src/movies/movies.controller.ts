@@ -18,8 +18,12 @@ export const moviesController = createRouter()
     });
     return c.json(result);
   })
-  .get("/:movieId", async (c) => {
+  .get("/:movieId", zValidator("query", MoviesService.movieDetailsQuerySchema), async (c) => {
+    const query = c.req.valid("query");
     const movieId = c.req.param("movieId");
-    const movie = await MoviesService.getMovieById(movieId);
+    const movie = await MoviesService.getMovieById(movieId, {
+      language: query.language,
+      region: query.region,
+    });
     return c.json(movie);
   });

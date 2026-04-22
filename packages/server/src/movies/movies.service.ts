@@ -23,6 +23,18 @@ export const moviePopularQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(500).optional().default(1),
 });
 
+export const movieDetailsQuerySchema = z.object({
+  language: z.string().trim().min(2).max(10).optional().default("en-US"),
+  region: z
+    .string()
+    .trim()
+    .min(2)
+    .max(2)
+    .optional()
+    .default("US")
+    .transform((value) => value.toUpperCase()),
+});
+
 const toMovieSummary = (movie: MovieDetails): MovieSummary => ({
   id: movie.id,
   title: movie.title,
@@ -97,7 +109,13 @@ export const getPopularMovies = async (input: {
   }
 };
 
-export const getMovieById = async (movieId: string): Promise<MovieDetails> => {
+export const getMovieById = async (
+  movieId: string,
+  options?: {
+    language?: string;
+    region?: string;
+  },
+): Promise<MovieDetails> => {
   if (useMockOnly() || !hasTmdb()) {
     const movie = await getMockMovieById(movieId);
     if (!movie) throw new NotFoundException("Movie not found");
@@ -105,7 +123,11 @@ export const getMovieById = async (movieId: string): Promise<MovieDetails> => {
   }
 
   try {
-    const movie = await getTmdbMovieById(movieId);
+    const movie = await getTmdbMovieById(
+      movieId,
+      options?.language ?? "en-US",
+      options?.region ?? "US",
+    );
     if (!movie) throw new NotFoundException("Movie not found");
     return movie;
   } catch {

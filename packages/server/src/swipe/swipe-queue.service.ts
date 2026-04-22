@@ -112,6 +112,12 @@ export const clearPlayerCurrentAssignment = async (gameCode: string, playerId: s
   await redis.del(playerCurrentKey(gameCode, playerId));
 };
 
+export const queueClearPlayerCurrentAssignment = (
+  multi: ReturnType<typeof redis.multi>,
+  gameCode: string,
+  playerId: string,
+) => multi.del(playerCurrentKey(gameCode, playerId));
+
 export const getPlayerSeenMovieIds = async (gameCode: string, playerId: string) => {
   await ensureRedis();
   return redis.sMembers(playerSeenKey(gameCode, playerId));
@@ -130,6 +136,13 @@ export const markPlayerSeenMovie = async (
   await ensureRedis();
   await redis.sAdd(playerSeenKey(gameCode, playerId), movieId);
 };
+
+export const queueMarkPlayerSeenMovie = (
+  multi: ReturnType<typeof redis.multi>,
+  gameCode: string,
+  playerId: string,
+  movieId: string,
+) => multi.sAdd(playerSeenKey(gameCode, playerId), movieId);
 
 export const hasPlayerSeenMovie = async (
   gameCode: string,

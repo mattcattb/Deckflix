@@ -69,6 +69,7 @@ const settings = {
     allowSuperLike: true,
   },
   movieFilters: {
+    popularityPreset: "balanced",
     includedGenreIds: [28],
     excludedGenreIds: [],
     primaryReleaseDateGte: null,
@@ -148,6 +149,46 @@ describe("game-pool.service", () => {
     expect(first.strategies).toEqual(second.strategies);
     expect(third.strategies).not.toEqual(first.strategies);
     expect(first.selectionSalt).toBeUndefined();
+  });
+
+  test("planPoolQueries shifts strategy weights by popularity preset", () => {
+    const popularPlan = GamePoolService.planPoolQueries(
+      {
+        ...settings,
+        movieFilters: {
+          ...settings.movieFilters,
+          popularityPreset: "popular",
+        },
+      },
+      "seed-a",
+    );
+    const nichePlan = GamePoolService.planPoolQueries(
+      {
+        ...settings,
+        movieFilters: {
+          ...settings.movieFilters,
+          popularityPreset: "niche",
+        },
+      },
+      "seed-a",
+    );
+
+    const popularBroad = popularPlan.strategies.find(
+      (strategy: {id: string}) => strategy.id === "discover-broad",
+    );
+    const nicheBroad = nichePlan.strategies.find(
+      (strategy: {id: string}) => strategy.id === "discover-broad",
+    );
+    const popularTrending = popularPlan.strategies.find(
+      (strategy: {id: string}) => strategy.id === "trending-weekly",
+    );
+    const nicheDeep = nichePlan.strategies.find(
+      (strategy: {id: string}) => strategy.id === "discover-deep-cut",
+    );
+
+    expect(popularBroad?.weight).toBeGreaterThan(nicheBroad?.weight ?? 0);
+    expect(popularTrending?.weight).toBeGreaterThan(0.1);
+    expect(nicheDeep?.weight).toBeGreaterThan(0.2);
   });
 
   test("fetchPoolCandidates uses discover page bands plus trending and expansions", async () => {

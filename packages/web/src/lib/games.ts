@@ -12,6 +12,8 @@ export const normalizeGameCode = (gameCode: string) =>
 export const gameKeys = {
   activeClient: ["active-room-client"] as const,
   movieGenres: (language = "en-US") => ["movie-genres", language] as const,
+  movieDetails: (movieId: string, language = "en-US", region = "US") =>
+    ["movie-details", movieId, language, region] as const,
   meta: (gameCode: string) => ["game-meta", normalizeGameCode(gameCode)] as const,
   players: (gameCode: string) =>
     ["game-players", normalizeGameCode(gameCode)] as const,

@@ -29,7 +29,7 @@ const generateGameCode = () => {
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  publishGameState(server, gameCode, playerIds);
+  await publishGameState(server, gameCode, playerIds);
 };
 
 export const join = async (input: {

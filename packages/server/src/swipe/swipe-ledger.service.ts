@@ -28,6 +28,14 @@ export const setPlayerVote = async (
   await redis.hSet(votesKey(gameCode, movieId), playerId, choice);
 };
 
+export const queueSetPlayerVote = (
+  multi: ReturnType<typeof redis.multi>,
+  gameCode: string,
+  movieId: string,
+  playerId: string,
+  choice: SwipeChoice,
+) => multi.hSet(votesKey(gameCode, movieId), playerId, choice);
+
 export const syncMovieOutcomeSets = async (
   gameCode: string,
   movieId: string,
@@ -49,6 +57,29 @@ export const syncMovieOutcomeSets = async (
 
   await redis.sRem(matchesKey(gameCode), movieId);
   await redis.sRem(rejectionsKey(gameCode), movieId);
+};
+
+export const queueSyncMovieOutcomeSets = (
+  multi: ReturnType<typeof redis.multi>,
+  gameCode: string,
+  movieId: string,
+  status: GameRedisService.MovieStatus,
+) => {
+  if (status === "matched") {
+    return multi
+      .sAdd(matchesKey(gameCode), movieId)
+      .sRem(rejectionsKey(gameCode), movieId);
+  }
+
+  if (status === "rejected") {
+    return multi
+      .sAdd(rejectionsKey(gameCode), movieId)
+      .sRem(matchesKey(gameCode), movieId);
+  }
+
+  return multi
+    .sRem(matchesKey(gameCode), movieId)
+    .sRem(rejectionsKey(gameCode), movieId);
 };
 
 export const getMatchedMovieIds = async (gameCode: string) => {

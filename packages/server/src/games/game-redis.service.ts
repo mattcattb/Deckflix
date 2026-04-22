@@ -37,6 +37,7 @@ const movieRecordSchema = z.object({
 export type PlayerRecord = z.infer<typeof playerRecordSchema>;
 export type MovieRecord = z.infer<typeof movieRecordSchema>;
 export type MovieStatus = z.infer<typeof movieStatusSchema>;
+export type RedisMulti = ReturnType<typeof redis.multi>;
 
 const sleep = (ms: number) =>
   new Promise((resolve) => {
@@ -153,12 +154,26 @@ export const getMovieRecordOrThrow = async (gameCode: string, movieId: string) =
 };
 
 export const getMovieRecords = async (gameCode: string, movieIds: string[]) => {
-  const entries = await Promise.all(
-    movieIds.map(async (movieId) => {
-      const record = await getMovieRecordOrThrow(gameCode, movieId);
-      return [movieId, record] as const;
-    }),
+  await ensureRedis();
+  const normalized = normalizeGameCode(gameCode);
+  if (movieIds.length === 0) {
+    return new Map<string, MovieRecord>();
+  }
+
+  const raws = await redis.mGet(
+    movieIds.map((movieId) => movieKey(normalized, movieId)),
   );
+  const entries = movieIds.map((movieId, index) => {
+    const raw = raws[index];
+    if (!raw) {
+      throw new NotFoundException(`Movie ${movieId} not found in game ${normalized}`);
+    }
+
+    return [
+      movieId,
+      parseJson(raw, movieRecordSchema, `Movie ${movieId} not found in game ${normalized}`),
+    ] as const;
+  });
 
   return new Map(entries);
 };
@@ -171,6 +186,13 @@ export const setMovieRecord = async (
   await ensureRedis();
   await redis.set(movieKey(gameCode, movieId), JSON.stringify(record));
 };
+
+export const queueSetMovieRecord = (
+  multi: RedisMulti,
+  gameCode: string,
+  movieId: string,
+  record: MovieRecord,
+) => multi.set(movieKey(gameCode, movieId), JSON.stringify(record));
 
 export const getPlayerRecord = async (gameCode: string, playerId: string) => {
   await ensureRedis();

@@ -2,8 +2,10 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   Link,
@@ -20,6 +22,8 @@ import type {
   GameSettings,
   GameVoteSummary,
   MovieCandidate,
+  MovieDetails,
+  MovieSummary,
 } from "@deckflix/shared";
 import {api, parseRpc} from "../../lib/api";
 import {
@@ -43,7 +47,7 @@ import {
 type DisplayBoardItem = {
   movie: MovieCandidate;
   votes: GameVoteSummary;
-  outcome: "match" | "rejected";
+  outcome: "match" | "rejected" | "active";
 };
 
 type RailKey = "matches" | "recentHistory" | "stinkers";
@@ -65,10 +69,7 @@ type MovieGenre = {
   name: string;
 };
 
-type PlayerRailPlayer = Pick<
-  GamePlayerPresence,
-  "id" | "displayName" | "connectedAsPlayer"
->;
+type PlayerRailPlayer = Pick<GamePlayerPresence, "id" | "displayName">;
 
 type DisplayRoomContextValue = {
   board: DisplayBoard;
@@ -81,10 +82,6 @@ type DisplayRoomContextValue = {
   movieGenres: MovieGenre[];
   movieGenresError: string | null;
   players: GamePlayerPresence[];
-  progressByPlayerId: Map<
-    string,
-    DisplayGameState["playerProgress"][number]
-  >;
   saveSettings: () => void;
   saveSettingsPending: boolean;
   setDraftSettings: (settings: GameSettings) => void;
@@ -111,6 +108,9 @@ const getTimestamp = (value: string | null | undefined) =>
 const sortByLastActivity = (left: DisplayBoardItem, right: DisplayBoardItem) =>
   getTimestamp(right.votes.lastActivityAt) - getTimestamp(left.votes.lastActivityAt);
 
+const sortByRecentHistory = (left: DisplayBoardItem, right: DisplayBoardItem) =>
+  right.votes.totalVotes - left.votes.totalVotes || sortByLastActivity(left, right);
+
 const sortByMatchedAt = (left: DisplayBoardItem, right: DisplayBoardItem) =>
   getTimestamp(right.votes.matchedAt) - getTimestamp(left.votes.matchedAt) ||
   sortByLastActivity(left, right);
@@ -131,7 +131,7 @@ const getBoardSections = (state: DisplayGameState | null): DisplayBoard => {
   const boardItems = state.queue
     .map((item) => {
       const votes = voteSummaryByMovieId.get(item.movie.id);
-      if (!votes || !votes.resolvedAt) {
+      if (!votes || votes.totalVotes === 0 || !votes.lastActivityAt) {
         return null;
       }
 
@@ -143,20 +143,16 @@ const getBoardSections = (state: DisplayGameState | null): DisplayBoard => {
         };
       }
 
-      if (rejectedIds.has(votes.movieId)) {
-        return {
-          movie: item.movie,
-          votes,
-          outcome: "rejected" as const,
-        };
-      }
-
-      return null;
+      return {
+        movie: item.movie,
+        votes,
+        outcome: rejectedIds.has(votes.movieId) ? "rejected" as const : "active" as const,
+      };
     })
     .filter((item): item is DisplayBoardItem => Boolean(item));
 
   const matches = boardItems.filter((item) => item.outcome === "match").sort(sortByMatchedAt);
-  const recentHistory = [...boardItems].sort(sortByLastActivity);
+  const recentHistory = [...boardItems].sort(sortByRecentHistory);
   const stinkers = boardItems
     .filter((item) => item.outcome === "rejected")
     .sort(sortByLastActivity);
@@ -468,9 +464,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
   const board = getBoardSections(state);
   const viewMode = getDisplayRoomViewMode(state.summary.status);
-  const progressByPlayerId = new Map(
-    state.playerProgress.map((progress) => [progress.playerId, progress] as const),
-  );
   const contextValue: DisplayRoomContextValue = {
     board,
     deleteRoom: () => deleteRoomMutation.mutate(),
@@ -482,7 +475,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     movieGenres: movieGenresQuery.data?.items ?? [],
     movieGenresError,
     players: playersQuery.data.players,
-    progressByPlayerId,
     saveSettings: () => settingsMutation.mutate(),
     saveSettingsPending: settingsMutation.isPending,
     setDraftSettings,
@@ -537,14 +529,10 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
               </div>
               <div className="h-[calc(100%-5.75rem)] overflow-y-auto">
                 {playersQuery.data.players.map((player) => {
-                  const progress = progressByPlayerId.get(player.id);
                   return (
                     <PlayerSidebarRow
                       key={player.id}
                       player={player}
-                      currentIndex={progress?.currentIndex ?? 0}
-                      completed={progress?.completed ?? false}
-                      queueSize={state.summary.queueSize}
                       flashTone={playerVoteFlashById[player.id]}
                     />
                   );
@@ -561,14 +549,10 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
                 </div>
                 <div className="flex gap-4 overflow-x-auto border-b border-white/10 pb-3">
                   {playersQuery.data.players.map((player) => {
-                    const progress = progressByPlayerId.get(player.id);
                     return (
                       <div key={player.id} className="w-56 shrink-0">
                         <PlayerSidebarRow
                           player={player}
-                          currentIndex={progress?.currentIndex ?? 0}
-                          completed={progress?.completed ?? false}
-                          queueSize={state.summary.queueSize}
                           flashTone={playerVoteFlashById[player.id]}
                         />
                       </div>
@@ -671,6 +655,18 @@ function DisplayBrowseView({mode}: {mode: "live" | "results"}) {
     recentHistory: [],
     stinkers: [],
   });
+  const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
+  const movieById = useMemo(
+    () =>
+      new Map(
+        [...board.matches, ...board.recentHistory, ...board.stinkers].map((item) => [
+          item.movie.id,
+          item.movie,
+        ] as const),
+      ),
+    [board.matches, board.recentHistory, board.stinkers],
+  );
+  const selectedMovie = selectedMovieId ? movieById.get(selectedMovieId) ?? null : null;
 
   useEffect(() => {
     const rails: Record<RailKey, DisplayBoardItem[]> = {
@@ -718,11 +714,20 @@ function DisplayBrowseView({mode}: {mode: "live" | "results"}) {
 
   return (
     <div className="space-y-6">
+      <MovieDetailsOverlay
+        movie={selectedMovie}
+        movieId={selectedMovieId}
+        onClose={() => setSelectedMovieId(null)}
+        onSelectMovie={setSelectedMovieId}
+      />
+
       <BrowseRail
         title={isResults ? "Final Matches" : "Matches"}
         items={board.matches}
         newCardIds={newCardIdsByRail.matches}
         tone="match"
+        onSelectMovie={setSelectedMovieId}
+        interactive
       />
 
       <BrowseRail
@@ -730,6 +735,8 @@ function DisplayBrowseView({mode}: {mode: "live" | "results"}) {
         items={board.recentHistory}
         newCardIds={newCardIdsByRail.recentHistory}
         tone="mixed"
+        onSelectMovie={setSelectedMovieId}
+        interactive={false}
       />
 
       <BrowseRail
@@ -737,6 +744,8 @@ function DisplayBrowseView({mode}: {mode: "live" | "results"}) {
         items={board.stinkers}
         newCardIds={newCardIdsByRail.stinkers}
         tone="stinker"
+        onSelectMovie={setSelectedMovieId}
+        interactive
       />
     </div>
   );
@@ -747,11 +756,15 @@ function BrowseRail({
   items,
   newCardIds,
   tone,
+  onSelectMovie,
+  interactive,
 }: {
   title: string;
   items: DisplayBoardItem[];
   newCardIds: string[];
   tone: "match" | "mixed" | "stinker";
+  onSelectMovie: (movieId: string) => void;
+  interactive: boolean;
 }) {
   if (items.length === 0) {
     return null;
@@ -767,6 +780,8 @@ function BrowseRail({
             item={item}
             isNew={newCardIds.includes(item.movie.id)}
             tone={tone}
+            interactive={interactive}
+            onSelect={() => onSelectMovie(item.movie.id)}
           />
         ))}
       </div>
@@ -778,30 +793,53 @@ function BrowseRailCard({
   item,
   isNew,
   tone,
+  interactive,
+  onSelect,
 }: {
   item: DisplayBoardItem;
   isNew: boolean;
   tone: "match" | "mixed" | "stinker";
+  interactive: boolean;
+  onSelect: () => void;
 }) {
-  const isMatch = item.outcome === "match";
+  const cardTone =
+    item.outcome === "match"
+      ? "match"
+      : item.outcome === "rejected"
+        ? "stinker"
+        : "active";
   const positiveVotes = item.votes.like + item.votes.superLike;
   const negativeVotes = item.votes.dislike + item.votes.skip + item.votes.maybe;
-  const accentTone =
-    tone === "mixed" ? (isMatch ? "match" : "stinker") : tone;
+  const accentTone = tone === "mixed" ? cardTone : tone;
   const frameClass =
     accentTone === "match"
       ? "ring-1 ring-swipe-like/35"
-      : "ring-1 ring-danger/35";
+      : accentTone === "stinker"
+        ? "ring-1 ring-danger/35"
+        : "ring-1 ring-white/20";
   const badgeClass =
     accentTone === "match"
       ? "border-swipe-like/35 bg-swipe-like/15 text-swipe-like"
-      : "border-danger/35 bg-danger/15 text-danger";
+      : accentTone === "stinker"
+        ? "border-danger/35 bg-danger/15 text-danger"
+        : "border-white/20 bg-black/45 text-white";
+  const voteCount =
+    item.outcome === "match"
+      ? positiveVotes
+      : item.outcome === "rejected"
+        ? negativeVotes
+        : item.votes.totalVotes;
+  const badgeText =
+    item.outcome === "active"
+      ? `${item.votes.totalVotes} swipe${item.votes.totalVotes === 1 ? "" : "s"}`
+      : interactive
+        ? "Click for details"
+        : item.outcome === "match"
+          ? "Match"
+          : "Rejected";
 
-  return (
-    <article
-      className={`group relative h-56 w-[14rem] shrink-0 overflow-hidden rounded-md bg-[#181818] transition-transform duration-200 hover:scale-[1.02] ${frameClass} ${
-        isNew ? "rail-card-enter" : ""
-      }`}>
+  const content = (
+    <>
       <img
         src={item.movie.posterUrl}
         alt={item.movie.title}
@@ -810,17 +848,568 @@ function BrowseRailCard({
       <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/18 to-transparent" />
       <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-3 pt-3">
         <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${badgeClass}`}>
-          {isMatch ? <HeartIcon size={12} /> : <XIcon size={12} />}
-          <span>{isMatch ? positiveVotes : negativeVotes}</span>
+          {item.outcome === "match" ? (
+            <HeartIcon size={12} />
+          ) : item.outcome === "rejected" ? (
+            <XIcon size={12} />
+          ) : (
+            <ActivityIcon size={12} />
+          )}
+          <span>{voteCount}</span>
         </div>
       </div>
       <div className="absolute inset-x-0 bottom-0 px-4 pb-4">
         <div className="line-clamp-2 text-xl font-medium leading-tight font-display text-white">
           {item.movie.title}
         </div>
+        <div className="mt-2 text-[11px] uppercase tracking-[0.24em] text-white/55">
+          {badgeText}
+        </div>
       </div>
-    </article>
+    </>
   );
+
+  if (!interactive) {
+    return (
+      <div
+        className={`relative h-56 w-[14rem] shrink-0 overflow-hidden rounded-md bg-[#181818] ${frameClass} ${
+          isNew ? "rail-card-enter" : ""
+        }`}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`group relative h-56 w-[14rem] shrink-0 overflow-hidden rounded-md bg-[#181818] transition-transform duration-200 hover:scale-[1.02] ${frameClass} ${
+        isNew ? "rail-card-enter" : ""
+      }`}>
+      {content}
+    </button>
+  );
+}
+
+function MovieDetailsOverlay({
+  movie,
+  movieId,
+  onClose,
+  onSelectMovie,
+}: {
+  movie: MovieCandidate | null;
+  movieId: string | null;
+  onClose: () => void;
+  onSelectMovie: (movieId: string) => void;
+}) {
+  const detailsQuery = useQuery({
+    queryKey: movieId
+      ? gameKeys.movieDetails(movieId, "en-US", "US")
+      : ["movie-details", "idle"],
+    queryFn: () =>
+      parseRpc(
+        api.api.movies[":movieId"].$get({
+          param: {movieId: movieId!},
+          query: {
+            language: "en-US",
+            region: "US",
+          },
+        }),
+      ),
+    enabled: Boolean(movieId),
+    staleTime: 1000 * 60 * 60,
+  });
+
+  useEffect(() => {
+    if (!movieId) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [movieId, onClose]);
+
+  if (!movieId) {
+    return null;
+  }
+
+  const details = detailsQuery.data ?? toFallbackMovieDetails(movie);
+  const people = [...details.directors, ...details.writers, ...details.cast].slice(0, 12);
+  const hasProviders =
+    details.watchProviders.stream.length > 0 ||
+    details.watchProviders.rent.length > 0 ||
+    details.watchProviders.buy.length > 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-md sm:items-center sm:p-6"
+      onClick={onClose}>
+      <div
+        className="relative h-[92vh] w-full overflow-hidden rounded-t-[2rem] border border-white/10 bg-[#0b0b0d] shadow-[0_40px_120px_rgba(0,0,0,0.65)] sm:h-[88vh] sm:max-w-6xl sm:rounded-[2rem]"
+        onClick={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          className="absolute right-4 top-4 z-20 rounded-full border border-white/10 bg-black/60 px-3 py-2 text-xs uppercase tracking-[0.24em] text-white/72 transition hover:bg-black/80"
+          onClick={onClose}>
+          Close
+        </button>
+
+        <div className="h-full overflow-y-auto">
+          <div className="relative min-h-[18rem] overflow-hidden border-b border-white/10">
+            {details.backdropUrl ? (
+              <img
+                src={details.backdropUrl}
+                alt={details.title}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : null}
+            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(4,4,6,0.18),rgba(4,4,6,0.82)_72%,rgba(4,4,6,1))]" />
+            <div className="relative flex flex-col gap-6 px-5 pb-6 pt-20 sm:px-8 lg:flex-row lg:items-end lg:px-10">
+              <img
+                src={details.posterUrl}
+                alt={details.title}
+                className="h-64 w-44 shrink-0 rounded-[1.4rem] object-cover shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+              />
+              <div className="max-w-3xl">
+                <div className="text-[11px] uppercase tracking-[0.34em] text-white/50">
+                  TMDB movie details
+                </div>
+                <h2 className="mt-3 text-4xl font-semibold leading-none text-white text-balance font-display sm:text-5xl">
+                  {details.title}
+                </h2>
+                {details.tagline ? (
+                  <p className="mt-3 text-base italic text-white/72 sm:text-lg">
+                    {details.tagline}
+                  </p>
+                ) : null}
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/74">
+                  <span>{details.year}</span>
+                  {details.runtimeMinutes ? (
+                    <>
+                      <span className="text-white/20">&bull;</span>
+                      <span>{formatRuntime(details.runtimeMinutes)}</span>
+                    </>
+                  ) : null}
+                  {details.contentRating ? (
+                    <>
+                      <span className="text-white/20">&bull;</span>
+                      <span>{details.contentRating}</span>
+                    </>
+                  ) : null}
+                  <span className="text-white/20">&bull;</span>
+                  <span>{details.rating.toFixed(1)} TMDB</span>
+                  {details.voteCount ? (
+                    <span className="text-white/50">
+                      ({formatCompactNumber(details.voteCount)} votes)
+                    </span>
+                  ) : null}
+                </div>
+                {details.genres.length > 0 ? (
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {details.genres.map((genre) => (
+                      <span
+                        key={genre}
+                        className="rounded-full border border-white/12 bg-white/[0.08] px-3 py-1 text-xs font-medium text-white/80">
+                        {genre}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-8 px-5 py-6 sm:px-8 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.8fr)] lg:px-10">
+            <div className="space-y-8">
+              <section className="space-y-3">
+                <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                  Overview
+                </div>
+                <p className="max-w-3xl text-sm leading-7 text-white/74 sm:text-[15px]">
+                  {details.overview || "No synopsis available yet."}
+                </p>
+                {details.keywords.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {details.keywords.map((keyword) => (
+                      <span
+                        key={keyword}
+                        className="rounded-full bg-white/6 px-3 py-1 text-xs text-white/62">
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+
+              {people.length > 0 ? (
+                <section className="space-y-4">
+                  <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                    People
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {people.map((person) => (
+                      <div
+                        key={`${person.id}-${person.role}`}
+                        className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                        <div className="text-sm font-medium text-white">{person.name}</div>
+                        <div className="mt-1 text-xs uppercase tracking-[0.22em] text-white/45">
+                          {person.role}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {hasProviders ? (
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                      Where To Watch
+                    </div>
+                    {details.watchProviders.link ? (
+                      <a
+                        href={details.watchProviders.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs uppercase tracking-[0.22em] text-primary transition hover:text-[hsl(357_92%_55%)]">
+                        Open on JustWatch
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="space-y-4">
+                    <ProviderRow label="Stream" items={details.watchProviders.stream} />
+                    <ProviderRow label="Rent" items={details.watchProviders.rent} />
+                    <ProviderRow label="Buy" items={details.watchProviders.buy} />
+                  </div>
+                </section>
+              ) : null}
+
+              {details.gallery.backdrops.length > 0 || details.gallery.posters.length > 0 ? (
+                <section className="space-y-4">
+                  <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                    Gallery
+                  </div>
+                  {details.gallery.backdrops.length > 0 ? (
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {details.gallery.backdrops.slice(0, 8).map((imageUrl) => (
+                        <img
+                          key={imageUrl}
+                          src={imageUrl}
+                          alt={`${details.title} backdrop`}
+                          className="h-36 w-64 shrink-0 rounded-2xl object-cover"
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {details.gallery.posters.length > 0 ? (
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {details.gallery.posters.slice(0, 8).map((imageUrl) => (
+                        <img
+                          key={imageUrl}
+                          src={imageUrl}
+                          alt={`${details.title} poster option`}
+                          className="h-44 w-32 shrink-0 rounded-2xl object-cover"
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {details.recommendations.length > 0 || details.similar.length > 0 ? (
+                <section className="space-y-6">
+                  <MovieSummaryRow
+                    title="Recommendations"
+                    items={details.recommendations}
+                    onSelectMovie={onSelectMovie}
+                  />
+                  <MovieSummaryRow
+                    title="Similar"
+                    items={details.similar}
+                    onSelectMovie={onSelectMovie}
+                  />
+                </section>
+              ) : null}
+            </div>
+
+            <aside className="space-y-4">
+              <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+                Facts
+              </div>
+              <DetailFact label="Release">
+                {details.releaseDate ? formatDate(details.releaseDate) : "Unknown"}
+              </DetailFact>
+              <DetailFact label="Status">{details.status || "Unknown"}</DetailFact>
+              <DetailFact label="Original title">
+                {details.originalTitle || details.title}
+              </DetailFact>
+              <DetailFact label="Language">
+                {details.originalLanguage || "Unknown"}
+              </DetailFact>
+              <DetailFact label="Spoken languages">
+                {joinList(details.spokenLanguages)}
+              </DetailFact>
+              <DetailFact label="Production countries">
+                {joinList(details.productionCountries)}
+              </DetailFact>
+              <DetailFact label="Studios">
+                {joinList(details.productionCompanies)}
+              </DetailFact>
+              <DetailFact label="Budget">
+                {details.budget ? formatMoney(details.budget) : "Unknown"}
+              </DetailFact>
+              <DetailFact label="Revenue">
+                {details.revenue ? formatMoney(details.revenue) : "Unknown"}
+              </DetailFact>
+              {details.belongsToCollection ? (
+                <DetailFact label="Collection">
+                  {details.belongsToCollection.name}
+                </DetailFact>
+              ) : null}
+              {details.homepage ? (
+                <DetailFact label="Homepage">
+                  <a
+                    href={details.homepage}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary transition hover:text-[hsl(357_92%_55%)]">
+                    Visit site
+                  </a>
+                </DetailFact>
+              ) : null}
+              {details.imdbId ? (
+                <DetailFact label="IMDb">
+                  <a
+                    href={`https://www.imdb.com/title/${details.imdbId}/`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary transition hover:text-[hsl(357_92%_55%)]">
+                    {details.imdbId}
+                  </a>
+                </DetailFact>
+              ) : null}
+              {details.trailers.length > 0 ? (
+                <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.03] p-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">
+                    Videos
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {details.trailers.map((video) => (
+                      <a
+                        key={video.id}
+                        href={video.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-sm text-white/80 transition hover:border-white/16 hover:bg-black/35">
+                        <div className="font-medium text-white">{video.name}</div>
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/45">
+                          {video.type} on {video.site}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {detailsQuery.isLoading ? (
+                <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-white/62">
+                  Loading richer TMDB details...
+                </div>
+              ) : null}
+              {detailsQuery.error ? (
+                <div className="rounded-[1.5rem] border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+                  {detailsQuery.error instanceof Error
+                    ? detailsQuery.error.message
+                    : "Unable to load full movie details"}
+                </div>
+              ) : null}
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProviderRow({
+  label,
+  items,
+}: {
+  label: string;
+  items: MovieDetails["watchProviders"]["stream"];
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">
+        {label}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((provider) => (
+          <div
+            key={`${label}-${provider.id}`}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/78">
+            {provider.logoUrl ? (
+              <img
+                src={provider.logoUrl}
+                alt={provider.name}
+                className="h-5 w-5 rounded-full object-cover"
+              />
+            ) : null}
+            <span>{provider.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MovieSummaryRow({
+  title,
+  items,
+  onSelectMovie,
+}: {
+  title: string;
+  items: MovieSummary[];
+  onSelectMovie: (movieId: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="text-[11px] uppercase tracking-[0.32em] text-white/45">
+        {title}
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {items.map((item) => (
+          <button
+            key={`${title}-${item.id}`}
+            type="button"
+            onClick={() => onSelectMovie(item.id)}
+            className="group w-36 shrink-0 overflow-hidden rounded-[1.3rem] border border-white/8 bg-white/[0.03] text-left transition hover:scale-[1.02]">
+            <img
+              src={item.posterUrl}
+              alt={item.title}
+              className="h-52 w-full object-cover"
+            />
+            <div className="space-y-1 px-3 py-3">
+              <div className="line-clamp-2 text-sm font-medium text-white">
+                {item.title}
+              </div>
+              <div className="text-xs text-white/45">
+                {item.year} • {item.rating.toFixed(1)}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DetailFact({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/8 bg-white/[0.03] px-4 py-3">
+      <div className="text-[11px] uppercase tracking-[0.22em] text-white/45">
+        {label}
+      </div>
+      <div className="mt-1 text-sm leading-6 text-white/78">{children}</div>
+    </div>
+  );
+}
+
+function toFallbackMovieDetails(movie: MovieCandidate | null): MovieDetails {
+  return {
+    id: movie?.id ?? "",
+    title: movie?.title ?? "Movie",
+    year: movie?.year ?? 0,
+    overview: movie?.overview ?? "",
+    posterUrl: movie?.posterUrl ?? "",
+    rating: movie?.rating ?? 0,
+    backdropUrl: "",
+    genres: [],
+    spokenLanguages: [],
+    productionCountries: [],
+    productionCompanies: [],
+    directors: [],
+    writers: [],
+    cast: [],
+    keywords: [],
+    trailers: [],
+    gallery: {
+      posters: [],
+      backdrops: [],
+      logos: [],
+    },
+    watchProviders: {
+      region: "US",
+      stream: [],
+      rent: [],
+      buy: [],
+    },
+    recommendations: [],
+    similar: [],
+  };
+}
+
+function formatRuntime(runtimeMinutes: number) {
+  const hours = Math.floor(runtimeMinutes / 60);
+  const minutes = runtimeMinutes % 60;
+  if (!hours) {
+    return `${minutes}m`;
+  }
+
+  return `${hours}h ${minutes}m`;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function joinList(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "Unknown";
 }
 
 function MatchFoundOverlay({movie}: {movie: MovieCandidate}) {
@@ -884,33 +1473,35 @@ function XIcon({size = 14}: {size?: number}) {
   );
 }
 
+function ActivityIcon({size = 14}: {size?: number}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round">
+      <path d="M3 12h4l2.5-5 4 10 2.5-5H21" />
+    </svg>
+  );
+}
+
 function PlayerSidebarRow({
   player,
-  currentIndex,
-  completed,
-  queueSize,
   flashTone,
 }: {
   player: PlayerRailPlayer;
-  currentIndex: number;
-  completed: boolean;
-  queueSize: number;
   flashTone?: PlayerVoteFlashTone;
 }) {
   const initial = player.displayName.trim().charAt(0).toUpperCase() || "?";
   const gradient =
     PLAYER_TILE_GRADIENTS[hashString(player.displayName) % PLAYER_TILE_GRADIENTS.length];
-  const progressLabel = !player.connectedAsPlayer
-    ? "Away"
-    : completed
-      ? "Finished"
-      : `${Math.min(currentIndex, queueSize)}/${queueSize}`;
 
   return (
-    <div
-      className={`flex items-center gap-3 border-b border-white/10 py-3 transition ${
-        player.connectedAsPlayer ? "" : "opacity-45"
-      }`}>
+    <div className="flex items-center gap-3 border-b border-white/10 py-3 transition">
       <div
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-sm bg-gradient-to-br ${gradient} text-lg font-semibold text-white ${
           flashTone === "positive"
@@ -924,9 +1515,6 @@ function PlayerSidebarRow({
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-white">
           {player.displayName}
-        </div>
-        <div className="mt-1 text-[11px] uppercase tracking-[0.22em] text-white/45">
-          {progressLabel}
         </div>
       </div>
     </div>

@@ -1,6 +1,5 @@
 import {z} from "zod";
 import {
-  gameCodeSchema,
   gameQueueItemSchema,
   gamePlayerProgressSchema,
   gameSettingsInputSchema,
@@ -9,6 +8,7 @@ import {
   gameVoteSummarySchema,
   swipeChoiceSchema,
 } from "./game-core";
+import {gameCodeSchema} from "./game-sessions";
 
 export const gamePlayerPresenceSchema = z.object({
   id: z.string().min(1),

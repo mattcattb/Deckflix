@@ -49,6 +49,7 @@ const defaultSettings = {
     allowSuperLike: true,
   },
   movieFilters: {
+    popularityPreset: "balanced",
     includedGenreIds: [],
     excludedGenreIds: [],
     primaryReleaseDateGte: null,

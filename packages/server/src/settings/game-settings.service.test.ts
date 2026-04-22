@@ -19,6 +19,7 @@ const gameSettingsSchema = z.object({
   }),
   movieFilters: z
     .object({
+      popularityPreset: z.enum(["any", "balanced", "popular", "niche"]),
       includedGenreIds: z.array(z.number().int().positive()).max(10),
       excludedGenreIds: z.array(z.number().int().positive()).max(10),
       primaryReleaseDateGte: z.string().nullable(),
@@ -114,6 +115,7 @@ describe("game settings", () => {
           maxMovies: 150,
         },
         movieFilters: {
+          popularityPreset: "niche",
           includedGenreIds: [28, 35],
           voteAverageGte: 7.2,
         },
@@ -127,6 +129,7 @@ describe("game settings", () => {
       },
       movieFilters: {
         ...GameSettingsService.DEFAULT_GAME_SETTINGS.movieFilters,
+        popularityPreset: "niche",
         includedGenreIds: [28, 35],
         voteAverageGte: 7.2,
       },
@@ -137,6 +140,7 @@ describe("game settings", () => {
     const parsed = gameSettingsSchema.safeParse({
       gameplay: GameSettingsService.DEFAULT_GAME_SETTINGS.gameplay,
       movieFilters: {
+        popularityPreset: "balanced",
         includedGenreIds: [28],
         excludedGenreIds: [28],
         primaryReleaseDateGte: "2025-01-01",
@@ -153,6 +157,7 @@ describe("game settings", () => {
     const filters = GameSettingsService.buildMovieDiscoveryFilters(
       GameSettingsService.resolveGameSettings({
         movieFilters: {
+          popularityPreset: "popular",
           includedGenreIds: [28, 35],
           excludedGenreIds: [27],
           primaryReleaseDateGte: "2020-01-01",

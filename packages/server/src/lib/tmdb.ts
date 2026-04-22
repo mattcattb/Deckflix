@@ -31,6 +31,11 @@ type TmdbSourceMovie = {
   original_language?: string | null;
 };
 
+type TmdbSummarySourceMovie = Pick<
+  TmdbSourceMovie,
+  "id" | "title" | "overview" | "poster_path" | "release_date" | "vote_average"
+>;
+
 type TmdbPagedMovieResponse = {
   page: number;
   total_pages: number;
@@ -63,6 +68,7 @@ const TMDB_CONFIGURATION_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const TMDB_DISCOVER_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const TMDB_TRENDING_CACHE_TTL_SECONDS = 60 * 60;
 const TMDB_RELATED_CACHE_TTL_SECONDS = 60 * 60 * 12;
+const TMDB_MOVIE_DETAILS_CACHE_TTL_SECONDS = 60 * 60 * 12;
 
 const defaultImageConfiguration: TmdbImageConfiguration = {
   secureBaseUrl: appEnv.TMDB_IMAGE_BASE_URL.replace(/\/w\d+$/, "/"),
@@ -95,6 +101,12 @@ const toYear = (releaseDate?: string | null) => {
 const configurationCacheKey = () => "tmdb:configuration";
 
 const genreCacheKey = (language: string) => `tmdb:genres:movie:${language}`;
+
+const movieDetailsCacheKey = (input: {
+  movieId: string;
+  language: string;
+  region: string;
+}) => `tmdb:movie:${hashValue(input)}`;
 
 const chooseImageSize = (availableSizes: string[], preferredSizes: string[]) =>
   preferredSizes.find((size) => availableSizes.includes(size)) ??
@@ -215,7 +227,7 @@ const getTmdbListViaHttp = async (
 export const buildTmdbImageUrl = (path: string | null | undefined, size = "w500") =>
   path ? `${defaultImageConfiguration.secureBaseUrl}${size}${path}` : null;
 
-const toMovieSummary = (movie: TmdbSourceMovie): MovieSummary => ({
+const toMovieSummary = (movie: TmdbSummarySourceMovie): MovieSummary => ({
   id: String(movie.id),
   title: movie.title,
   year: toYear(movie.release_date),
@@ -241,6 +253,99 @@ const toPoolSourceMovieListResult = (
   totalResults: response.total_results,
   items: response.results.map(toPoolSourceMovie),
 });
+
+const toOptionalNumber = (value?: number | null) =>
+  value && value > 0 ? value : undefined;
+
+const toUniquePeople = (
+  items: Array<{id: number; name: string; role: string}>,
+  limit: number,
+) => {
+  const seen = new Set<string>();
+  return items
+    .filter((item) => {
+      const key = `${item.id}:${item.role}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit)
+    .map((item) => ({
+      id: String(item.id),
+      name: item.name,
+      role: item.role,
+    }));
+};
+
+const toVideoUrl = (site: string, key: string) => {
+  if (site === "YouTube") {
+    return `https://www.youtube.com/watch?v=${key}`;
+  }
+
+  if (site === "Vimeo") {
+    return `https://vimeo.com/${key}`;
+  }
+
+  return "";
+};
+
+const toWatchProvidersByRegion = (payload: unknown, region: string) => {
+  const regions = (payload &&
+    typeof payload === "object" &&
+    "results" in payload &&
+    payload.results &&
+    typeof payload.results === "object"
+    ? payload.results
+    : {}) as Record<
+    string,
+    {
+      link?: string;
+      flatrate?: Array<{provider_id: number; provider_name: string; logo_path: string}>;
+      rent?: Array<{provider_id: number; provider_name: string; logo_path: string}>;
+      buy?: Array<{provider_id: number; provider_name: string; logo_path: string}>;
+    }
+  >;
+  const locale = regions[region];
+  const mapProviders = (
+    items?: Array<{provider_id: number; provider_name: string; logo_path: string}>,
+  ) =>
+    (items ?? []).map((provider) => ({
+      id: provider.provider_id,
+      name: provider.provider_name,
+      logoUrl: buildTmdbImageUrl(provider.logo_path, "w185") ?? "",
+    }));
+
+  return {
+    region,
+    link: locale?.link,
+    stream: mapProviders(locale?.flatrate),
+    rent: mapProviders(locale?.rent),
+    buy: mapProviders(locale?.buy),
+  };
+};
+
+const getContentRating = (
+  releaseDates: {
+    results?: Array<{
+      iso_3166_1: string;
+      release_dates: Array<{certification: string}>;
+    }>;
+  },
+  region: string,
+) => {
+  const localCertification = releaseDates.results
+    ?.find((entry) => entry.iso_3166_1 === region)
+    ?.release_dates.find((entry) => entry.certification.trim())?.certification;
+  if (localCertification) {
+    return localCertification;
+  }
+
+  return releaseDates.results
+    ?.flatMap((entry) => entry.release_dates)
+    .find((entry) => entry.certification.trim())?.certification;
+};
 
 export const getTmdbImageConfiguration = async (): Promise<TmdbImageConfiguration> => {
   await ensureRedis();
@@ -507,20 +612,164 @@ export const getTmdbSimilarMovies = async (input: {
 export const getTmdbMovieById = async (
   movieId: string,
   language = "en-US",
+  region = "US",
 ): Promise<MovieDetails | null> => {
-  try {
-    const movie = await getTmdbClient().movies.details(
-      Number(movieId),
-      undefined,
-      toTmdbLanguage(language),
-    );
+  await ensureRedis();
+  const normalized = {
+    movieId,
+    language,
+    region: region.toUpperCase(),
+  };
+  const cacheKey = movieDetailsCacheKey(normalized);
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached) as MovieDetails;
+  }
 
-    return {
+  try {
+    const appendToResponse = [
+      "credits",
+      "videos",
+      "images",
+      "keywords",
+      "release_dates",
+      "recommendations",
+      "similar",
+      "watch/providers",
+    ] as const;
+    const [movie, configuration] = await Promise.all([
+      getTmdbClient().movies.details(
+        Number(movieId),
+        [...appendToResponse],
+        toTmdbLanguage(language),
+      ),
+      getTmdbImageConfiguration(),
+    ]);
+    const posterSize = chooseImageSize(configuration.posterSizes, [
+      "w500",
+      "w342",
+      "original",
+    ]);
+    const backdropSize = chooseImageSize(configuration.backdropSizes, [
+      "w1280",
+      "w780",
+      "original",
+    ]);
+    const details: MovieDetails = {
       ...toMovieSummary(movie),
+      backdropUrl:
+        buildImageUrlFromConfiguration(configuration, movie.backdrop_path, backdropSize) ??
+        "",
       releaseDate: movie.release_date ?? undefined,
       runtimeMinutes: movie.runtime ?? undefined,
       genres: movie.genres.map((genre) => genre.name),
+      tagline: movie.tagline || undefined,
+      status: movie.status || undefined,
+      contentRating: getContentRating(movie.release_dates, normalized.region),
+      originalTitle:
+        movie.original_title && movie.original_title !== movie.title
+          ? movie.original_title
+          : undefined,
+      originalLanguage: movie.original_language || undefined,
+      spokenLanguages: movie.spoken_languages.map((entry) => entry.english_name),
+      productionCountries: movie.production_countries.map((country) => country.name),
+      productionCompanies: movie.production_companies.map((company) => company.name),
+      voteCount: toOptionalNumber(movie.vote_count),
+      popularity: toOptionalNumber(movie.popularity),
+      budget: toOptionalNumber(movie.budget),
+      revenue: toOptionalNumber(movie.revenue),
+      homepage: movie.homepage || undefined,
+      imdbId: movie.imdb_id || undefined,
+      directors: toUniquePeople(
+        movie.credits.crew
+          .filter((person) => person.job === "Director")
+          .map((person) => ({
+            id: person.id,
+            name: person.name,
+            role: person.job,
+          })),
+        4,
+      ),
+      writers: toUniquePeople(
+        movie.credits.crew
+          .filter((person) => ["Writer", "Screenplay", "Story"].includes(person.job))
+          .map((person) => ({
+            id: person.id,
+            name: person.name,
+            role: person.job,
+          })),
+        6,
+      ),
+      cast: toUniquePeople(
+        movie.credits.cast
+          .sort((left, right) => left.order - right.order)
+          .map((person) => ({
+            id: person.id,
+            name: person.name,
+            role: person.character,
+          })),
+        10,
+      ),
+      keywords: movie.keywords.keywords.map((keyword) => keyword.name).slice(0, 12),
+      trailers: movie.videos.results
+        .filter((video) => ["YouTube", "Vimeo"].includes(video.site))
+        .map((video) => ({
+          id: video.id,
+          name: video.name,
+          site: video.site,
+          type: video.type,
+          url: toVideoUrl(video.site, video.key),
+        }))
+        .filter((video) => video.url)
+        .slice(0, 6),
+      gallery: {
+        posters: movie.images.posters
+          .map((item) =>
+            buildImageUrlFromConfiguration(configuration, item.file_path, posterSize),
+          )
+          .filter(Boolean)
+          .slice(0, 12) as string[],
+        backdrops: movie.images.backdrops
+          .map((item) =>
+            buildImageUrlFromConfiguration(configuration, item.file_path, backdropSize),
+          )
+          .filter(Boolean)
+          .slice(0, 12) as string[],
+        logos: movie.images.logos
+          .map((item) => buildTmdbImageUrl(item.file_path, "original"))
+          .filter(Boolean)
+          .slice(0, 8) as string[],
+      },
+      watchProviders: toWatchProvidersByRegion(
+        movie["watch/providers"],
+        normalized.region,
+      ),
+      belongsToCollection: movie.belongs_to_collection
+        ? {
+            id: String(movie.belongs_to_collection.id),
+            name: movie.belongs_to_collection.name,
+            posterUrl:
+              buildImageUrlFromConfiguration(
+                configuration,
+                movie.belongs_to_collection.poster_path,
+                posterSize,
+              ) ?? undefined,
+            backdropUrl:
+              buildImageUrlFromConfiguration(
+                configuration,
+                movie.belongs_to_collection.backdrop_path,
+                backdropSize,
+              ) ?? undefined,
+          }
+        : undefined,
+      recommendations: movie.recommendations.results.map(toMovieSummary).slice(0, 12),
+      similar: movie.similar.results.map(toMovieSummary).slice(0, 12),
     };
+    await redis.set(cacheKey, JSON.stringify(details), {
+      EX: TMDB_MOVIE_DETAILS_CACHE_TTL_SECONDS,
+    });
+
+    return details;
   } catch (error) {
     return handleTmdbError(error, "TMDB movie request failed");
   }

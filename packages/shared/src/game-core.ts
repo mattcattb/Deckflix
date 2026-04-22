@@ -9,9 +9,11 @@ const swipeChoices = [
 ] as const;
 
 const gameStatuses = ["lobby", "swiping", "completed"] as const;
+const moviePopularityPresets = ["any", "balanced", "popular", "niche"] as const;
 
 export const swipeChoiceSchema = z.enum(swipeChoices);
 export const gameStatusSchema = z.enum(gameStatuses);
+export const moviePopularityPresetSchema = z.enum(moviePopularityPresets);
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,6 +24,7 @@ const gameplaySettingsSchema = z.object({
 });
 
 const movieFilterSettingsShape = {
+  popularityPreset: moviePopularityPresetSchema,
   includedGenreIds: z.array(z.number().int().positive()).max(10),
   excludedGenreIds: z.array(z.number().int().positive()).max(10),
   primaryReleaseDateGte: z.string().regex(isoDatePattern).nullable(),
@@ -135,6 +138,7 @@ export const gamePlayerProgressSchema = z.object({
 
 export type SwipeChoice = z.infer<typeof swipeChoiceSchema>;
 export type GameStatus = z.infer<typeof gameStatusSchema>;
+export type MoviePopularityPreset = z.infer<typeof moviePopularityPresetSchema>;
 export type GameSettings = z.infer<typeof gameSettingsSchema>;
 export type GameSettingsInput = z.infer<typeof gameSettingsInputSchema>;
 export type MovieCandidate = z.infer<typeof movieCandidateSchema>;

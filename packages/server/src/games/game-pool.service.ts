@@ -1,4 +1,8 @@
-import type {GameSettings, MovieCandidate} from "@deckflix/shared";
+import type {
+  GameSettings,
+  MovieCandidate,
+  MoviePopularityPreset,
+} from "@deckflix/shared";
 import {createHash, randomUUID} from "node:crypto";
 import {BadRequestException, NotFoundException} from "../common/errors";
 import {
@@ -99,6 +103,51 @@ const maybeApplyDateWindow = (
     primaryReleaseDateGte: `${startYear}-01-01`,
     primaryReleaseDateLte: `${endYear}-12-31`,
   };
+};
+
+const getPopularityPreset = (settings: GameSettings): MoviePopularityPreset =>
+  settings.movieFilters.popularityPreset;
+
+const getPresetWeights = (preset: MoviePopularityPreset) => {
+  switch (preset) {
+    case "any":
+      return {
+        broad: 0.22,
+        mid: 0.2,
+        deep: 0.18,
+        trending: 0.1,
+        recommendation: 0.16,
+        similar: 0.14,
+      };
+    case "popular":
+      return {
+        broad: 0.34,
+        mid: 0.18,
+        deep: 0.08,
+        trending: 0.18,
+        recommendation: 0.13,
+        similar: 0.09,
+      };
+    case "niche":
+      return {
+        broad: 0.12,
+        mid: 0.22,
+        deep: 0.28,
+        trending: 0.05,
+        recommendation: 0.18,
+        similar: 0.15,
+      };
+    case "balanced":
+    default:
+      return {
+        broad: 0.25,
+        mid: 0.2,
+        deep: 0.2,
+        trending: 0.1,
+        recommendation: 0.15,
+        similar: 0.1,
+      };
+  }
 };
 
 const samplePagesInBand = (
@@ -398,7 +447,10 @@ const scoreQuality = (candidate: PoolCandidateRecord) => {
   return ratingScore * 0.72 + voteScore * 0.28;
 };
 
-const scoreFreshness = (candidate: PoolCandidateRecord) => {
+const scoreFreshness = (
+  candidate: PoolCandidateRecord,
+  popularityPreset: MoviePopularityPreset,
+) => {
   const familySet = new Set(candidate.sourceHits.map((hit) => hit.sourceFamily));
   const releaseYear = candidate.features.year;
   const currentYear = new Date().getUTCFullYear();
@@ -413,10 +465,17 @@ const scoreFreshness = (candidate: PoolCandidateRecord) => {
     (familySet.has("recommendation") ? 0.22 : 0) +
     (familySet.has("similar") ? 0.15 : 0);
   const popularitySupport = clamp(Math.log10(candidate.features.popularity + 1) / 3.5);
-  return clamp(releaseScore * 0.65 + sourceBonus + popularitySupport * 0.15);
+  const presetBoost =
+    popularityPreset === "popular" ? popularitySupport * 0.08
+    : popularityPreset === "niche" ? (1 - popularitySupport) * 0.08
+    : 0;
+  return clamp(releaseScore * 0.65 + sourceBonus + popularitySupport * 0.15 + presetBoost);
 };
 
-const scoreNovelty = (candidate: PoolCandidateRecord) => {
+const scoreNovelty = (
+  candidate: PoolCandidateRecord,
+  popularityPreset: MoviePopularityPreset,
+) => {
   const familyCount = new Set(candidate.sourceHits.map((hit) => hit.sourceFamily)).size;
   const averagePage =
     candidate.sourceHits.reduce((total, hit) => total + hit.page, 0) /
@@ -428,17 +487,32 @@ const scoreNovelty = (candidate: PoolCandidateRecord) => {
     : 0.25;
   const pageDepthScore = clamp((averagePage - 1) / 40);
   const popularityPenalty = clamp(candidate.features.popularity / 140);
-  return clamp(familyBase + pageDepthScore * 0.2 - popularityPenalty * 0.15);
+  const presetOffset =
+    popularityPreset === "popular" ? popularityPenalty * 0.08
+    : popularityPreset === "niche" ? (1 - popularityPenalty) * 0.12
+    : 0;
+  return clamp(familyBase + pageDepthScore * 0.2 - popularityPenalty * 0.15 + presetOffset);
 };
 
-const scoreDiversityPotential = (candidate: PoolCandidateRecord) => {
+const scoreDiversityPotential = (
+  candidate: PoolCandidateRecord,
+  popularityPreset: MoviePopularityPreset,
+) => {
   const genreBreadth = clamp(candidate.features.genreIds.length / 4);
   const pageDepth =
     candidate.sourceHits.reduce((total, hit) => total + hit.page, 0) /
     candidate.sourceHits.length;
   const pageDepthScore = clamp((pageDepth - 1) / 50);
   const lowPopularityBonus = 1 - clamp(candidate.features.popularity / 110);
-  return genreBreadth * 0.35 + pageDepthScore * 0.3 + lowPopularityBonus * 0.35;
+  if (popularityPreset === "popular") {
+    const popularityReach = clamp(Math.log10(candidate.features.popularity + 1) / 3.5);
+    return genreBreadth * 0.35 + pageDepthScore * 0.2 + popularityReach * 0.45;
+  }
+
+  const lowPopularityWeight = popularityPreset === "niche" ? 0.5 : 0.35;
+  const genreWeight = popularityPreset === "niche" ? 0.3 : 0.35;
+  const pageWeight = popularityPreset === "niche" ? 0.2 : 0.3;
+  return genreBreadth * genreWeight + pageDepthScore * pageWeight + lowPopularityBonus * lowPopularityWeight;
 };
 
 const scoreSource = (candidate: PoolCandidateRecord) => {
@@ -575,13 +649,14 @@ const scoreBaseCandidatesForAnchors = (
   settings: GameSettings,
 ) => {
   const filters = GameSettingsService.buildMovieDiscoveryFilters(settings);
+  const popularityPreset = getPopularityPreset(settings);
 
   return [...candidates]
     .map((candidate) => {
       const filterFit = scoreFilterFit(candidate, filters);
       const quality = scoreQuality(candidate);
-      const freshness = scoreFreshness(candidate);
-      const novelty = scoreNovelty(candidate);
+      const freshness = scoreFreshness(candidate, popularityPreset);
+      const novelty = scoreNovelty(candidate, popularityPreset);
       const anchorScore = filterFit * 0.42 + quality * 0.34 + freshness * 0.14 + novelty * 0.10;
       return {
         ...candidate,
@@ -597,11 +672,21 @@ const scoreBaseCandidatesForAnchors = (
 const toSelectionWindowSize = (maxMovies: number) =>
   Math.min(Math.max(maxMovies * 3, 120), 320);
 
-const getSelectionCaps = (maxMovies: number) => ({
+const getSelectionCaps = (
+  maxMovies: number,
+  popularityPreset: MoviePopularityPreset,
+) => ({
   maxConsecutivePerDecade: 2,
   maxConsecutivePerGenre: 2,
-  maxPerSourceFamily: Math.max(1, Math.floor(maxMovies * 0.35)),
-  maxHighPopularity: Math.max(1, Math.floor(maxMovies * 0.4)),
+  maxPerSourceFamily:
+    popularityPreset === "any" ? Math.max(1, Math.floor(maxMovies * 0.45))
+    : popularityPreset === "popular" ? Math.max(1, Math.floor(maxMovies * 0.4))
+    : Math.max(1, Math.floor(maxMovies * 0.35)),
+  maxHighPopularity:
+    popularityPreset === "any" ? maxMovies
+    : popularityPreset === "popular" ? Math.max(1, Math.floor(maxMovies * 0.6))
+    : popularityPreset === "niche" ? Math.max(1, Math.floor(maxMovies * 0.25))
+    : Math.max(1, Math.floor(maxMovies * 0.4)),
 });
 
 type SelectionRelaxation = {
@@ -750,6 +835,8 @@ export const getPoolSeedOrThrow = async (gameCode: string) => {
 
 export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan => {
   const baseFilters = GameSettingsService.buildMovieDiscoveryFilters(settings);
+  const popularityPreset = getPopularityPreset(settings);
+  const weights = getPresetWeights(popularityPreset);
   const currentYear = new Date().getUTCFullYear();
   const deepCutStart = pickInt(`${seed}:deep:start`, 1982, Math.max(1982, currentYear - 18));
   const deepCutEnd = Math.min(deepCutStart + 8, currentYear - 3);
@@ -765,14 +852,24 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Discover Broad",
         source: "discover",
         sourceFamily: "discover",
-        weight: 0.25,
-        pageSampleSize: 2,
-        pageBandStart: 1,
-        pageBandEnd: 3,
+        weight: weights.broad,
+        pageSampleSize: popularityPreset === "niche" ? 2 : 3,
+        pageBandStart: popularityPreset === "niche" ? 2 : 1,
+        pageBandEnd:
+          popularityPreset === "popular" ? 2
+          : popularityPreset === "any" ? 6
+          : popularityPreset === "niche" ? 8
+          : 3,
         filters: {
           ...baseFilters,
           sortBy: "popularity.desc",
-          voteCountGte: 50,
+          voteCountGte:
+            popularityPreset === "popular" ? 250
+            : popularityPreset === "niche" ? 20
+            : popularityPreset === "any" ? 25
+            : 50,
+          voteCountLte:
+            popularityPreset === "niche" ? 2000 : undefined,
         },
       },
       {
@@ -780,14 +877,24 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Discover Mid Depth",
         source: "discover",
         sourceFamily: "discover",
-        weight: 0.2,
+        weight: weights.mid,
         pageSampleSize: 3,
-        pageBandStart: 4,
-        pageBandEnd: 15,
+        pageBandStart:
+          popularityPreset === "popular" ? 2
+          : popularityPreset === "niche" ? 8
+          : 4,
+        pageBandEnd:
+          popularityPreset === "popular" ? 10
+          : popularityPreset === "niche" ? 28
+          : popularityPreset === "any" ? 20
+          : 15,
         filters: {
           ...baseFilters,
-          sortBy: "vote_average.desc",
-          voteCountGte: 120,
+          sortBy: popularityPreset === "popular" ? "popularity.desc" : "vote_average.desc",
+          voteCountGte:
+            popularityPreset === "popular" ? 150
+            : popularityPreset === "niche" ? 50
+            : 120,
           voteAverageGte: Math.max(baseFilters.voteAverageGte ?? 0, 6.2),
         },
       },
@@ -796,16 +903,30 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Discover Deep Cut",
         source: "discover",
         sourceFamily: "discover",
-        weight: 0.2,
-        pageSampleSize: 4,
-        pageBandStart: 16,
-        pageBandEnd: 80,
+        weight: weights.deep,
+        pageSampleSize: popularityPreset === "popular" ? 2 : 4,
+        pageBandStart:
+          popularityPreset === "popular" ? 8
+          : popularityPreset === "any" ? 12
+          : popularityPreset === "niche" ? 20
+          : 16,
+        pageBandEnd:
+          popularityPreset === "popular" ? 30
+          : popularityPreset === "any" ? 100
+          : popularityPreset === "niche" ? 120
+          : 80,
         filters: maybeApplyDateWindow(
           {
             ...baseFilters,
             sortBy: "vote_count.desc",
-            voteCountGte: 15,
-            voteCountLte: 1500,
+            voteCountGte:
+              popularityPreset === "popular" ? 40
+              : popularityPreset === "niche" ? 5
+              : 15,
+            voteCountLte:
+              popularityPreset === "popular" ? 5000
+              : popularityPreset === "niche" ? 700
+              : 1500,
           },
           deepCutStart,
           deepCutEnd,
@@ -816,7 +937,7 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Trending Weekly",
         source: "trending",
         sourceFamily: "trending",
-        weight: 0.1,
+        weight: weights.trending,
         timeWindow: "week",
       },
       {
@@ -824,7 +945,7 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Recommendation Expansion",
         source: "recommendation",
         sourceFamily: "recommendation",
-        weight: 0.15,
+        weight: weights.recommendation,
         anchorLimit: 3,
       },
       {
@@ -832,7 +953,7 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         label: "Similar Expansion",
         source: "similar",
         sourceFamily: "similar",
-        weight: 0.1,
+        weight: weights.similar,
         anchorLimit: 3,
       },
     ],
@@ -845,50 +966,64 @@ export const fetchPoolCandidates = async (
 ) => {
   const candidates = new Map<string, PoolCandidateRecord>();
   const baseStrategies = listBaseStrategies(plan);
-  let discoverSuccessCount = 0;
-
-  for (const strategy of baseStrategies) {
-    try {
-      const pageResults =
+  const baseResults = await Promise.allSettled(
+    baseStrategies.map(async (strategy) => ({
+      strategy,
+      pageResults:
         strategy.source === "discover"
           ? await fetchDiscoverStrategy(strategy, plan.seed)
-          : await fetchTrendingStrategy(strategy);
-      for (const pageResult of pageResults) {
-        mergeCandidates(candidates, pageResult.items, strategy, pageResult.page);
-      }
-      if (strategy.source === "discover") {
-        discoverSuccessCount += 1;
-      }
-    } catch {
-      continue;
+          : await fetchTrendingStrategy(strategy),
+    })),
+  );
+  const discoverSuccessCount = baseResults.reduce((count, result) => {
+    if (result.status !== "fulfilled") {
+      return count;
     }
-  }
+
+    for (const pageResult of result.value.pageResults) {
+      mergeCandidates(
+        candidates,
+        pageResult.items,
+        result.value.strategy,
+        pageResult.page,
+      );
+    }
+
+    return result.value.strategy.source === "discover" ? count + 1 : count;
+  }, 0);
 
   const provisionalAnchors = selectExpansionAnchors(
     scoreBaseCandidatesForAnchors([...candidates.values()], settings),
     3,
   );
 
-  for (const strategy of listExpansionStrategies(plan)) {
-    const anchors = provisionalAnchors.slice(0, strategy.anchorLimit ?? 3);
-    for (const anchor of anchors) {
-      try {
-        const pageResults =
-          strategy.source === "recommendation"
-            ? await fetchRecommendationStrategy(anchor.movie.id)
-            : await fetchSimilarStrategy(anchor.movie.id);
-        for (const pageResult of pageResults) {
-          mergeCandidates(
-            candidates,
-            pageResult.items,
-            strategy,
-            pageResult.page,
-            anchor.movie.id,
-          );
-        }
-      } catch {
-        continue;
-      }
+  const expansionResults = await Promise.allSettled(
+    listExpansionStrategies(plan).flatMap((strategy) =>
+      provisionalAnchors
+        .slice(0, strategy.anchorLimit ?? 3)
+        .map(async (anchor) => ({
+          strategy,
+          anchorMovieId: anchor.movie.id,
+          pageResults:
+            strategy.source === "recommendation"
+              ? await fetchRecommendationStrategy(anchor.movie.id)
+              : await fetchSimilarStrategy(anchor.movie.id),
+        })),
+    ),
+  );
+  for (const result of expansionResults) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const pageResult of result.value.pageResults) {
+      mergeCandidates(
+        candidates,
+        pageResult.items,
+        result.value.strategy,
+        pageResult.page,
+        result.value.anchorMovieId,
+      );
     }
   }
 
@@ -917,14 +1052,15 @@ export const scorePoolCandidates = (
   recentHistoryTimestamps = new Map<string, number | null>(),
 ) => {
   const filters = GameSettingsService.buildMovieDiscoveryFilters(settings);
+  const popularityPreset = getPopularityPreset(settings);
 
   return candidates
     .map((candidate) => {
       const filterFit = scoreFilterFit(candidate, filters);
       const quality = scoreQuality(candidate);
-      const freshness = scoreFreshness(candidate);
-      const novelty = scoreNovelty(candidate);
-      const diversityPotential = scoreDiversityPotential(candidate);
+      const freshness = scoreFreshness(candidate, popularityPreset);
+      const novelty = scoreNovelty(candidate, popularityPreset);
+      const diversityPotential = scoreDiversityPotential(candidate, popularityPreset);
       const source = scoreSource(candidate);
       const recentHistoryPenalty = scoreRecentHistoryPenalty(
         recentHistoryTimestamps.get(candidate.movie.id),
@@ -963,7 +1099,7 @@ export const selectFinalPool = (
 ) => {
   const maxMovies = settings.gameplay.maxMovies;
   const windowSize = toSelectionWindowSize(maxMovies);
-  const caps = getSelectionCaps(maxMovies);
+  const caps = getSelectionCaps(maxMovies, getPopularityPreset(settings));
   const remaining = [...candidates.slice(0, windowSize)];
   const selected: PoolCandidateRecord[] = [];
   const random = createSeededRandom(selectionSalt);

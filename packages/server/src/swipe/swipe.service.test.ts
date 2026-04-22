@@ -5,6 +5,7 @@ const getPoolEntries = mock();
 const getPoolSeedOrThrow = mock();
 const getMovieRecordOrThrow = mock();
 const setMovieRecord = mock();
+const queueSetMovieRecord = mock();
 const listPlayerIds = mock();
 const getPlayerSeenMovieIds = mock();
 const getPlayerQueueEntries = mock();
@@ -17,20 +18,35 @@ const popPlayerQueueEntry = mock();
 const setPlayerCurrentAssignment = mock();
 const markPlayerSeenMovie = mock();
 const clearPlayerCurrentAssignment = mock();
+const queueMarkPlayerSeenMovie = mock();
+const queueClearPlayerCurrentAssignment = mock();
 const ensureRedis = mock();
 const publishSocketTopic = mock();
-const redis = {};
+const redisMulti = {
+  set: mock(() => redisMulti),
+  hSet: mock(() => redisMulti),
+  sAdd: mock(() => redisMulti),
+  sRem: mock(() => redisMulti),
+  del: mock(() => redisMulti),
+  exec: mock(),
+};
+const redis = {
+  multi: mock(() => redisMulti),
+};
 const getGameSettingsOrThrow = mock();
 const getMatchedMovieIds = mock();
 const getRejectedMovieIds = mock();
 const getPlayerVote = mock();
 const setPlayerVote = mock();
+const queueSetPlayerVote = mock();
 const syncMovieOutcomeSets = mock();
+const queueSyncMovieOutcomeSets = mock();
 const getGameMetaOrThrow = mock();
 const setGameMeta = mock();
 const getPlayerRecord = mock();
 const verifyPlayerSession = mock();
 const publishRoomState = mock();
+const getProjectedPlayerState = mock();
 const publishDisplayMessage = mock();
 const publishPlayerMessage = mock();
 
@@ -45,6 +61,7 @@ mock.module(new URL("../games/game-redis.service.ts", import.meta.url).href, () 
   listPlayerIds,
   getPlayerRecord,
   setMovieRecord,
+  queueSetMovieRecord,
   touchRoomKeys: mock(),
   withGameLock: mock(),
 }));
@@ -61,6 +78,8 @@ mock.module(new URL("./swipe-queue.service.ts", import.meta.url).href, () => ({
   hasPlayerSeenMovie,
   markPlayerSeenMovie,
   clearPlayerCurrentAssignment,
+  queueMarkPlayerSeenMovie,
+  queueClearPlayerCurrentAssignment,
   clearPlayerQueue,
 }));
 mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({
@@ -76,7 +95,9 @@ mock.module(new URL("./swipe-ledger.service.ts", import.meta.url).href, () => ({
   getRejectedMovieIds,
   getPlayerVote,
   setPlayerVote,
+  queueSetPlayerVote,
   syncMovieOutcomeSets,
+  queueSyncMovieOutcomeSets,
 }));
 mock.module(new URL("../rooms/room-meta.service.ts", import.meta.url).href, () => ({
   getGameMetaOrThrow,
@@ -87,6 +108,7 @@ mock.module(new URL("../rooms/room-session.service.ts", import.meta.url).href, (
 }));
 mock.module(new URL("../games/game-state.pubsub.ts", import.meta.url).href, () => ({
   publishGameState: publishRoomState,
+  getProjectedPlayerState,
 }));
 mock.module(new URL("../realtime/display-channel.ts", import.meta.url).href, () => ({
   publishDisplayMessage,
@@ -114,6 +136,7 @@ beforeEach(() => {
   getPoolSeedOrThrow.mockReset();
   getMovieRecordOrThrow.mockReset();
   setMovieRecord.mockReset();
+  queueSetMovieRecord.mockReset();
   listPlayerIds.mockReset();
   getPlayerSeenMovieIds.mockReset();
   getPlayerQueueEntries.mockReset();
@@ -126,19 +149,31 @@ beforeEach(() => {
   setPlayerCurrentAssignment.mockReset();
   markPlayerSeenMovie.mockReset();
   clearPlayerCurrentAssignment.mockReset();
+  queueMarkPlayerSeenMovie.mockReset();
+  queueClearPlayerCurrentAssignment.mockReset();
   ensureRedis.mockReset();
   publishSocketTopic.mockReset();
+  redis.multi.mockReset();
+  redisMulti.set.mockReset();
+  redisMulti.hSet.mockReset();
+  redisMulti.sAdd.mockReset();
+  redisMulti.sRem.mockReset();
+  redisMulti.del.mockReset();
+  redisMulti.exec.mockReset();
   getGameSettingsOrThrow.mockReset();
   getMatchedMovieIds.mockReset();
   getRejectedMovieIds.mockReset();
   getPlayerVote.mockReset();
   setPlayerVote.mockReset();
+  queueSetPlayerVote.mockReset();
   syncMovieOutcomeSets.mockReset();
+  queueSyncMovieOutcomeSets.mockReset();
   getGameMetaOrThrow.mockReset();
   setGameMeta.mockReset();
   getPlayerRecord.mockReset();
   verifyPlayerSession.mockReset();
   publishRoomState.mockReset();
+  getProjectedPlayerState.mockReset();
   publishDisplayMessage.mockReset();
   publishPlayerMessage.mockReset();
 
@@ -150,6 +185,43 @@ beforeEach(() => {
   getPlayerQueueLength.mockResolvedValue(0);
   hasPlayerSeenMovie.mockResolvedValue(false);
   popPlayerQueueEntry.mockResolvedValue(null);
+  redisMulti.exec.mockResolvedValue([]);
+  getProjectedPlayerState.mockResolvedValue({
+    summary: {
+      id: "game-1",
+      code: "ABC123",
+      roomName: null,
+      status: "swiping",
+      createdAt: "2026-04-22T12:00:00.000Z",
+      playerCount: 2,
+      queueSize: 8,
+      displayConnected: true,
+    },
+    settings: {
+      gameplay: {
+        maxMovies: 8,
+        allowMaybe: true,
+        allowSuperLike: true,
+      },
+      movieFilters: {
+        popularityPreset: "balanced",
+        includedGenreIds: [],
+        excludedGenreIds: [],
+        primaryReleaseDateGte: null,
+        primaryReleaseDateLte: null,
+        voteAverageGte: null,
+        voteAverageLte: null,
+      },
+    },
+    me: {
+      playerId: "player-1",
+      displayName: "Player 1",
+      currentIndex: 0,
+      completed: false,
+    },
+    currentItem: null,
+    remainingCount: 0,
+  });
   getMovieRecordOrThrow.mockImplementation(
     async (_gameCode: string, movieId: string) => ({
       movie: {

@@ -9,7 +9,10 @@ import {BadRequestException} from "../common/errors";
 import * as GamePoolService from "../games/game-pool.service";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as GameRedisService from "../games/game-redis.service";
-import {publishGameState} from "../games/game-state.pubsub";
+import {
+  getProjectedPlayerState,
+  publishGameState,
+} from "../games/game-state.pubsub";
 import * as SwipeLedgerService from "./swipe-ledger.service";
 import * as SwipeQueueService from "./swipe-queue.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
@@ -21,6 +24,7 @@ import {
 } from "./swipe.pubsub";
 import {publishPlayerLeft} from "../ws/presence.pubsub";
 import {publishRoomStatusChanged} from "../rooms/rooms.pubsub";
+import {redis} from "../lib/redis";
 
 export const PLAYER_QUEUE_TARGET = 3;
 export const PLAYER_QUEUE_REFILL_THRESHOLD = 1;
@@ -53,8 +57,7 @@ const sortAssignableEntriesForPlayer = (
   });
 
 export const getSwipeState = async (player: {gameCode: string; playerId: string}) => {
-  const {getPlayerGameState} = await import("../games/game-snapshot.service");
-  return getPlayerGameState(player);
+  return getProjectedPlayerState(player);
 };
 
 const hydrateAssignment = async (
@@ -422,13 +425,6 @@ const recordMovieVote = async (input: {
     throw new BadRequestException("Vote already recorded for this movie");
   }
 
-  await SwipeLedgerService.setPlayerVote(
-    input.gameCode,
-    input.movieId,
-    input.playerId,
-    input.choice,
-  );
-
   const storedRecord = await GameRedisService.getMovieRecordOrThrow(
     input.gameCode,
     input.movieId,
@@ -440,9 +436,58 @@ const recordMovieVote = async (input: {
     matchedAt: storedRecord.matchedAt ?? null,
   };
   const nextRecord = incrementVoteCounts(movieRecord, input.choice);
-  await GameRedisService.setMovieRecord(input.gameCode, input.movieId, nextRecord);
+  const nextStatus = await determineMovieStatus(input.gameCode, nextRecord);
+  const justMatched =
+    movieRecord.status !== "matched" && nextStatus === "matched";
+  const resolvedAt =
+    nextStatus === "pending"
+      ? null
+      : movieRecord.resolvedAt ?? new Date().toISOString();
+  const matchedAt =
+    nextStatus === "matched"
+      ? (movieRecord.matchedAt ?? new Date().toISOString())
+      : null;
+  const finalRecord: GameRedisService.MovieRecord = {
+    ...nextRecord,
+    status: nextStatus,
+    resolvedAt,
+    matchedAt,
+  };
 
-  return refreshMovieOutcome(input.gameCode, input.movieId);
+  const multi = redis.multi();
+  SwipeLedgerService.queueSetPlayerVote(
+    multi,
+    input.gameCode,
+    input.movieId,
+    input.playerId,
+    input.choice,
+  );
+  GameRedisService.queueSetMovieRecord(
+    multi,
+    input.gameCode,
+    input.movieId,
+    finalRecord,
+  );
+  SwipeLedgerService.queueSyncMovieOutcomeSets(
+    multi,
+    input.gameCode,
+    input.movieId,
+    nextStatus,
+  );
+  SwipeQueueService.queueMarkPlayerSeenMovie(
+    multi,
+    input.gameCode,
+    input.playerId,
+    input.movieId,
+  );
+  SwipeQueueService.queueClearPlayerCurrentAssignment(
+    multi,
+    input.gameCode,
+    input.playerId,
+  );
+  await multi.exec();
+
+  return {justMatched, status: nextStatus};
 };
 
 export const syncRoomStatus = async (gameCode: string) => {
@@ -494,7 +539,7 @@ export const syncRoomStatus = async (gameCode: string) => {
 
 const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
   const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  publishGameState(server, gameCode, playerIds);
+  await publishGameState(server, gameCode, playerIds);
 };
 
 export const publishState = publishStateForGame;
@@ -546,16 +591,6 @@ export const recordSwipe = async (input: {
       playerId: input.player.playerId,
       choice: input.choice,
     });
-
-    await SwipeQueueService.markPlayerSeenMovie(
-      input.player.gameCode,
-      input.player.playerId,
-      input.movieId,
-    );
-    await SwipeQueueService.clearPlayerCurrentAssignment(
-      input.player.gameCode,
-      input.player.playerId,
-    );
     await getCurrentOrNextMovie(input.player.gameCode, input.player.playerId);
     const statusChange = await syncRoomStatus(input.player.gameCode);
     await GameRedisService.touchRoomKeys(input.player.gameCode);
@@ -565,18 +600,14 @@ export const recordSwipe = async (input: {
       choice: input.choice,
       justMatched,
       statusChange,
+      playerIds,
     };
-  });
-
-  const state = await getSwipeState({
-    gameCode: input.player.gameCode,
-    playerId: input.player.playerId,
   });
 
   publishVoteRecorded({
     server: input.server,
     gameCode: input.player.gameCode,
-    playerId: state.me.playerId,
+    playerId: input.player.playerId,
     movieId: result.movieId,
     choice: result.choice,
   });
@@ -586,17 +617,25 @@ export const recordSwipe = async (input: {
   }
 
   if (result.statusChange.changed) {
-    const playerIds = await GameRedisService.listPlayerIds(input.player.gameCode);
     publishRoomStatusChanged(
       input.server,
       input.player.gameCode,
-      playerIds,
+      result.playerIds,
       result.statusChange.previousStatus,
       result.statusChange.meta.status,
     );
   }
+  const materialized = await publishGameState(
+    input.server,
+    input.player.gameCode,
+    result.playerIds,
+  );
+  const state = materialized.playerStates.get(input.player.playerId)
+    ?? await getSwipeState({
+      gameCode: input.player.gameCode,
+      playerId: input.player.playerId,
+    });
 
-  await publishStateForGame(input.server, input.player.gameCode);
   return {
     ...result,
     state,

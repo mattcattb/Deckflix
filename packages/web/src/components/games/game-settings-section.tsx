@@ -1,5 +1,5 @@
 import type {GameSettings} from "@deckflix/shared";
-import {Input, Label, RangeSlider} from "../ui";
+import {Input, Label, RangeSlider, Select} from "../ui";
 import {GenrePicker} from "./genre-picker";
 
 type MovieGenre = {
@@ -19,6 +19,15 @@ type GameSettingsSectionProps = {
 
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_YEAR = 1900;
+const POPULARITY_PRESET_COPY: Record<
+  GameSettings["movieFilters"]["popularityPreset"],
+  string
+> = {
+  any: "Loosest mix. Minimal popularity bias in either direction.",
+  balanced: "A healthy mix of hits, quality picks, and deeper cuts.",
+  popular: "Leans toward mainstream, trending, and broadly-known movies.",
+  niche: "Pushes deeper cuts and lowers the odds of obvious blockbusters.",
+};
 
 const extractYear = (value: string | null, fallback: number) => {
   if (!value) return fallback;
@@ -135,6 +144,30 @@ export function GameSettingsSection({
         </h3>
 
         <div className="grid gap-2">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-3">
+            <Label htmlFor="popularityPreset" className="text-sm">
+              Popularity
+            </Label>
+            <Select
+              id="popularityPreset"
+              className="mt-2"
+              value={settings.movieFilters.popularityPreset}
+              onChange={(event) =>
+                updateMovieFilterSetting(
+                  "popularityPreset",
+                  event.target.value as GameSettings["movieFilters"]["popularityPreset"],
+                )
+              }>
+              <option value="any">Any</option>
+              <option value="balanced">Balanced</option>
+              <option value="popular">Popular</option>
+              <option value="niche">Niche</option>
+            </Select>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {POPULARITY_PRESET_COPY[settings.movieFilters.popularityPreset]}
+            </p>
+          </div>
+
           <RangeSlider
             label="TMDB rating"
             min={0}
