@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "dev"],
-      "port": 4273
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd packages/web && VITE_PORT=4174 ./node_modules/.bin/vite --port 4174 --strictPort"],
+      "port": 4174
     }
   ]
 }

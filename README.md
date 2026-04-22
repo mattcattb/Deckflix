@@ -1,66 +1,76 @@
 # Deckflix
 
-Deckflix is a Jackbox-style movie picker:
+Deckflix is a Jackbox-style group movie picker with a Netflix-inspired lobby and a Tinder-like decision loop.
 
-- the `display` creates and presents a game
-- `players` join from their own devices with a game code
-- anonymous room cookies store the per-room display/player identity token
+One screen acts as the shared display for the room. Players join from their own devices with a room code, set up their identity, and swipe through movies together until the group lands on something to watch.
 
-## Core Features
+## Current Shape
 
-1. Players join a game with a game code
-2. Game settings control the movie queue
-3. Player controller view supports like, dislike, maybe, super like, and skip
-4. Card View for movies (description, image, score, etc)
-5. Rudamentary Recomendation system for users (maybe an account or lettrbox integration idk)
-6. Streaming service locations for movies perhaps
+Right now the project is centered around a few core flows:
 
-## Some Features
+- create a room from the display
+- join from phones or laptops with a room code
+- keep lightweight per-room identity with anonymous room cookies
+- build a movie pool from settings and available providers
+- let players vote with quick swipe-style actions
+- show the display a live view of players, progress, and results
 
-1. Games for joining and setting preferences (preferred genres, star limits, etc)
-2. Swiping features, with selection algorithms and prefence matching
-3. Integration with a movie db api for getting movies to show
-4. The display view shows live results, matches, and rejected titles
-5. swiping options for like, dislike, maybe, and skip
-6. Maybe some config settings like how many people need to like it or not (later features )
+The product direction is intentionally social-first and low-friction. Accounts can matter later, but the current experience is designed to work fast in a room without forcing signup.
 
-- Add info view (like for tinder) to show movie description + other information on it
-- click on movies in home view to pull up modal for the movie information
-- toast notifications on matches!
-- better display view for matches
-- settings, movie stars filtering
-- genre filtering for movies recommedended
-- filter in settings movie recency
-- back option
-- show genre in next swipe details (defered loading)
-- like, superlike, dislike animations?
-- match event on user device + profile device? (if a move is selected by everyone do a event OR )
-- on response to a matched movie show the match animation
+## Stack
 
-- settings in room creation page
+- `Bun` for the workspace, scripts, runtime, and tests
+- `Hono` for the server API and realtime endpoints
+- `React`, `Vite`, and `TanStack Router/Query` for the web app
+- `Redis` for active room state, player state, and realtime coordination
+- `Postgres` with `Drizzle` for persistent app data and auth-related tables
+- `TMDB` as the current movie provider, with mock fallback behavior in development
 
-- rejected bug...
-- double linked list for preserving back? (or do this on client idk)
-- swipe maybe should have an id?
+## Core Separation
 
-## Quick Start
+The repo is split into a small workspace:
+
+- `packages/server`
+  The backend for rooms, sessions, movie pool generation, swipe flow, realtime state, and provider integration.
+- `packages/web`
+  The display UI and the player controller UI.
+- `packages/shared`
+  Shared schemas, contracts, and domain types used by both server and web.
+
+That separation is intentionally simple: server owns behavior, web owns presentation, and shared owns the contract between them.
+
+## Local Development
 
 1. Copy envs:
 
-```
+```bash
 cp .env.example .env
 cp packages/server/.env.example packages/server/.env
 ```
 
-2. Start Postgres and Redis:
+2. Start local services:
 
-```
+```bash
 docker compose up -d
 ```
 
+3. Install dependencies:
+
+```bash
+bun install
+```
+
+4. Start the app:
+
+```bash
+bun run dev
+```
+
+The server runs on `http://localhost:3100` and the web app on `http://localhost:4173`.
+
 If `DATABASE_URL` or `REDIS_URL` are unset, the server defaults to:
 
-```
+```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost:15432/postgres
 REDIS_URL=redis://localhost:16380
 PORT=3100
@@ -68,24 +78,9 @@ VITE_API_URL=http://localhost:3100
 VITE_PORT=4173
 ```
 
-3. Install dependencies:
+If another project is already using those ports, override them in `.env` before starting:
 
-```
-bun install
-```
-
-4. Start dev servers:
-
-```
-bun run dev
-```
-
-The server runs on `http://localhost:3100` and the web app on `http://localhost:4173`.
-
-If another project is already using those ports too, override them in `.env` before
-you start anything:
-
-```
+```bash
 POSTGRES_PORT=25432
 REDIS_PORT=26380
 DATABASE_URL=postgresql://postgres:postgres@localhost:25432/postgres
@@ -97,78 +92,51 @@ BETTER_AUTH_URL=http://localhost:4273
 CORS_ORIGINS=http://localhost:4273
 ```
 
-## Auth Routes
-
-Better Auth is still available at `/api/auth`, but movie games are anonymous-first for MVP.
-
-## Example API (Projects)
-
-Authenticated routes (require session cookie):
-
-- `GET /api/projects` - list projects
-- `POST /api/projects` - create project `{ "name": "My Project" }`
-
-## Movie Games (Core MVP)
-
-Movie games are anonymous-first for MVP. A browser keeps either a display-local
-session or a player-local session so it can reconnect without creating an account.
-
-### Game REST API
-
-- `POST /api/games` - create a new display-owned game
-- `GET /api/games/:gameCode/display` - fetch the display snapshot for the owning display session
-- `GET /api/games/:gameCode/session` - resolve the current browser role for the room from the room cookie
-- `GET /api/games/:gameCode/join` - fetch join-safe public game info
-- `GET /api/games/:gameCode/players/me` - fetch the current player snapshot from the player cookie
-- `POST /api/games/:gameCode/players` - join as a player
-- `POST /api/games/:gameCode/players/:playerId/votes` - record a vote for the current player
-- `POST /api/games/:gameCode/players/:playerId/leave` - leave the game as the current player
-
-### Game WebSockets
-
-- `GET /api/games/:gameCode/display/ws`
-- `GET /api/games/:gameCode/players/ws`
-- Display messages:
-  - `display.snapshot`
-  - `display.player_joined`
-  - `display.match_found`
-  - `display.error`
-- Player messages:
-  - `player.snapshot`
-  - `player.vote_recorded`
-  - `player.match_found`
-  - `player.error`
-
-### Notes
-
-- Game state is stored in Redis.
-- The display is never treated as a player.
-- Better Auth remains in the repo for later account-based features, but games do not require accounts.
-
-### Web Routes
-
-- `/` - main entry with a display/play mode toggle
-- `/room/:gameCode` - unified room route that renders display, player, or join-needed
-
-## Movies API (Provider-backed)
-
-Public routes (no auth required):
-
-- `GET /api/movies/popular?page=1`
-- `GET /api/movies/search?q=batman&page=1`
-- `GET /api/movies/:movieId`
-
-Provider behavior:
-
-- If `TMDB_API_KEY` is set, server uses TMDB.
-- If TMDB is not configured (or fails), server falls back to an in-memory mock catalog.
-- You can force mock mode with `MOVIE_PROVIDER=mock`.
-
 ## Scripts
 
 - `bun run dev` - run all dev servers
-- `bun run dev:server` - server only
-- `bun run dev:web` - web only
-- `bun run db:generate` - Drizzle generate
-- `bun run db:migrate` - Drizzle migrate
-- `bun run db:studio` - Drizzle studio
+- `bun run dev:server` - run the server only
+- `bun run dev:web` - run the web app only
+- `bun run build` - build the workspace
+- `bun run --filter @deckflix/server test` - run server tests
+- `bun run db:generate` - generate Drizzle files
+- `bun run db:migrate` - run Drizzle migrations
+- `bun run db:studio` - open Drizzle Studio
+
+## Product Direction
+
+The current product language is roughly:
+
+- `Netflix` for identity, browsing, anticipation, and room atmosphere
+- `Tinder` for fast choices, swipe feedback, momentum, and match-style payoff
+
+That mix is the core idea behind Deckflix: a living-room movie game that feels social, visual, and quick to play.
+
+## Planned Features
+
+Near-term product ideas currently in scope:
+
+- `Watchlist signals`
+  Let users add movies to a watchlist, then use those titles as recommendation signals for future pool generation.
+- `Profile icon selection`
+  Give each player a Netflix-style profile tile on their device, with a randomly assigned icon first and manual selection before the game starts.
+- `Player preference inputs`
+  While waiting in the lobby, let players choose favorite genres, eras, tone, rating ranges, or a few liked movies, then feed that into pool selection.
+- `Smarter caching`
+  Improve caching around movie provider reads, recommendation inputs, derived pool candidates, and repeated room lookups so the experience feels faster and more stable.
+
+Additional areas worth building into:
+
+- richer lobby presence and player identity
+- better shortlist and watch-next style surfaces
+- stronger match and results moments
+- more cinematic display presentation
+- improved swipe feedback, undo behavior, and animation
+- more robust recommendation and pool ranking logic
+- optional account-based persistence later for profiles, history, and preferences
+
+## Notes
+
+- Games are currently anonymous-first for MVP.
+- Better Auth is in the repo for future account-based features, but accounts are not required for the main room flow.
+- TMDB can be replaced or expanded later as the movie/provider layer matures.

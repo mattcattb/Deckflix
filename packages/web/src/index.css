@@ -42,29 +42,29 @@
 @layer base {
   :root {
     color-scheme: dark;
-    /* Netflix-dark base — true black with warm undertone */
-    --background: 0 0% 5%;
-    --foreground: 0 0% 95%;
+    /* Netflix pure black */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
 
-    --surface: 0 0% 10% / 0.9;
-    --surface-elevated: 0 0% 13% / 0.95;
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 50%;
+    --surface: 0 0% 8%;
+    --surface-elevated: 0 0% 11%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 56%;
 
-    --border: 0 0% 14%;
-    /* Netflix red — the signature */
-    --ring: 0 80% 48%;
-    --primary: 0 80% 48%;
+    --border: 0 0% 16%;
+    /* Netflix signature red — #E50914 */
+    --ring: 357 92% 47%;
+    --primary: 357 92% 47%;
     --primary-foreground: 0 0% 100%;
-    /* Tinder coral accent */
-    --accent: 4 90% 58%;
+    /* Accent kept close to primary */
+    --accent: 357 92% 47%;
     --success: 145 60% 42%;
     --warning: 38 92% 56%;
-    --danger: 0 72% 56%;
+    --danger: 357 92% 47%;
 
-    --radius: 0.625rem;
+    --radius: 0.25rem;
 
-    --card: 0 0% 8%;
+    --card: 0 0% 9%;
     --card-foreground: 0 0% 95%;
     --popover: 0 0% 8%;
     --popover-foreground: 0 0% 95%;
@@ -96,23 +96,11 @@
   body {
     @apply bg-background text-foreground font-body antialiased;
     background-image:
-      /* Netflix-red ambient top glow */
+      /* Subtle cinematic vignette only — Netflix keeps the canvas pure black */
       radial-gradient(
-        ellipse 70% 40% at 50% -10%,
-        hsl(0 80% 48% / 0.07),
-        transparent 60%
-      ),
-      /* Tinder-coral side warmth */
-      radial-gradient(
-        ellipse 50% 60% at 0% 30%,
-        hsl(4 90% 58% / 0.04),
-        transparent 50%
-      ),
-      /* Deep cinematic vignette */
-      radial-gradient(
-        ellipse 100% 80% at 50% 100%,
-        hsl(0 0% 0% / 0.5),
-        transparent 70%
+        ellipse 60% 60% at 50% 0%,
+        hsl(357 92% 47% / 0.08),
+        transparent 55%
       );
     min-height: 100vh;
   }
@@ -240,12 +228,18 @@
   animation: shimmer 3s linear infinite;
 }
 
-/* Tinder flame gradient text */
+/* Netflix red wordmark accent */
 .flame-text {
-  background: linear-gradient(135deg, hsl(4 90% 58%), hsl(350 85% 56%), hsl(330 80% 55%));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: hsl(357 92% 47%);
+}
+
+/* Netflix-style wordmark */
+.netflix-wordmark {
+  color: hsl(357 92% 47%);
+  font-family: "Bebas Neue", "Oswald", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 1px hsl(357 92% 47% / 0.4);
 }
 
 /* Flame breathing animation for interactive elements */

@@ -6,6 +6,7 @@ export * from "./input";
 export * from "./label";
 export * from "./select";
 export * from "./switch";
+export * from "./range-slider";
 export * from "./textarea";
 export * from "./tooltip";
 export * from "./toast";
