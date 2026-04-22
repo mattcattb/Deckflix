@@ -58,7 +58,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       movieId: string;
     }) =>
       parseRpc(
-        api.api.swipe.vote.$post({
+        api.api.player.vote.$post({
           json: {
             assignmentId: payload.assignmentId,
             movieId: payload.movieId,
@@ -78,7 +78,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.swipe.leave.$post()),
+    mutationFn: async () => parseRpc(api.api.player.leave.$post()),
     onSuccess: () => {
       queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
         role: "none",
@@ -129,6 +129,15 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
         void refetchMeta();
         void refetchPlayers();
         void refetchResults();
+        return;
+      }
+
+      if (message.type === "player.room_ended") {
+        void parseRpc(api.api.room.current.$delete()).catch(() => undefined);
+        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
+          role: "none",
+        });
+        navigate({to: "/", replace: true});
         return;
       }
 

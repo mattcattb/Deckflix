@@ -8,7 +8,7 @@ import {
 import {createRouter} from "../common/hono";
 import {ensureSocketPubSub} from "../lib/redis";
 import {
-  activePlayerSessionMiddleware,
+  activePlayerMiddleware,
   clearRoomSessionCookie,
   requireStartedGame,
 } from "../rooms/rooms.middleware";
@@ -75,9 +75,9 @@ const createPlayerSocketHandler = () =>
     };
   });
 
-export const swipeController = createRouter()
-  .use("*", activePlayerSessionMiddleware)
-  .get("/state", async (c) => {
+export const playerController = createRouter()
+  .use("*", activePlayerMiddleware)
+  .get("/", async (c) => {
     const {gameCode} = c.get("room");
     const {playerId} = c.get("playerActor");
     return c.json(await SwipeService.getSwipeState({gameCode, playerId}));

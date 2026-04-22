@@ -1,6 +1,6 @@
 import {createRouter} from "../common/hono";
 import {
-  activeDisplaySessionMiddleware,
+  activeDisplayMiddleware,
   clearRoomSessionCookie,
   requireGameLobby,
 } from "../rooms/rooms.middleware";
@@ -13,8 +13,8 @@ import {ensureSocketPubSub} from "../lib/redis";
 import * as RoomsService from "../rooms/rooms.service";
 
 export const displayController = createRouter()
-  .use("*", activeDisplaySessionMiddleware)
-  .get("/state", async (c) => {
+  .use("*", activeDisplayMiddleware)
+  .get("/", async (c) => {
     return c.json(await DisplayService.getDisplayState(c.get("room").gameCode));
   })
   .get("/ws", createDisplaySocketHandler())
@@ -39,13 +39,16 @@ export const displayController = createRouter()
     });
     return c.body(null, 204);
   })
-  .delete("/", async (c) => {
+  .post("/end", async (c) => {
     const {gameCode} = c.get("room");
     const {displayId, sessionToken} = c.get("displayActor");
-    await RoomsService.remove({
+    const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+    void ensureSocketPubSub(server);
+    await RoomsService.end({
       gameCode,
       displayId,
       sessionToken,
+      server,
     });
     clearRoomSessionCookie(c);
     return c.body(null, 204);

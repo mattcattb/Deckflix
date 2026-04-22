@@ -112,7 +112,6 @@ export function GameSettingsSection({
               type="number"
               min={1}
               max={50}
-              size="sm"
               className="w-16 text-center"
               value={settings.gameplay.minLikesToMatch}
               onChange={(event) =>
@@ -133,7 +132,6 @@ export function GameSettingsSection({
               type="number"
               min={1}
               max={500}
-              size="sm"
               className="w-20 text-center"
               value={settings.gameplay.maxMovies}
               onChange={(event) =>

@@ -163,7 +163,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
   });
 
   const deleteRoomMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.display.$delete()),
+    mutationFn: async () => parseRpc(api.api.display.end.$post()),
     onSuccess: () => {
       queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
         role: "none",
@@ -172,7 +172,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
     },
     onError: (error) => {
       setGameError(
-        error instanceof Error ? error.message : "Unable to delete room",
+        error instanceof Error ? error.message : "Unable to end room",
       );
     },
   });
@@ -211,6 +211,14 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
 
       if (message.type === "display.snapshot") {
         setState(message.payload);
+        return;
+      }
+
+      if (message.type === "display.room_ended") {
+        queryClient.setQueryData<ActiveRoomClient>(gameKeys.activeClient, {
+          role: "none",
+        });
+        navigate({to: "/", replace: true});
         return;
       }
 
@@ -295,7 +303,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
             <Button
               variant="ghost"
               size="sm"
-              title="Delete room"
+              title="End room"
               onClick={() => deleteRoomMutation.mutate()}
               disabled={deleteRoomMutation.isPending}>
               End room

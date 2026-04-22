@@ -10,7 +10,7 @@ import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomMetaService from "./room-meta.service";
 import * as RoomSessionService from "./room-session.service";
 import * as SwipeService from "../swipe/swipe.service";
-import {publishDisplayMessage} from "../ws/topics";
+import {publishDisplayMessage, publishPlayerMessage} from "../ws/topics";
 
 type RealtimeServer = {publish: (topic: string, payload: string) => void};
 
@@ -200,10 +200,11 @@ export const start = async (input: {
     return result;
   });
 
-export const remove = (input: {
+export const end = (input: {
   gameCode: string;
   displayId: string;
   sessionToken: string;
+  server: RealtimeServer;
 }) =>
   GameRedisService.withGameLock(input.gameCode, async () => {
     await RoomSessionService.verifyDisplaySession({
@@ -211,6 +212,26 @@ export const remove = (input: {
       displayId: input.displayId,
       sessionToken: input.sessionToken,
     });
+
+    const playerIds = await GameRedisService.listPlayerIds(input.gameCode);
+    const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
+    const endedAt = new Date().toISOString();
+
+    await RoomMetaService.setGameMeta(input.gameCode, {
+      ...meta,
+      status: "completed",
+      endedAt,
+    });
+    await GameRedisService.touchRoomKeys(input.gameCode);
+
+    publishDisplayMessage(input.server as never, input.gameCode, {
+      type: "display.room_ended",
+    });
+    for (const playerId of playerIds) {
+      publishPlayerMessage(input.server as never, input.gameCode, playerId, {
+        type: "player.room_ended",
+      });
+    }
 
     await GameRedisService.deleteRoomKeys(input.gameCode);
     clearPresenceState(input.gameCode);

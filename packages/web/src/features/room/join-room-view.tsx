@@ -21,7 +21,7 @@ export function JoinRoomView({gameCode}: {gameCode: string}) {
   const joinGameMutation = useMutation({
     mutationFn: async () =>
       parseRpc(
-        api.api.rooms[":gameCode"].players.$post({
+        api.api.room[":gameCode"].join.$post({
           param: {gameCode: normalizeGameCode(gameCode)},
           json: {
             displayName: displayName.trim(),

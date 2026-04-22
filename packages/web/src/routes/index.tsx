@@ -38,7 +38,7 @@ function HomePage() {
   const createGameMutation = useMutation({
     mutationFn: async () =>
       parseRpc(
-        api.api.rooms.$post({
+        api.api.room.$post({
           json: {
             roomName: roomName.trim() || undefined,
           },
@@ -53,7 +53,7 @@ function HomePage() {
   const joinGameMutation = useMutation({
     mutationFn: async () =>
       parseRpc(
-        api.api.rooms[":gameCode"].players.$post({
+        api.api.room[":gameCode"].join.$post({
           param: {gameCode: gameCode.trim().toUpperCase()},
           json: {
             displayName: displayName.trim(),

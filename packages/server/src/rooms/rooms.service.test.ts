@@ -13,6 +13,7 @@ const createPoolSeed = mock(() => "pool-seed-1");
 const setPoolSeed = mock();
 const clearPresenceState = mock();
 const touchRoomKeys = mock();
+const deleteRoomKeys = mock();
 const listPlayerIds = mock();
 const withGameLock = mock(async (_gameCode: string, callback: () => Promise<unknown>) =>
   callback(),
@@ -39,6 +40,7 @@ const clearPlayerState = mock();
 const refillPlayerQueue = mock();
 const getCurrentOrNextMovie = mock();
 const publishDisplayMessage = mock();
+const publishPlayerMessage = mock();
 
 const defaultSettings = {
   gameplay: {
@@ -74,6 +76,7 @@ mock.module(new URL("../games/game-pool.ts", import.meta.url).href, () => ({
 mock.module(new URL("../games/game-redis.service.ts", import.meta.url).href, () => ({
   normalizeGameCode: (gameCode: string) => gameCode.trim().toUpperCase(),
   touchRoomKeys,
+  deleteRoomKeys,
   listPlayerIds,
   withGameLock,
   setPlayerRecord: mock(),
@@ -105,6 +108,7 @@ mock.module(new URL("../ws/presence.ws.ts", import.meta.url).href, () => ({
 }));
 mock.module(new URL("../ws/topics.ts", import.meta.url).href, () => ({
   publishDisplayMessage,
+  publishPlayerMessage,
 }));
 
 const RoomsService = await import(new URL("./rooms.service.ts", import.meta.url).href);
@@ -123,6 +127,7 @@ beforeEach(() => {
   setPoolSeed.mockReset();
   clearPresenceState.mockReset();
   touchRoomKeys.mockReset();
+  deleteRoomKeys.mockReset();
   listPlayerIds.mockReset();
   withGameLock.mockReset();
   resolveGameSettings.mockReset();
@@ -136,6 +141,7 @@ beforeEach(() => {
   refillPlayerQueue.mockReset();
   getCurrentOrNextMovie.mockReset();
   publishDisplayMessage.mockReset();
+  publishPlayerMessage.mockReset();
 
   createPoolSeed.mockReturnValue("pool-seed-1");
   withGameLock.mockImplementation(
@@ -201,5 +207,31 @@ describe("rooms.service", () => {
     expect(clearPlayerState).toHaveBeenCalledTimes(2);
     expect(refillPlayerQueue).toHaveBeenCalledTimes(2);
     expect(getCurrentOrNextMovie).toHaveBeenCalledTimes(2);
+  });
+
+  test("end marks the room completed, notifies clients, and removes room state", async () => {
+    listPlayerIds.mockResolvedValue(["player-1", "player-2"]);
+
+    await RoomsService.end({
+      gameCode: "ABC123",
+      displayId: "display-1",
+      sessionToken: "display-session",
+      server: {
+        publish: mock(),
+      },
+    });
+
+    expect(verifyDisplaySession).toHaveBeenCalledWith({
+      gameCode: "ABC123",
+      displayId: "display-1",
+      sessionToken: "display-session",
+    });
+    expect(setGameMeta).toHaveBeenCalledTimes(1);
+    expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABC123", {
+      type: "display.room_ended",
+    });
+    expect(publishPlayerMessage).toHaveBeenCalledTimes(2);
+    expect(deleteRoomKeys).toHaveBeenCalledWith("ABC123");
+    expect(clearPresenceState).toHaveBeenCalledWith("ABC123");
   });
 });

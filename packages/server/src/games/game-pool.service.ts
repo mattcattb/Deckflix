@@ -6,7 +6,6 @@ import {
   getTmdbMovieRecommendations,
   getTmdbSimilarMovies,
   getTmdbTrendingMovies,
-  isTmdbConfigured,
 } from "../lib/tmdb";
 import {ensureRedis, redis} from "../lib/redis";
 import * as MoviesService from "../movies/movies.service";
@@ -316,10 +315,7 @@ const fetchTrendingStrategy = async (strategy: PoolStrategy) => {
   ];
 };
 
-const fetchRecommendationStrategy = async (
-  strategy: PoolStrategy,
-  anchorMovieId: string,
-) => {
+const fetchRecommendationStrategy = async (anchorMovieId: string) => {
   const result = await getTmdbMovieRecommendations({
     movieId: anchorMovieId,
     page: 1,
@@ -332,10 +328,7 @@ const fetchRecommendationStrategy = async (
   ];
 };
 
-const fetchSimilarStrategy = async (
-  strategy: PoolStrategy,
-  anchorMovieId: string,
-) => {
+const fetchSimilarStrategy = async (anchorMovieId: string) => {
   const result = await getTmdbSimilarMovies({
     movieId: anchorMovieId,
     page: 1,
@@ -882,8 +875,8 @@ export const fetchPoolCandidates = async (
       try {
         const pageResults =
           strategy.source === "recommendation"
-            ? await fetchRecommendationStrategy(strategy, anchor.movie.id)
-            : await fetchSimilarStrategy(strategy, anchor.movie.id);
+            ? await fetchRecommendationStrategy(anchor.movie.id)
+            : await fetchSimilarStrategy(anchor.movie.id);
         for (const pageResult of pageResults) {
           mergeCandidates(
             candidates,

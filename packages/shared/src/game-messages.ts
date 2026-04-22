@@ -24,6 +24,9 @@ export const displayServerMessageSchema = z.discriminatedUnion("type", [
     payload: displayGameStateSchema,
   }),
   z.object({
+    type: z.literal("display.room_ended"),
+  }),
+  z.object({
     type: z.literal("display.player_joined"),
     payload: gamePlayerPresenceSchema,
   }),
@@ -54,6 +57,9 @@ export const playerServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("player.snapshot"),
     payload: playerGameStateSchema,
+  }),
+  z.object({
+    type: z.literal("player.room_ended"),
   }),
   z.object({
     type: z.literal("player.vote_recorded"),

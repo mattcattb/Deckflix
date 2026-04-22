@@ -59,25 +59,7 @@ export const clearRoomSessionCookie = (c: Parameters<typeof deleteCookie>[0]) =>
 export const readRoomSessionCookie = (c: CookieContext) =>
   decodeRoomSessionCookieValue(getCookie(c, ACTIVE_GAME_COOKIE_NAME));
 
-const resolveRoomScopedSession = async (c: CookieContext, gameCode: string) => {
-  const session = readRoomSessionCookie(c);
-  if (!session || session.gameCode !== gameCode) {
-    return null;
-  }
-
-  try {
-    return await RoomSessionService.verifyRoomSession(session);
-  } catch (error) {
-    if (error instanceof UnauthorizedException) {
-      clearRoomSessionCookie(c);
-      return null;
-    }
-
-    throw error;
-  }
-};
-
-export const roomMiddleware = createMiddleware(async (c, next) => {
+export const gameParamMiddleware = createMiddleware(async (c, next) => {
   const gameCode = c.req.param("gameCode");
   if (!gameCode) {
     throw new UnauthorizedException("Missing game code");
@@ -86,7 +68,7 @@ export const roomMiddleware = createMiddleware(async (c, next) => {
   const normalizedGameCode = gameCode.trim().toUpperCase();
   c.set("room", {
     gameCode: normalizedGameCode,
-    session: await resolveRoomScopedSession(c, normalizedGameCode),
+    session: null,
     meta: await RoomMetaService.getGameMetaOrThrow(normalizedGameCode),
   });
 
@@ -122,7 +104,7 @@ export const activeRoomMiddleware = createMiddleware(async (c, next) => {
   await next();
 });
 
-export const activePlayerSessionMiddleware = createMiddleware(async (c, next) => {
+export const activePlayerMiddleware = createMiddleware(async (c, next) => {
   const session = await getRequiredRoomSession(c);
   if (session.role !== "player") {
     throw new NotFoundException("Room not found");
@@ -141,7 +123,7 @@ export const activePlayerSessionMiddleware = createMiddleware(async (c, next) =>
   await next();
 });
 
-export const activeDisplaySessionMiddleware = createMiddleware(async (c, next) => {
+export const activeDisplayMiddleware = createMiddleware(async (c, next) => {
   const session = await getRequiredRoomSession(c);
   if (session.role !== "display") {
     throw new NotFoundException("Room not found");

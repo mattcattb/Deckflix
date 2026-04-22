@@ -22,7 +22,7 @@ export const gameKeys = {
     ["player-state", normalizeGameCode(gameCode)] as const,
 };
 
-export const getActiveRoomClient = () => parseRpc(api.api.rooms.session.$get());
+export const getActiveRoomClient = () => parseRpc(api.api.room.current.$get());
 
 export const activeRoomClientQueryOptions = queryOptions({
   queryKey: gameKeys.activeClient,
@@ -34,7 +34,7 @@ export const roomMetaQueryOptions = (gameCode: string) =>
     queryKey: gameKeys.meta(gameCode),
     queryFn: () =>
       parseRpc(
-        api.api.rooms[":gameCode"].meta.$get({
+        api.api.room[":gameCode"].meta.$get({
           param: {gameCode: normalizeGameCode(gameCode)},
         }),
       ),
@@ -45,7 +45,7 @@ export const roomPlayersQueryOptions = (gameCode: string) =>
     queryKey: gameKeys.players(gameCode),
     queryFn: () =>
       parseRpc(
-        api.api.rooms[":gameCode"].players.$get({
+        api.api.room[":gameCode"].players.$get({
           param: {gameCode: normalizeGameCode(gameCode)},
         }),
       ),
@@ -72,13 +72,13 @@ export const activeRoomResultsQueryOptions = (gameCode: string) =>
 export const activeDisplayStateQueryOptions = (gameCode: string) =>
   queryOptions({
     queryKey: gameKeys.displayState(gameCode),
-    queryFn: () => parseRpc(api.api.display.state.$get()),
+    queryFn: () => parseRpc(api.api.display.$get()),
   });
 
 export const activePlayerStateQueryOptions = (gameCode: string) =>
   queryOptions({
     queryKey: gameKeys.playerState(gameCode),
-    queryFn: () => parseRpc(api.api.swipe.state.$get()),
+    queryFn: () => parseRpc(api.api.player.$get()),
   });
 
 export const getActiveRoomPath = (client: ActiveRoomClient) => {
@@ -101,7 +101,7 @@ export const createActiveDisplayWebSocketUrl = () => {
 
 export const createActivePlayerWebSocketUrl = () => {
   const wsBase = API_BASE_URL.replace(/^http/, "ws");
-  const url = new URL("/api/swipe/ws", wsBase);
+  const url = new URL("/api/player/ws", wsBase);
   return url.toString();
 };
 
