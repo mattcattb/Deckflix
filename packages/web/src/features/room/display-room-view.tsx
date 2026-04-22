@@ -1,11 +1,11 @@
-import {useEffect, useRef, useState, type ReactNode} from "react";
+import {useEffect, useRef, useState} from "react";
 import {Link, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
   ActiveRoomClient,
   DisplayGameState,
-  GamePlayerPresence,
   GameMeta,
+  GamePlayerPresence,
   GameSettings,
   GameVoteSummary,
   MovieCandidate,
@@ -27,7 +27,6 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui";
-import {MovieCard} from "../../components/games/movie-card";
 import {GameSettingsSection} from "../../components/games/game-settings-section";
 import {RoomUnavailable} from "./room-unavailable";
 import {getDisplayRoomViewMode} from "./room-view-modes";
@@ -35,37 +34,59 @@ import {getDisplayRoomViewMode} from "./room-view-modes";
 type DisplayBoardItem = {
   movie: MovieCandidate;
   votes: GameVoteSummary;
+  outcome: "match" | "rejected";
 };
+
+const PLAYER_TILE_GRADIENTS = [
+  "from-red-500 to-rose-700",
+  "from-amber-400 to-orange-600",
+  "from-emerald-400 to-teal-600",
+  "from-sky-400 to-indigo-600",
+  "from-fuchsia-400 to-purple-600",
+  "from-pink-400 to-rose-600",
+] as const;
 
 const getBoardSections = (state: DisplayGameState | null) => {
   if (!state) {
     return {
       matches: [] as DisplayBoardItem[],
-      rejected: [] as DisplayBoardItem[],
-      splitDecisions: [] as DisplayBoardItem[],
+      history: [] as DisplayBoardItem[],
     };
   }
 
+  const rejectedIds = new Set(state.results.rejectedMovieIds);
   const boardItems = state.queue
     .map((item) => {
       const votes = state.results.voteSummary.find(
         (entry) => entry.movieId === item.movie.id,
       );
-      return votes ? {movie: item.movie, votes} : null;
+      if (!votes) {
+        return null;
+      }
+
+      if (votes.matched) {
+        return {
+          movie: item.movie,
+          votes,
+          outcome: "match" as const,
+        };
+      }
+
+      if (rejectedIds.has(votes.movieId)) {
+        return {
+          movie: item.movie,
+          votes,
+          outcome: "rejected" as const,
+        };
+      }
+
+      return null;
     })
     .filter((item): item is DisplayBoardItem => Boolean(item));
 
   return {
-    matches: boardItems.filter(({votes}) => votes.matched),
-    rejected: boardItems.filter(({votes}) =>
-      state.results.rejectedMovieIds.includes(votes.movieId),
-    ),
-    splitDecisions: boardItems.filter(
-      ({votes}) =>
-        votes.totalVotes > 0 &&
-        votes.like + votes.superLike > 0 &&
-        votes.dislike + votes.skip > 0,
-    ),
+    matches: boardItems.filter((item) => item.outcome === "match"),
+    history: boardItems,
   };
 };
 
@@ -205,10 +226,6 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "display.match_found") {
-        return;
-      }
-
       if (message.type === "display.error") {
         setGameError(message.payload.message);
       }
@@ -249,7 +266,7 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
           stateQuery.error instanceof Error
             ? stateQuery.error.message
             : metaQuery.error instanceof Error
-                ? metaQuery.error.message
+              ? metaQuery.error.message
               : playersQuery.error instanceof Error
                 ? playersQuery.error.message
                 : "This room is not available."
@@ -260,6 +277,9 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
 
   const board = getBoardSections(state);
   const viewMode = getDisplayRoomViewMode(state.summary.status);
+  const progressByPlayerId = new Map(
+    state.playerProgress.map((progress) => [progress.playerId, progress] as const),
+  );
 
   return (
     <div className="flex w-full flex-1 flex-col">
@@ -284,220 +304,322 @@ export function DisplayRoomView({gameCode}: {gameCode: string}) {
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-5 py-6">
-
-      <div className="flex flex-col items-center gap-2 py-4">
-        <button
-          type="button"
-          className="group cursor-pointer"
-          title="Copy code"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(state.summary.code);
-            } catch {
-              setGameError("Unable to copy game code");
-            }
-          }}>
-          <div className="font-mono text-6xl font-bold tracking-[0.35em] text-foreground transition group-hover:text-accent md:text-8xl">
-            {state.summary.code}
-          </div>
-        </button>
-        <p className="text-sm text-muted-foreground">
-          {metaQuery.data.summary.roomName || "Tap code to copy"}
-        </p>
-      </div>
-
-      {viewMode !== "lobby" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {playersQuery.data.players.map((player: GamePlayerPresence) => (
-            <span
-              key={player.id}
-              className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-              {player.displayName}
-            </span>
-          ))}
-          <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
-            {state.summary.playerCount} player
-            {state.summary.playerCount === 1 ? "" : "s"}
-          </span>
-        </div>
-      ) : null}
-
-      {gameError ? (
-        <div className="rounded-lg border border-swipe-nope/20 bg-swipe-nope/10 px-4 py-2.5 text-sm text-swipe-nope">
-          {gameError}
-        </div>
-      ) : null}
-
-      {viewMode === "lobby" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Settings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <GameSettingsSection
-                settings={draftSettings}
-                onChange={setDraftSettings}
-                movieGenres={movieGenresQuery.data?.items ?? []}
-                movieGenresError={movieGenresError}
-              />
-            </CardContent>
-            <CardFooter className="justify-end gap-3">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => settingsMutation.mutate()}
-                disabled={settingsMutation.isPending}>
-                {settingsMutation.isPending ? "Saving..." : "Save"}
-              </Button>
-              <Button
-                effect="glow"
-                onClick={() => startGameMutation.mutate()}
-                disabled={
-                  startGameMutation.isPending ||
-                  playersQuery.data.players.length < 2
-                }>
-                {startGameMutation.isPending ? "Starting..." : "Start game"}
-              </Button>
-            </CardFooter>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3 flex flex-row items-baseline justify-between space-y-0">
-              <CardTitle className="font-display text-2xl tracking-wide">
-                Who&apos;s Playing?
-              </CardTitle>
-              <span className="font-display text-lg text-muted-foreground">
-                {playersQuery.data.players.length}
-              </span>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-5">
-                {playersQuery.data.players.map(
-                  (player: GamePlayerPresence) => (
-                    <PlayerTile key={player.id} name={player.displayName} />
-                  ),
-                )}
+      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-5 px-5 py-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="space-y-5">
+          <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                  Join code
+                </div>
+                <button
+                  type="button"
+                  className="mt-2 font-mono text-3xl font-bold tracking-[0.28em] text-foreground transition hover:text-accent sm:text-4xl"
+                  title="Copy code"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(state.summary.code);
+                    } catch {
+                      setGameError("Unable to copy game code");
+                    }
+                  }}>
+                  {state.summary.code}
+                </button>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {metaQuery.data.summary.roomName || "Tap code to copy"}
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <BoardColumn
-            title={viewMode === "completed" ? "Final matches" : "Matches"}
-            count={board.matches.length}
-            tone="match">
-            {board.matches.length > 0 ? (
-              board.matches.map(({movie, votes}) => (
-                <MovieCard key={movie.id} movie={movie} votes={votes} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No matches yet</p>
-            )}
-          </BoardColumn>
 
-          <BoardColumn
-            title="Split decisions"
-            count={board.splitDecisions.length}
-            tone="neutral">
-            {board.splitDecisions.length > 0 ? (
-              board.splitDecisions.map(({movie, votes}) => (
-                <MovieCard key={movie.id} movie={movie} votes={votes} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Nothing is split yet
-              </p>
-            )}
-          </BoardColumn>
+              <div className="flex flex-wrap justify-end gap-2 text-xs text-muted-foreground">
+                <StatPill value={state.summary.playerCount} label="players" />
+                <StatPill value={board.matches.length} label="matches" />
+                <StatPill value={board.history.length} label="resolved" />
+              </div>
+            </div>
+          </section>
 
-          <BoardColumn
-            title="Rejected"
-            count={board.rejected.length}
-            tone="rejected">
-            {board.rejected.length > 0 ? (
-              board.rejected.map(({movie, votes}) => (
-                <MovieCard key={movie.id} movie={movie} votes={votes} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Nothing rejected yet
-              </p>
-            )}
-          </BoardColumn>
+          {gameError ? (
+            <div className="rounded-2xl border border-swipe-nope/20 bg-swipe-nope/10 px-4 py-3 text-sm text-swipe-nope">
+              {gameError}
+            </div>
+          ) : null}
+
+          {viewMode === "lobby" ? (
+            <Card className="rounded-[1.75rem] border-white/[0.08] bg-white/[0.03]">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Settings</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <GameSettingsSection
+                  settings={draftSettings}
+                  onChange={setDraftSettings}
+                  movieGenres={movieGenresQuery.data?.items ?? []}
+                  movieGenresError={movieGenresError}
+                />
+              </CardContent>
+              <CardFooter className="justify-end gap-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => settingsMutation.mutate()}
+                  disabled={settingsMutation.isPending}>
+                  {settingsMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  effect="glow"
+                  onClick={() => startGameMutation.mutate()}
+                  disabled={
+                    startGameMutation.isPending ||
+                    playersQuery.data.players.length < 2
+                  }>
+                  {startGameMutation.isPending ? "Starting..." : "Start game"}
+                </Button>
+              </CardFooter>
+            </Card>
+          ) : (
+            <>
+              <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-swipe-like">
+                      <HeartIcon size={16} />
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em]">
+                        {viewMode === "completed" ? "Final matches" : "Matches"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Cleaner winners grid with the extra columns reclaimed from split decisions.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+                    {board.matches.length}
+                  </div>
+                </div>
+
+                {board.matches.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {board.matches.map(({movie, votes}) => (
+                      <DisplayMovieCard
+                        key={movie.id}
+                        movie={movie}
+                        votes={votes}
+                        outcome="match"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No matches yet</p>
+                )}
+              </section>
+
+              <section className="rounded-[1.75rem] border border-white/[0.08] bg-white/[0.03] p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <XCircleIcon size={16} />
+                      <span className="text-xs font-semibold uppercase tracking-[0.22em]">
+                        Swipe history
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Small horizontal strip for resolved titles.
+                    </p>
+                  </div>
+                  <div className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-muted-foreground">
+                    {board.history.length}
+                  </div>
+                </div>
+
+                {board.history.length > 0 ? (
+                  <div className="flex gap-3 overflow-x-auto pb-1">
+                    {board.history.map(({movie, votes, outcome}) => (
+                      <DisplayMovieCard
+                        key={movie.id}
+                        movie={movie}
+                        votes={votes}
+                        outcome={outcome}
+                        compact
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Nothing resolved yet
+                  </p>
+                )}
+              </section>
+            </>
+          )}
         </div>
-      )}
+
+        <aside className="mx-auto w-[19rem] max-w-full rounded-[1.75rem] border border-white/[0.08] bg-[#111] p-5 xl:sticky xl:top-24 xl:mx-0 xl:h-fit">
+          <div className="mb-5 text-center">
+            <div className="font-display text-3xl tracking-[0.04em] text-white">
+              Who&apos;s Playing?
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {playersQuery.data.players.map((player) => {
+              const progress = progressByPlayerId.get(player.id);
+              return (
+                <PlayerRailTile
+                  key={player.id}
+                  player={player}
+                  currentIndex={progress?.currentIndex ?? 0}
+                  completed={progress?.completed ?? false}
+                  queueSize={state.summary.queueSize}
+                />
+              );
+            })}
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
 
-function BoardColumn({
-  children,
-  count,
-  title,
-  tone,
+function DisplayMovieCard({
+  movie,
+  votes,
+  outcome,
+  compact = false,
 }: {
-  children: ReactNode;
-  count: number;
-  title: string;
-  tone: "match" | "neutral" | "rejected";
+  movie: MovieCandidate;
+  votes: GameVoteSummary;
+  outcome: "match" | "rejected";
+  compact?: boolean;
 }) {
-  const toneClass =
-    tone === "match"
-      ? "text-swipe-like"
-      : tone === "rejected"
-        ? "text-swipe-nope"
-        : "text-muted-foreground";
+  const positiveVotes = votes.like + votes.superLike;
+  const negativeVotes = votes.dislike + votes.skip;
 
   return (
-    <div className="space-y-3">
-      <div className={`flex items-center gap-2 ${toneClass}`}>
-        {tone === "match" ? <HeartIcon size={18} /> : null}
-        {tone === "rejected" ? <XCircleIcon size={18} /> : null}
-        <span className="text-xs font-semibold uppercase tracking-[0.2em]">
-          {title} ({count})
-        </span>
+    <article
+      className={`overflow-hidden rounded-[1.4rem] border border-white/[0.08] bg-white/[0.04] ${
+        compact ? "w-40 shrink-0" : ""
+      }`}>
+      <div className="relative">
+        <img
+          src={movie.posterUrl}
+          alt={movie.title}
+          className={`w-full object-cover ${compact ? "h-40" : "h-60"}`}
+        />
+        <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white">
+          {outcome === "match" ? "Match" : "Out"}
+        </div>
+        <div
+          className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent ${
+            compact ? "px-3 pb-3 pt-10" : "px-4 pb-4 pt-14"
+          }`}>
+          <div className={`font-display leading-tight text-white ${compact ? "text-lg" : "text-xl"}`}>
+            {movie.title}
+          </div>
+          <div className="mt-1 flex items-center gap-2 text-xs text-white/70">
+            <span>{movie.year}</span>
+            <span className="text-white/30">&bull;</span>
+            <span>{movie.rating.toFixed(1)}</span>
+          </div>
+        </div>
       </div>
-      <div className="space-y-2">{children}</div>
+
+      <div className={`flex flex-wrap gap-2 ${compact ? "px-3 py-3 text-[11px]" : "px-4 py-3 text-xs"}`}>
+        <VotePill label="Like" value={positiveVotes} tone="like" />
+        <VotePill label="Nope" value={negativeVotes} tone="nope" />
+        {votes.maybe > 0 ? <VotePill label="Maybe" value={votes.maybe} tone="maybe" /> : null}
+      </div>
+    </article>
+  );
+}
+
+function PlayerRailTile({
+  player,
+  currentIndex,
+  completed,
+  queueSize,
+}: {
+  player: GamePlayerPresence;
+  currentIndex: number;
+  completed: boolean;
+  queueSize: number;
+}) {
+  const initial = player.displayName.trim().charAt(0).toUpperCase() || "?";
+  const gradient =
+    PLAYER_TILE_GRADIENTS[hashString(player.displayName) % PLAYER_TILE_GRADIENTS.length];
+  const tileTone = completed
+    ? "ring-2 ring-swipe-like/70 shadow-[0_0_28px_hsl(145_65%_42%/0.16)]"
+    : currentIndex > 0
+      ? "ring-2 ring-primary/60 shadow-[0_0_24px_hsl(357_92%_47%/0.14)]"
+      : "ring-1 ring-white/10";
+
+  return (
+    <div
+      className={`group flex flex-col items-center gap-2 text-center transition-opacity ${
+        player.connectedAsPlayer ? "" : "opacity-45"
+      }`}>
+      <div
+        className={`flex h-18 w-18 items-center justify-center rounded-md bg-gradient-to-br ${gradient} font-display text-4xl text-white shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition-transform duration-150 group-hover:scale-[1.03] ${tileTone}`}>
+        {initial}
+      </div>
+
+      <div className="w-full">
+        <div className="truncate text-sm font-medium text-zinc-300 group-hover:text-white">
+          {player.displayName}
+        </div>
+        {!player.connectedAsPlayer ? (
+          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            Away
+          </div>
+        ) : completed ? (
+          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-swipe-like">
+            Finished
+          </div>
+        ) : (
+          <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            {Math.min(currentIndex, queueSize)}/{queueSize}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-const PLAYER_TILE_GRADIENTS = [
-  "from-red-500 to-rose-700",
-  "from-amber-400 to-orange-600",
-  "from-emerald-400 to-teal-600",
-  "from-sky-400 to-indigo-600",
-  "from-fuchsia-400 to-purple-600",
-  "from-pink-400 to-rose-600",
-];
+function VotePill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "like" | "nope" | "maybe";
+}) {
+  const toneClass =
+    tone === "like"
+      ? "bg-success/15 text-success"
+      : tone === "nope"
+        ? "bg-danger/15 text-danger"
+        : "bg-warning/15 text-warning";
+
+  return (
+    <span className={`rounded-full px-2.5 py-1 ${toneClass}`}>
+      {value} {label}
+    </span>
+  );
+}
+
+function StatPill({value, label}: {value: number; label: string}) {
+  return (
+    <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1">
+      {value} {label}
+    </span>
+  );
+}
 
 function hashString(value: string) {
   let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
   }
   return Math.abs(hash);
-}
-
-function PlayerTile({name}: {name: string}) {
-  const initial = name.trim().charAt(0).toUpperCase() || "?";
-  const gradient =
-    PLAYER_TILE_GRADIENTS[hashString(name) % PLAYER_TILE_GRADIENTS.length];
-  return (
-    <div className="group flex w-24 flex-col items-center gap-2">
-      <div
-        className={`flex h-24 w-24 items-center justify-center rounded-md bg-gradient-to-br ${gradient} font-display text-5xl text-white shadow-[0_4px_20px_rgba(0,0,0,0.3)] ring-0 ring-white transition-all duration-150 group-hover:ring-2`}>
-        {initial}
-      </div>
-      <div className="w-full truncate text-center font-display text-sm tracking-wide text-muted-foreground transition-colors group-hover:text-foreground">
-        {name}
-      </div>
-    </div>
-  );
 }
 
 function StatusBadge({label}: {label: string}) {

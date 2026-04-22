@@ -30,8 +30,8 @@
   --color-flame-mid: hsl(350 85% 56%);
   --color-flame-end: hsl(330 80% 55%);
 
-  --font-display: "Bebas Neue", "Sora", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "Inter", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Netflix Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-body: "Netflix Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
 
   --shadow-glow: 0 0 0 1px hsl(var(--ring) / 0.25),
     0 12px 28px hsl(var(--ring) / 0.18);

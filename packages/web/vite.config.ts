@@ -5,8 +5,7 @@ import TanStackRouterVite from "@tanstack/router-plugin/vite";
 import tailwindVite from "@tailwindcss/vite";
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, process.cwd(), "");
-  const webPort = Number(env.VITE_PORT || "4173");
+  loadEnv(mode, process.cwd(), "");
 
   return {
     plugins: [
@@ -15,11 +14,11 @@ export default defineConfig(({mode}) => {
       react(),
     ],
     server: {
-      port: webPort,
+      port: 4173,
       strictPort: true,
     },
     preview: {
-      port: webPort,
+      port: Number(process.env.PORT || "4173"),
       strictPort: true,
     },
   };

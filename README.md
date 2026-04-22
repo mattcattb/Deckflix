@@ -75,7 +75,6 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:15432/postgres
 REDIS_URL=redis://localhost:16380
 PORT=3100
 VITE_API_URL=http://localhost:3100
-VITE_PORT=4173
 ```
 
 If another project is already using those ports, override them in `.env` before starting:
@@ -87,7 +86,6 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:25432/postgres
 REDIS_URL=redis://localhost:26380
 PORT=3200
 VITE_API_URL=http://localhost:3200
-VITE_PORT=4273
 BETTER_AUTH_URL=http://localhost:4273
 CORS_ORIGINS=http://localhost:4273
 ```

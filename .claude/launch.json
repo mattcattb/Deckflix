@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd packages/web && VITE_PORT=4174 ./node_modules/.bin/vite --port 4174 --strictPort"],
+      "runtimeArgs": ["-c", "cd packages/web && PORT=4174 ./node_modules/.bin/vite --port 4174 --strictPort"],
       "port": 4174
     }
   ]
