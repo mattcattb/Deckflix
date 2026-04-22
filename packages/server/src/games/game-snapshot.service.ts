@@ -16,7 +16,7 @@ import {isDisplayConnected, isPlayerConnected} from "../ws/presence.ws";
 import * as GameRedisService from "./game-redis.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
 
-const buildSummary = async (gameCode: string): Promise<GameSummary> => {
+export const getGameSummary = async (gameCode: string): Promise<GameSummary> => {
   const [meta, players, queueSize, settings] = await Promise.all([
     RoomMetaService.getGameMetaOrThrow(gameCode),
     GameRedisService.listPlayers(gameCode),
@@ -39,17 +39,19 @@ const buildSummary = async (gameCode: string): Promise<GameSummary> => {
   };
 };
 
-const buildPlayers = async (gameCode: string) => {
+export const getGamePlayers = async (gameCode: string): Promise<GamePlayers> => {
   const players = await GameRedisService.listPlayers(gameCode);
-  return players.map((player) => ({
-    id: player.id,
-    displayName: player.displayName,
-    joinedAt: player.joinedAt,
-    connectedAsPlayer: isPlayerConnected(gameCode, player.id),
-  }));
+  return {
+    players: players.map((player) => ({
+      id: player.id,
+      displayName: player.displayName,
+      joinedAt: player.joinedAt,
+      connectedAsPlayer: isPlayerConnected(gameCode, player.id),
+    })),
+  };
 };
 
-const buildResults = async (gameCode: string): Promise<GameResults> => {
+export const getGameResults = async (gameCode: string): Promise<GameResults> => {
   const [poolEntries, matchedMovieIds, rejectedMovieIds] = await Promise.all([
     GamePoolService.getPoolEntries(gameCode),
     SwipeLedgerService.getMatchedMovieIds(gameCode),
@@ -84,11 +86,9 @@ const buildResults = async (gameCode: string): Promise<GameResults> => {
   };
 };
 
-export const getGameSummary = async (gameCode: string) => buildSummary(gameCode);
-
 export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
   const [summary, settings] = await Promise.all([
-    buildSummary(gameCode),
+    getGameSummary(gameCode),
     GameSettingsService.getGameSettingsOrThrow(gameCode),
   ]);
 
@@ -98,19 +98,12 @@ export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
   };
 };
 
-export const getGamePlayers = async (gameCode: string): Promise<GamePlayers> => ({
-  players: await buildPlayers(gameCode),
-});
-
-export const getGameResults = async (gameCode: string): Promise<GameResults> =>
-  buildResults(gameCode);
-
 export const getDisplayGameState = async (gameCode: string): Promise<DisplayGameState> => {
   const [summary, poolEntries, players, results] = await Promise.all([
-    buildSummary(gameCode),
+    getGameSummary(gameCode),
     GamePoolService.getPoolEntries(gameCode),
     GameRedisService.listPlayers(gameCode),
-    buildResults(gameCode),
+    getGameResults(gameCode),
   ]);
   const movieRecords = await GameRedisService.getMovieRecords(
     gameCode,
@@ -144,7 +137,7 @@ export const getPlayerGameState = async (input: {
   }
 
   const [summary, settings, currentIndex, completed, currentItem] = await Promise.all([
-    buildSummary(input.gameCode),
+    getGameSummary(input.gameCode),
     GameSettingsService.getGameSettingsOrThrow(input.gameCode),
     SwipeService.getPlayerCurrentIndex(input.gameCode, input.playerId),
     SwipeService.isPlayerCompleted(input.gameCode, input.playerId),

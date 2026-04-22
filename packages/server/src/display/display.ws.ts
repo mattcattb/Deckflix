@@ -4,8 +4,18 @@ import {
   encodeDisplayServerMessage,
 } from "@deckflix/shared";
 import {ensureSocketPubSub} from "../lib/redis";
-import * as DisplayService from "./display.service";
+import * as GameSnapshotService from "../games/game-snapshot.service";
+import * as GameRedisService from "../games/game-redis.service";
+import {publishGameState} from "../games/game-state.pubsub";
 import * as GamePresenceService from "../ws/presence.ws";
+
+const publishDisplayRoomState = async (
+  server: Parameters<typeof publishGameState>[0],
+  gameCode: string,
+) => {
+  const playerIds = await GameRedisService.listPlayerIds(gameCode);
+  publishGameState(server, gameCode, playerIds);
+};
 
 export const createDisplaySocketHandler = () =>
   upgradeWebSocket((c) => {
@@ -25,9 +35,9 @@ export const createDisplaySocketHandler = () =>
           .then(async () => {
             ws.send(encodeDisplayServerMessage({
               type: "display.snapshot",
-              payload: await DisplayService.getDisplayState(gameCode),
+              payload: await GameSnapshotService.getDisplayGameState(gameCode),
             }));
-            DisplayService.publishDisplayRoomState(server, gameCode);
+            publishDisplayRoomState(server, gameCode);
             GamePresenceService.subscribeDisplaySocket(ws, gameCode);
           })
           .catch(() => {
@@ -40,7 +50,7 @@ export const createDisplaySocketHandler = () =>
           gameCode,
           socket: ws,
         });
-        DisplayService.publishDisplayRoomState(server, gameCode);
+        publishDisplayRoomState(server, gameCode);
       },
       onMessage: (event, ws) => {
         try {

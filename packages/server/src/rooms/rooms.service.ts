@@ -1,4 +1,4 @@
-import type {GamePlayerPresence, RoomSession} from "@deckflix/shared";
+import type {GamePlayerPresence} from "@deckflix/shared";
 import * as GameSnapshotService from "../games/game-snapshot.service";
 import * as GamePoolService from "../games/game-pool";
 import {BadRequestException, ConflictException} from "../common/errors";
@@ -17,20 +17,6 @@ import {
 import type {RealtimeServer} from "../realtime/socket-bus";
 import * as SwipeService from "../swipe/swipe.service";
 import {publishPlayerJoined} from "../ws/presence.pubsub";
-
-export const getActiveClient = (session: RoomSession | null) =>
-  RoomSessionService.getActiveRoomClient(session);
-
-export const getClient = (input: {gameCode: string; session: RoomSession | null}) =>
-  RoomSessionService.getRoomClient(input);
-
-export const getMeta = (gameCode: string) => GameSnapshotService.getGameMeta(gameCode);
-export const getPlayers = (gameCode: string) =>
-  GameSnapshotService.getGamePlayers(gameCode);
-export const getResults = (gameCode: string) =>
-  GameSnapshotService.getGameResults(gameCode);
-export const ensureRoomSessionAvailable = (session: RoomSession | null) =>
-  RoomSessionService.assertRoomSessionAvailable(session);
 
 const generateGameCode = () => {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

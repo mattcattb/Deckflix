@@ -4,7 +4,7 @@ import {
   clearRoomSessionCookie,
   requireGameLobby,
 } from "../rooms/rooms.middleware";
-import * as DisplayService from "./display.service";
+import * as GameSnapshotService from "../games/game-snapshot.service";
 import {createDisplaySocketHandler} from "./display.ws";
 import {zValidator} from "@hono/zod-validator";
 import {gameSettingsInputSchema} from "@deckflix/shared";
@@ -15,7 +15,7 @@ import * as RoomsService from "../rooms/rooms.service";
 export const displayController = createRouter()
   .use("*", activeDisplayMiddleware)
   .get("/", async (c) => {
-    return c.json(await DisplayService.getDisplayState(c.get("room").gameCode));
+    return c.json(await GameSnapshotService.getDisplayGameState(c.get("room").gameCode));
   })
   .get("/ws", createDisplaySocketHandler())
   .patch(
