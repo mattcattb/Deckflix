@@ -125,22 +125,23 @@ export const getActiveRoomPath = (client: ActiveRoomClient) => {
   return "/" as const;
 };
 
-export const createActiveDisplayWebSocketUrl = () => {
-  const wsBase = API_BASE_URL.startsWith("/")
-    ? window.location.origin
-    : API_BASE_URL.replace(/^http/, "ws");
-  const url = new URL("/api/display/ws", wsBase);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+const createWebSocketUrl = (pathname: "/api/display/ws" | "/api/player/ws") => {
+  const url = new URL(
+    pathname,
+    API_BASE_URL.startsWith("/") ? window.location.origin : API_BASE_URL,
+  );
+  const useSecureProtocol =
+    window.location.protocol === "https:" ||
+    url.protocol === "https:" ||
+    url.protocol === "wss:";
+  url.protocol = useSecureProtocol ? "wss:" : "ws:";
   return url.toString();
 };
 
-export const createActivePlayerWebSocketUrl = () => {
-  const wsBase = API_BASE_URL.startsWith("/")
-    ? window.location.origin
-    : API_BASE_URL.replace(/^http/, "ws");
-  const url = new URL("/api/player/ws", wsBase);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-};
+export const createActiveDisplayWebSocketUrl = () =>
+  createWebSocketUrl("/api/display/ws");
+
+export const createActivePlayerWebSocketUrl = () =>
+  createWebSocketUrl("/api/player/ws");
 
 export {parseDisplayServerMessage, parsePlayerServerMessage};
