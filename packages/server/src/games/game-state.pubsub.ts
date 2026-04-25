@@ -2,61 +2,16 @@ import type {DisplayGameState, PlayerGameState} from "@deckflix/shared";
 import {publishDisplayMessage} from "../realtime/display-channel";
 import {publishPlayerMessage} from "../realtime/player-channel";
 import type {RealtimeServer} from "../realtime/socket-bus";
-import {ensureRedis, redis} from "../lib/redis";
-import * as GameRedisService from "./game-redis.service";
 import * as GameSnapshotService from "./game-snapshot.service";
 
-const displayProjectionKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:projection:display`;
-
-const playerProjectionKey = (gameCode: string, playerId: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:projection:player:${playerId}`;
-
-const parseProjection = <T>(raw: string | null): T | null => {
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-};
-
-export const getProjectedDisplayState = async (gameCode: string) => {
-  await ensureRedis();
-  const cached = parseProjection<DisplayGameState>(
-    await redis.get(displayProjectionKey(gameCode)),
-  );
-  if (cached) {
-    return cached;
-  }
-
-  const state = await GameSnapshotService.getDisplayGameState(gameCode);
-  await redis.set(displayProjectionKey(gameCode), JSON.stringify(state));
-  return state;
-};
+export const getProjectedDisplayState = async (
+  gameCode: string,
+): Promise<DisplayGameState> => GameSnapshotService.getDisplayGameState(gameCode);
 
 export const getProjectedPlayerState = async (input: {
   gameCode: string;
   playerId: string;
-}) => {
-  await ensureRedis();
-  const cached = parseProjection<PlayerGameState>(
-    await redis.get(playerProjectionKey(input.gameCode, input.playerId)),
-  );
-  if (cached) {
-    return cached;
-  }
-
-  const state = await GameSnapshotService.getPlayerGameState(input);
-  await redis.set(
-    playerProjectionKey(input.gameCode, input.playerId),
-    JSON.stringify(state),
-  );
-  return state;
-};
+}): Promise<PlayerGameState> => GameSnapshotService.getPlayerGameState(input);
 
 export const materializeGameState = async (gameCode: string, playerIds: string[]) => {
   const [displayState, playerEntries] = await Promise.all([
@@ -68,14 +23,6 @@ export const materializeGameState = async (gameCode: string, playerIds: string[]
       ] as const),
     ),
   ]);
-
-  await ensureRedis();
-  const multi = redis.multi();
-  multi.set(displayProjectionKey(gameCode), JSON.stringify(displayState));
-  for (const [playerId, state] of playerEntries) {
-    multi.set(playerProjectionKey(gameCode, playerId), JSON.stringify(state));
-  }
-  await multi.exec();
 
   return {
     displayState,
@@ -104,3 +51,8 @@ export const publishGameState = async (
 
   return materialized;
 };
+
+export const clearProjectedGameState = async (
+  _gameCode: string,
+  _playerIds: string[],
+) => undefined;

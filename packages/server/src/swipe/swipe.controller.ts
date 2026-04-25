@@ -14,6 +14,7 @@ import {
 } from "../rooms/rooms.middleware";
 import * as SwipeService from "./swipe.service";
 import * as GamePresenceService from "../ws/presence.ws";
+import * as RoomsService from "../rooms/rooms.service";
 
 const createPlayerSocketHandler = () =>
   upgradeWebSocket((c) => {
@@ -37,7 +38,7 @@ const createPlayerSocketHandler = () =>
                 payload: await SwipeService.getSwipeState({gameCode, playerId}),
               }),
             );
-            SwipeService.publishState(server, gameCode);
+            SwipeService.publishStateForGame(server, gameCode);
             GamePresenceService.subscribePlayerSocket(ws, gameCode, playerId);
           })
           .catch(() => {
@@ -51,7 +52,7 @@ const createPlayerSocketHandler = () =>
           playerId,
           socket: ws,
         });
-        SwipeService.publishState(server, gameCode);
+        SwipeService.publishStateForGame(server, gameCode);
       },
       onMessage: (event, ws) => {
         try {
@@ -99,7 +100,6 @@ export const playerController = createRouter()
           playerId,
           sessionToken,
         },
-        assignmentId: input.assignmentId,
         movieId: input.movieId,
         choice: input.choice,
         server,
@@ -113,7 +113,7 @@ export const playerController = createRouter()
     void ensureSocketPubSub(server);
     const {gameCode} = c.get("room");
     const {playerId, sessionToken} = c.get("playerActor");
-    await SwipeService.leaveSwipe({
+    await RoomsService.leavePlayer({
       player: {
         gameCode,
         playerId,

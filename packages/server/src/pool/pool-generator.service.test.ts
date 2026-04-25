@@ -7,7 +7,8 @@ const getTmdbSimilarMovies = mock();
 const getPopularMovies = mock();
 const isTmdbConfigured = mock(() => true);
 const ensureRedis = mock();
-const setMovieRecord = mock();
+const getGameMetaOrThrow = mock();
+const setGameMeta = mock();
 const redisGet = mock((key: string) =>
   key.includes(":pool:seed") ? "seed-1" : null,
 );
@@ -52,15 +53,15 @@ mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({
     zRemRangeByScore: redisZRemRangeByScore,
   },
 }));
-mock.module(new URL("./game-redis.service.ts", import.meta.url).href, () => ({
-  normalizeGameCode: (gameCode: string) => gameCode.trim().toUpperCase(),
-  setMovieRecord,
-}));
 mock.module(new URL("../settings/game-settings.service.ts", import.meta.url).href, () => ({
   buildMovieDiscoveryFilters,
 }));
+mock.module(new URL("../rooms/room-meta.service.ts", import.meta.url).href, () => ({
+  getGameMetaOrThrow,
+  setGameMeta,
+}));
 
-const GamePoolService = await import(new URL("./game-pool.service.ts", import.meta.url).href);
+const PoolGeneratorService = await import(new URL("./pool-generator.service.ts", import.meta.url).href);
 
 const settings = {
   gameplay: {
@@ -112,7 +113,8 @@ beforeEach(() => {
   getPopularMovies.mockReset();
   isTmdbConfigured.mockReset();
   ensureRedis.mockReset();
-  setMovieRecord.mockReset();
+  getGameMetaOrThrow.mockReset();
+  setGameMeta.mockReset();
   redisGet.mockReset();
   redisSet.mockReset();
   redisKeys.mockReset();
@@ -125,9 +127,11 @@ beforeEach(() => {
   buildMovieDiscoveryFilters.mockReset();
 
   isTmdbConfigured.mockReturnValue(true);
+  getGameMetaOrThrow.mockResolvedValue({poolSeed: "seed-1"});
   redisGet.mockImplementation((key: string) =>
     key.includes(":pool:seed") ? "seed-1" : null,
   );
+  redisZRange.mockResolvedValue([]);
   redisKeys.mockReturnValue([]);
   redisZScore.mockReturnValue(null);
   buildMovieDiscoveryFilters.mockReturnValue({
@@ -140,11 +144,11 @@ beforeEach(() => {
   });
 });
 
-describe("game-pool.service", () => {
+describe("pool-generator.service", () => {
   test("planPoolQueries is deterministic for the same seed and varies with different seeds", () => {
-    const first = GamePoolService.planPoolQueries(settings, "seed-a");
-    const second = GamePoolService.planPoolQueries(settings, "seed-a");
-    const third = GamePoolService.planPoolQueries(settings, "seed-b");
+    const first = PoolGeneratorService.planPoolQueries(settings, "seed-a");
+    const second = PoolGeneratorService.planPoolQueries(settings, "seed-a");
+    const third = PoolGeneratorService.planPoolQueries(settings, "seed-b");
 
     expect(first.strategies).toEqual(second.strategies);
     expect(third.strategies).not.toEqual(first.strategies);
@@ -152,7 +156,7 @@ describe("game-pool.service", () => {
   });
 
   test("planPoolQueries shifts strategy weights by popularity preset", () => {
-    const popularPlan = GamePoolService.planPoolQueries(
+    const popularPlan = PoolGeneratorService.planPoolQueries(
       {
         ...settings,
         movieFilters: {
@@ -162,7 +166,7 @@ describe("game-pool.service", () => {
       },
       "seed-a",
     );
-    const nichePlan = GamePoolService.planPoolQueries(
+    const nichePlan = PoolGeneratorService.planPoolQueries(
       {
         ...settings,
         movieFilters: {
@@ -251,8 +255,8 @@ describe("game-pool.service", () => {
       ],
     });
 
-    const plan = GamePoolService.planPoolQueries(settings, "seed-a");
-    const result = await GamePoolService.fetchPoolCandidates(plan, settings);
+    const plan = PoolGeneratorService.planPoolQueries(settings, "seed-a");
+    const result = await PoolGeneratorService.fetchPoolCandidates(plan, settings);
 
     expect(result.some((candidate: {movie: {id: string}}) => candidate.movie.id === "trending-a")).toBe(
       true,
@@ -356,7 +360,7 @@ describe("game-pool.service", () => {
       },
     ];
 
-    const scored = GamePoolService.scorePoolCandidates(
+    const scored = PoolGeneratorService.scorePoolCandidates(
       candidates,
       settings,
       new Map([
@@ -423,7 +427,7 @@ describe("game-pool.service", () => {
       },
     }));
 
-    const movies = GamePoolService.selectFinalPool(candidates, settings, "salt-a");
+    const movies = PoolGeneratorService.selectFinalPool(candidates, settings, "salt-a");
 
     expect(movies).toHaveLength(settings.gameplay.maxMovies);
     expect(
@@ -436,7 +440,7 @@ describe("game-pool.service", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
-  test("buildInitialPool saves artifacts and tolerates expansion failures", async () => {
+  test("generatePool returns selected movies, updates recent history, and tolerates expansion failures", async () => {
     discoverTmdbMovies.mockImplementation(async ({page}: {page: number}) => ({
       page,
       totalPages: 30,
@@ -466,39 +470,15 @@ describe("game-pool.service", () => {
     getTmdbMovieRecommendations.mockRejectedValue(new Error("recommendations down"));
     getTmdbSimilarMovies.mockRejectedValue(new Error("similar down"));
 
-    const result = await GamePoolService.buildInitialPool({
+    const result = await PoolGeneratorService.generatePool({
       gameCode: "room-1",
       settings,
     });
 
     expect(result.length).toBeGreaterThan(0);
-    expect(redisSet).toHaveBeenCalled();
-    const planWrite = redisSet.mock.calls.find((call: any[]) => call[0].includes(":pool:plan"));
-    expect(planWrite?.[1]).toContain("selectionSalt");
-  });
-
-  test("saveInitialPool updates recent history and stores records", async () => {
-    await GamePoolService.saveInitialPool("room-1", [
-      {
-        id: "movie-a",
-        title: "Movie A",
-        year: 2020,
-        overview: "A",
-        posterUrl: "",
-        rating: 7.1,
-      },
-      {
-        id: "movie-b",
-        title: "Movie B",
-        year: 2021,
-        overview: "B",
-        posterUrl: "",
-        rating: 7.2,
-      },
-    ]);
-
-    expect(redisZAdd).toHaveBeenCalledTimes(2);
-    expect(redisZRemRangeByScore).toHaveBeenCalledTimes(1);
-    expect(setMovieRecord).toHaveBeenCalledTimes(2);
+    expect(redisSet).not.toHaveBeenCalled();
+    expect(redisZAdd).toHaveBeenCalledTimes(1);
+    expect(redisZAdd.mock.calls[0]?.[1]).toHaveLength(result.length);
+    expect(redisZRemRangeByScore).toHaveBeenCalledTimes(2);
   });
 });

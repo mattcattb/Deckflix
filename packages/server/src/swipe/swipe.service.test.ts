@@ -1,397 +1,132 @@
 import {beforeEach, describe, expect, mock, test} from "bun:test";
 
-const maybeRefillPool = mock();
-const getPoolEntries = mock();
-const getPoolSeedOrThrow = mock();
-const getMovieRecordOrThrow = mock();
-const setMovieRecord = mock();
-const queueSetMovieRecord = mock();
-const listPlayerIds = mock();
-const getPlayerSeenMovieIds = mock();
-const getPlayerQueueEntries = mock();
-const getPlayerCurrentAssignment = mock();
-const getPlayerQueueLength = mock();
-const pushPlayerQueueEntries = mock();
-const clearPlayerQueue = mock();
-const hasPlayerSeenMovie = mock();
-const popPlayerQueueEntry = mock();
-const setPlayerCurrentAssignment = mock();
-const markPlayerSeenMovie = mock();
-const clearPlayerCurrentAssignment = mock();
-const queueMarkPlayerSeenMovie = mock();
-const queueClearPlayerCurrentAssignment = mock();
-const ensureRedis = mock();
-const publishSocketTopic = mock();
-const redisMulti = {
-  set: mock(() => redisMulti),
-  hSet: mock(() => redisMulti),
-  sAdd: mock(() => redisMulti),
-  sRem: mock(() => redisMulti),
-  del: mock(() => redisMulti),
-  exec: mock(),
-};
-const redis = {
-  multi: mock(() => redisMulti),
-};
-const getGameSettingsOrThrow = mock();
-const getMatchedMovieIds = mock();
-const getRejectedMovieIds = mock();
-const getPlayerVote = mock();
-const setPlayerVote = mock();
-const queueSetPlayerVote = mock();
-const syncMovieOutcomeSets = mock();
-const queueSyncMovieOutcomeSets = mock();
-const getGameMetaOrThrow = mock();
-const setGameMeta = mock();
-const getPlayerRecord = mock();
 const verifyPlayerSession = mock();
-const publishRoomState = mock();
+const popCurrentMovieId = mock();
+const recordVote = mock();
 const getProjectedPlayerState = mock();
-const publishDisplayMessage = mock();
-const publishPlayerMessage = mock();
+const publishVoteRecorded = mock();
+const publishMatchFound = mock();
+const listPlayerIds = mock();
+const publishGameState = mock();
 
-mock.module(new URL("../games/game-pool.service.ts", import.meta.url).href, () => ({
-  maybeRefillPool,
-  getPoolEntries,
-  getPoolSeedOrThrow,
-}));
-mock.module(new URL("../games/game-redis.service.ts", import.meta.url).href, () => ({
-  getMovieRecordOrThrow,
-  getMovieRecords: mock(),
-  listPlayerIds,
-  getPlayerRecord,
-  setMovieRecord,
-  queueSetMovieRecord,
-  touchRoomKeys: mock(),
-  withGameLock: mock(),
-}));
-mock.module(new URL("./swipe-queue.service.ts", import.meta.url).href, () => ({
-  getPlayerSeenMovieIds,
-  getPlayerQueueEntries,
-  getPlayerCurrentAssignment,
-  getPlayerQueueLength,
-  pushPlayerQueueEntries,
-  popPlayerQueueEntry,
-  setPlayerCurrentAssignment,
-  deleteSwipeState: mock(),
-  getPlayerSeenCount: mock(),
-  hasPlayerSeenMovie,
-  markPlayerSeenMovie,
-  clearPlayerCurrentAssignment,
-  queueMarkPlayerSeenMovie,
-  queueClearPlayerCurrentAssignment,
-  clearPlayerQueue,
-}));
-mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({
-  ensureRedis,
-  publishSocketTopic,
-  redis,
-}));
-mock.module(new URL("../settings/game-settings.service.ts", import.meta.url).href, () => ({
-  getGameSettingsOrThrow,
-}));
-mock.module(new URL("./swipe-ledger.service.ts", import.meta.url).href, () => ({
-  getMatchedMovieIds,
-  getRejectedMovieIds,
-  getPlayerVote,
-  setPlayerVote,
-  queueSetPlayerVote,
-  syncMovieOutcomeSets,
-  queueSyncMovieOutcomeSets,
-}));
-mock.module(new URL("../rooms/room-meta.service.ts", import.meta.url).href, () => ({
-  getGameMetaOrThrow,
-  setGameMeta,
-}));
 mock.module(new URL("../rooms/room-session.service.ts", import.meta.url).href, () => ({
   verifyPlayerSession,
 }));
+mock.module(new URL("./deck.service.ts", import.meta.url).href, () => ({
+  popCurrentMovieId,
+}));
+mock.module(new URL("./vote.service.ts", import.meta.url).href, () => ({
+  recordVote,
+}));
+mock.module(new URL("../pool/pool.service.ts", import.meta.url).href, () => ({
+  getMovieMetaOrThrow: mock(),
+}));
 mock.module(new URL("../games/game-state.pubsub.ts", import.meta.url).href, () => ({
-  publishGameState: publishRoomState,
   getProjectedPlayerState,
+  publishGameState,
 }));
-mock.module(new URL("../realtime/display-channel.ts", import.meta.url).href, () => ({
-  publishDisplayMessage,
-  subscribeDisplaySocket: mock(),
-  unsubscribeDisplaySocket: mock(),
-  getDisplayTopic: mock(),
+mock.module(new URL("./swipe.pubsub.ts", import.meta.url).href, () => ({
+  publishVoteRecorded,
+  publishMatchFound,
 }));
-mock.module(new URL("../realtime/player-channel.ts", import.meta.url).href, () => ({
-  publishPlayerMessage,
-  subscribePlayerSocket: mock(),
-  unsubscribePlayerSocket: mock(),
-  getPlayerTopic: mock(),
+mock.module(new URL("../rooms/room-players.service.ts", import.meta.url).href, () => ({
+  listPlayerIds,
 }));
 
 const SwipeService = await import(new URL("./swipe.service.ts", import.meta.url).href);
 
-const poolEntries = Array.from({length: 8}, (_, order) => ({
-  movieId: `movie-${order + 1}`,
-  order,
-}));
-
 beforeEach(() => {
-  maybeRefillPool.mockReset();
-  getPoolEntries.mockReset();
-  getPoolSeedOrThrow.mockReset();
-  getMovieRecordOrThrow.mockReset();
-  setMovieRecord.mockReset();
-  queueSetMovieRecord.mockReset();
-  listPlayerIds.mockReset();
-  getPlayerSeenMovieIds.mockReset();
-  getPlayerQueueEntries.mockReset();
-  getPlayerCurrentAssignment.mockReset();
-  getPlayerQueueLength.mockReset();
-  pushPlayerQueueEntries.mockReset();
-  clearPlayerQueue.mockReset();
-  hasPlayerSeenMovie.mockReset();
-  popPlayerQueueEntry.mockReset();
-  setPlayerCurrentAssignment.mockReset();
-  markPlayerSeenMovie.mockReset();
-  clearPlayerCurrentAssignment.mockReset();
-  queueMarkPlayerSeenMovie.mockReset();
-  queueClearPlayerCurrentAssignment.mockReset();
-  ensureRedis.mockReset();
-  publishSocketTopic.mockReset();
-  redis.multi.mockReset();
-  redisMulti.set.mockReset();
-  redisMulti.hSet.mockReset();
-  redisMulti.sAdd.mockReset();
-  redisMulti.sRem.mockReset();
-  redisMulti.del.mockReset();
-  redisMulti.exec.mockReset();
-  getGameSettingsOrThrow.mockReset();
-  getMatchedMovieIds.mockReset();
-  getRejectedMovieIds.mockReset();
-  getPlayerVote.mockReset();
-  setPlayerVote.mockReset();
-  queueSetPlayerVote.mockReset();
-  syncMovieOutcomeSets.mockReset();
-  queueSyncMovieOutcomeSets.mockReset();
-  getGameMetaOrThrow.mockReset();
-  setGameMeta.mockReset();
-  getPlayerRecord.mockReset();
   verifyPlayerSession.mockReset();
-  publishRoomState.mockReset();
+  popCurrentMovieId.mockReset();
+  recordVote.mockReset();
   getProjectedPlayerState.mockReset();
-  publishDisplayMessage.mockReset();
-  publishPlayerMessage.mockReset();
+  publishVoteRecorded.mockReset();
+  publishMatchFound.mockReset();
+  listPlayerIds.mockReset();
+  publishGameState.mockReset();
 
-  getPoolSeedOrThrow.mockResolvedValue("pool-seed-1");
-  getPoolEntries.mockResolvedValue(poolEntries);
-  getPlayerSeenMovieIds.mockResolvedValue([]);
-  getPlayerQueueEntries.mockResolvedValue([]);
-  getPlayerCurrentAssignment.mockResolvedValue(null);
-  getPlayerQueueLength.mockResolvedValue(0);
-  hasPlayerSeenMovie.mockResolvedValue(false);
-  popPlayerQueueEntry.mockResolvedValue(null);
-  redisMulti.exec.mockResolvedValue([]);
-  getProjectedPlayerState.mockResolvedValue({
-    summary: {
-      id: "game-1",
-      code: "ABC123",
-      roomName: null,
-      status: "swiping",
-      createdAt: "2026-04-22T12:00:00.000Z",
-      playerCount: 2,
-      queueSize: 8,
-      displayConnected: true,
-    },
-    settings: {
-      gameplay: {
-        maxMovies: 8,
-        allowMaybe: true,
-        allowSuperLike: true,
-      },
-      movieFilters: {
-        popularityPreset: "balanced",
-        includedGenreIds: [],
-        excludedGenreIds: [],
-        primaryReleaseDateGte: null,
-        primaryReleaseDateLte: null,
-        voteAverageGte: null,
-        voteAverageLte: null,
-      },
-    },
-    me: {
-      playerId: "player-1",
-      displayName: "Player 1",
-      currentIndex: 0,
-      completed: false,
-    },
-    currentItem: null,
-    remainingCount: 0,
-  });
-  getMovieRecordOrThrow.mockImplementation(
-    async (_gameCode: string, movieId: string) => ({
-      movie: {
-        id: movieId,
-        title: movieId,
-        year: 2024,
-        overview: movieId,
-        posterUrl: "",
-        rating: 7,
-      },
-      status: "pending",
-      likeCount: 0,
-      dislikeCount: 0,
-      maybeCount: 0,
-      superLikeCount: 0,
-      skipCount: 0,
-      totalVotes: 0,
-      resolvedAt: null,
-      lastActivityAt: null,
-      matchedAt: null,
-    }),
-  );
+  popCurrentMovieId.mockResolvedValue({status: "popped", movieId: "movie-1"});
+  recordVote.mockResolvedValue({justMatched: false});
+  getProjectedPlayerState.mockResolvedValue({currentItem: null});
+  listPlayerIds.mockResolvedValue(["player-1", "player-2"]);
 });
 
 describe("swipe.service", () => {
-  test("refillPlayerQueue randomizes deterministically per player within the top queue window", async () => {
-    await SwipeService.refillPlayerQueue("ABCD", "player-1", 4);
-    const firstPlayerInitialOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
-      (entry: {movieId: string}) => entry.movieId,
-    );
-
-    pushPlayerQueueEntries.mockReset();
-
-    await SwipeService.refillPlayerQueue("ABCD", "player-1", 4);
-    const firstPlayerRepeatOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
-      (entry: {movieId: string}) => entry.movieId,
-    );
-
-    pushPlayerQueueEntries.mockReset();
-
-    await SwipeService.refillPlayerQueue("ABCD", "player-2", 4);
-    const secondPlayerOrder = pushPlayerQueueEntries.mock.calls[0][2].map(
-      (entry: {movieId: string}) => entry.movieId,
-    );
-
-    expect(firstPlayerInitialOrder).toEqual(firstPlayerRepeatOrder);
-    expect(secondPlayerOrder).not.toEqual(firstPlayerInitialOrder);
-    expect(firstPlayerInitialOrder).toHaveLength(4);
-    expect(firstPlayerInitialOrder.every((movieId: string) => {
-      const order = poolEntries.find((entry) => entry.movieId === movieId)?.order ?? 999;
-      return order < 6;
-    })).toBe(true);
-  });
-
-  test("refreshMovieOutcome marks a movie matched only when every player voted positively", async () => {
-    listPlayerIds.mockResolvedValue(["player-1", "player-2", "player-3"]);
-    getMovieRecordOrThrow.mockResolvedValue({
-      movie: {
-        id: "movie-1",
-        title: "movie-1",
-        year: 2024,
-        overview: "movie-1",
-        posterUrl: "",
-        rating: 7,
+  test("recordSwipe pops the expected deck head and records a vote", async () => {
+    const result = await SwipeService.recordSwipe({
+      player: {
+        gameCode: "ABCD",
+        playerId: "player-1",
+        sessionToken: "token-1",
       },
-      status: "pending",
-      likeCount: 2,
-      dislikeCount: 0,
-      maybeCount: 0,
-      superLikeCount: 1,
-      skipCount: 0,
-      totalVotes: 3,
-      resolvedAt: null,
-      lastActivityAt: "2026-04-22T12:00:00.000Z",
-      matchedAt: null,
-    });
-
-    const result = await SwipeService.refreshMovieOutcome("ABCD", "movie-1");
-
-    expect(result).toEqual({
-      justMatched: true,
-      status: "matched",
-    });
-    expect(setMovieRecord).toHaveBeenCalledWith(
-      "ABCD",
-      "movie-1",
-      expect.objectContaining({
-        status: "matched",
-        matchedAt: expect.any(String),
-      }),
-    );
-  });
-
-  test("refreshMovieOutcome rejects a movie once all players have seen it without unanimous likes", async () => {
-    listPlayerIds.mockResolvedValue(["player-1", "player-2", "player-3"]);
-    hasPlayerSeenMovie.mockResolvedValue(true);
-    getMovieRecordOrThrow.mockResolvedValue({
-      movie: {
-        id: "movie-2",
-        title: "movie-2",
-        year: 2024,
-        overview: "movie-2",
-        posterUrl: "",
-        rating: 7,
-      },
-      status: "pending",
-      likeCount: 2,
-      dislikeCount: 0,
-      maybeCount: 1,
-      superLikeCount: 0,
-      skipCount: 0,
-      totalVotes: 3,
-      resolvedAt: null,
-      lastActivityAt: "2026-04-22T12:00:00.000Z",
-      matchedAt: null,
-    });
-
-    const result = await SwipeService.refreshMovieOutcome("ABCD", "movie-2");
-
-    expect(result).toEqual({
-      justMatched: false,
-      status: "rejected",
-    });
-    expect(setMovieRecord).toHaveBeenCalledWith(
-      "ABCD",
-      "movie-2",
-      expect.objectContaining({
-        status: "rejected",
-      }),
-    );
-  });
-
-  test("getCurrentOrNextMovie heals a stale current assignment that already has a vote", async () => {
-    getPlayerCurrentAssignment.mockResolvedValue({
-      assignmentId: "assignment-1",
       movieId: "movie-1",
-      order: 0,
-      issuedAt: "2026-04-22T12:00:00.000Z",
+      choice: "like",
+      server: {publish: mock()} as any,
     });
-    getPlayerQueueEntries.mockResolvedValue([{movieId: "movie-2", order: 1}]);
-    getPlayerVote.mockImplementation(
-      async (_gameCode: string, movieId: string, playerId: string) =>
-        movieId === "movie-1" && playerId === "player-1" ? "like" : null,
+
+    expect(verifyPlayerSession).toHaveBeenCalledWith({
+      gameCode: "ABCD",
+      playerId: "player-1",
+      sessionToken: "token-1",
+    });
+    expect(popCurrentMovieId).toHaveBeenCalledWith("ABCD", "player-1", "movie-1");
+    expect(recordVote).toHaveBeenCalledWith({
+      gameCode: "ABCD",
+      movieId: "movie-1",
+      playerId: "player-1",
+      choice: "like",
+    });
+    expect(publishVoteRecorded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gameCode: "ABCD",
+        playerId: "player-1",
+        movieId: "movie-1",
+        choice: "like",
+      }),
     );
-    popPlayerQueueEntry.mockResolvedValue({movieId: "movie-2", order: 1});
+    expect(result.state).toEqual({currentItem: null});
+  });
 
-    const result = await SwipeService.getCurrentOrNextMovie("ABCD", "player-1");
+  test("recordSwipe rejects stale client movie ids without voting", async () => {
+    popCurrentMovieId.mockResolvedValue({
+      status: "mismatch",
+      actualMovieId: "movie-2",
+    });
 
-    expect(markPlayerSeenMovie).toHaveBeenCalledWith(
+    await expect(
+      SwipeService.recordSwipe({
+        player: {
+          gameCode: "ABCD",
+          playerId: "player-1",
+          sessionToken: "token-1",
+        },
+        movieId: "movie-1",
+        choice: "like",
+        server: {publish: mock()} as any,
+      }),
+    ).rejects.toThrow("Vote does not match the deck head");
+
+    expect(recordVote).not.toHaveBeenCalled();
+  });
+
+  test("recordSwipe publishes match events from vote results", async () => {
+    recordVote.mockResolvedValue({justMatched: true});
+
+    await SwipeService.recordSwipe({
+      player: {
+        gameCode: "ABCD",
+        playerId: "player-1",
+        sessionToken: "token-1",
+      },
+      movieId: "movie-1",
+      choice: "super_like",
+      server: {publish: mock()} as any,
+    });
+
+    expect(publishMatchFound).toHaveBeenCalledWith(
+      expect.anything(),
       "ABCD",
-      "player-1",
       "movie-1",
-    );
-    expect(clearPlayerCurrentAssignment).toHaveBeenCalledWith(
-      "ABCD",
-      "player-1",
-    );
-    expect(setPlayerCurrentAssignment).toHaveBeenCalledWith(
-      "ABCD",
-      "player-1",
-      expect.objectContaining({
-        movieId: "movie-2",
-      }),
-    );
-    expect(result).toEqual(
-      expect.objectContaining({
-        movie: expect.objectContaining({
-          id: "movie-2",
-        }),
-      }),
     );
   });
 });

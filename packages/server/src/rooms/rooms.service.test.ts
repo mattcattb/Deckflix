@@ -7,17 +7,16 @@ const getGameResults = mock();
 const assertRoomSessionAvailable = mock();
 const getActiveRoomClient = mock();
 const getRoomClient = mock();
-const buildInitialPool = mock();
-const saveInitialPool = mock();
+const generatePool = mock();
+const savePool = mock();
 const createPoolSeed = mock(() => "pool-seed-1");
-const setPoolSeed = mock();
 const clearPresenceState = mock();
-const touchRoomKeys = mock();
 const deleteRoomKeys = mock();
 const listPlayerIds = mock();
-const withGameLock = mock(async (_gameCode: string, callback: () => Promise<unknown>) =>
+const withRoomLock = mock(async (_gameCode: string, callback: () => Promise<unknown>) =>
   callback(),
 );
+const setPlayerRecord = mock();
 const resolveGameSettings = mock((value?: unknown) => value ?? defaultSettings);
 const getGameSettingsOrThrow = mock(async () => defaultSettings);
 const setGameSettings = mock();
@@ -36,9 +35,11 @@ const getGameMetaOrThrow = mock(async () => ({
 }));
 const setGameMeta = mock();
 const verifyDisplaySession = mock();
-const clearPlayerState = mock();
-const refillPlayerQueue = mock();
-const getCurrentOrNextMovie = mock();
+const verifyPlayerSession = mock();
+const initializePlayerDecks = mock();
+const clearPlayerDeck = mock();
+const deletePlayerRecord = mock();
+const publishPlayerLeft = mock();
 const publishDisplayMessage = mock();
 const publishPlayerMessage = mock();
 
@@ -67,20 +68,22 @@ mock.module(new URL("../games/game-snapshot.service.ts", import.meta.url).href, 
   getGamePlayers,
   getGameResults,
 }));
-mock.module(new URL("../games/game-pool.ts", import.meta.url).href, () => ({
-  buildInitialPool,
-  saveInitialPool,
+mock.module(new URL("../pool/pool-generator.service.ts", import.meta.url).href, () => ({
+  generatePool,
   createPoolSeed,
-  setPoolSeed,
 }));
-mock.module(new URL("../games/game-redis.service.ts", import.meta.url).href, () => ({
+mock.module(new URL("../pool/pool.service.ts", import.meta.url).href, () => ({
+  savePool,
+}));
+mock.module(new URL("./room-lifecycle.service.ts", import.meta.url).href, () => ({
   normalizeGameCode: (gameCode: string) => gameCode.trim().toUpperCase(),
-  touchRoomKeys,
   deleteRoomKeys,
+  withRoomLock,
+}));
+mock.module(new URL("./room-players.service.ts", import.meta.url).href, () => ({
   listPlayerIds,
-  withGameLock,
-  setPlayerRecord: mock(),
-  setMovieRecord: mock(),
+  setPlayerRecord,
+  deletePlayerRecord,
 }));
 mock.module(new URL("../settings/game-settings.service.ts", import.meta.url).href, () => ({
   resolveGameSettings,
@@ -97,14 +100,18 @@ mock.module(new URL("./room-session.service.ts", import.meta.url).href, () => ({
   getActiveRoomClient,
   getRoomClient,
   verifyDisplaySession,
+  verifyPlayerSession,
 }));
-mock.module(new URL("../swipe/swipe.service.ts", import.meta.url).href, () => ({
-  clearPlayerState,
-  refillPlayerQueue,
-  getCurrentOrNextMovie,
+mock.module(new URL("../swipe/deck.service.ts", import.meta.url).href, () => ({
+  initializePlayerDecks,
+  clearPlayerDeck,
 }));
 mock.module(new URL("../ws/presence.ws.ts", import.meta.url).href, () => ({
   clearPresenceState,
+}));
+mock.module(new URL("../ws/presence.pubsub.ts", import.meta.url).href, () => ({
+  publishPlayerJoined: mock(),
+  publishPlayerLeft,
 }));
 mock.module(new URL("./rooms.pubsub.ts", import.meta.url).href, () => ({
   publishRoomStarted: (server: unknown, gameCode: string) => {
@@ -171,15 +178,14 @@ beforeEach(() => {
   assertRoomSessionAvailable.mockReset();
   getActiveRoomClient.mockReset();
   getRoomClient.mockReset();
-  buildInitialPool.mockReset();
-  saveInitialPool.mockReset();
+  generatePool.mockReset();
+  savePool.mockReset();
   createPoolSeed.mockReset();
-  setPoolSeed.mockReset();
   clearPresenceState.mockReset();
-  touchRoomKeys.mockReset();
   deleteRoomKeys.mockReset();
   listPlayerIds.mockReset();
-  withGameLock.mockReset();
+  withRoomLock.mockReset();
+  setPlayerRecord.mockReset();
   resolveGameSettings.mockReset();
   getGameSettingsOrThrow.mockReset();
   setGameSettings.mockReset();
@@ -187,14 +193,16 @@ beforeEach(() => {
   getGameMetaOrThrow.mockReset();
   setGameMeta.mockReset();
   verifyDisplaySession.mockReset();
-  clearPlayerState.mockReset();
-  refillPlayerQueue.mockReset();
-  getCurrentOrNextMovie.mockReset();
+  verifyPlayerSession.mockReset();
+  initializePlayerDecks.mockReset();
+  clearPlayerDeck.mockReset();
+  deletePlayerRecord.mockReset();
+  publishPlayerLeft.mockReset();
   publishDisplayMessage.mockReset();
   publishPlayerMessage.mockReset();
 
   createPoolSeed.mockReturnValue("pool-seed-1");
-  withGameLock.mockImplementation(
+  withRoomLock.mockImplementation(
     async (_gameCode: string, callback: () => Promise<unknown>) => callback(),
   );
   resolveGameSettings.mockImplementation((value?: unknown) => value ?? defaultSettings);
@@ -215,23 +223,25 @@ beforeEach(() => {
 });
 
 describe("rooms.service", () => {
-  test("create stores settings and pool seed without building the full pool", async () => {
+  test("create stores settings and pool seed in room metadata without building the full pool", async () => {
     const result = await RoomsService.create({
       roomName: "Room",
       settings: defaultSettings,
     });
 
     expect(createPoolSeed).toHaveBeenCalledTimes(1);
-    expect(setPoolSeed).toHaveBeenCalledTimes(1);
-    expect(buildInitialPool).not.toHaveBeenCalled();
-    expect(saveInitialPool).not.toHaveBeenCalled();
+    expect(createGameMeta).toHaveBeenCalledWith(
+      expect.objectContaining({poolSeed: "pool-seed-1"}),
+    );
+    expect(generatePool).not.toHaveBeenCalled();
+    expect(savePool).not.toHaveBeenCalled();
     expect(setGameSettings).toHaveBeenCalledTimes(1);
     expect(result.gameCode).toBeTruthy();
   });
 
   test("start builds and saves the pool once before initializing player queues", async () => {
     listPlayerIds.mockResolvedValue(["player-1", "player-2"]);
-    buildInitialPool.mockResolvedValue([
+    generatePool.mockResolvedValue([
       {
         id: "movie-a",
         title: "Movie A",
@@ -249,14 +259,15 @@ describe("rooms.service", () => {
       },
     });
 
-    expect(buildInitialPool).toHaveBeenCalledWith({
+    expect(generatePool).toHaveBeenCalledWith({
       gameCode: "ABCD",
       settings: defaultSettings,
     });
-    expect(saveInitialPool).toHaveBeenCalledTimes(1);
-    expect(clearPlayerState).toHaveBeenCalledTimes(2);
-    expect(refillPlayerQueue).toHaveBeenCalledTimes(2);
-    expect(getCurrentOrNextMovie).toHaveBeenCalledTimes(2);
+    expect(savePool).toHaveBeenCalledTimes(1);
+    expect(initializePlayerDecks).toHaveBeenCalledWith("ABCD", [
+      "player-1",
+      "player-2",
+    ], 1);
     expect(publishDisplayMessage).toHaveBeenCalledWith(expect.anything(), "ABCD", {
       type: "room.status_changed",
       payload: {
@@ -319,5 +330,38 @@ describe("rooms.service", () => {
     );
     expect(deleteRoomKeys).toHaveBeenCalledWith("ABCD");
     expect(clearPresenceState).toHaveBeenCalledWith("ABCD");
+  });
+
+  test("leavePlayer verifies the player and removes player state idempotently", async () => {
+    listPlayerIds.mockResolvedValue(["player-2"]);
+
+    await RoomsService.leavePlayer({
+      player: {
+        gameCode: "ABCD",
+        playerId: "player-1",
+        sessionToken: "token-1",
+      },
+      server: {
+        publish: mock(),
+      },
+    });
+
+    expect(verifyPlayerSession).toHaveBeenCalledWith({
+      gameCode: "ABCD",
+      playerId: "player-1",
+      sessionToken: "token-1",
+    });
+    expect(clearPlayerDeck).toHaveBeenCalledWith("ABCD", "player-1");
+    expect(deletePlayerRecord).toHaveBeenCalledWith("ABCD", "player-1");
+    expect(publishPlayerLeft).toHaveBeenCalledWith(
+      expect.anything(),
+      "ABCD",
+      "player-1",
+    );
+    expect(publishRoomState).toHaveBeenCalledWith(
+      expect.anything(),
+      "ABCD",
+      ["player-2"],
+    );
   });
 });

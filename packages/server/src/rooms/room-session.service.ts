@@ -12,9 +12,9 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
-import * as GameRedisService from "../games/game-redis.service";
 import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomMetaService from "./room-meta.service";
+import * as RoomPlayersService from "./room-players.service";
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
   role === "display"
@@ -47,7 +47,7 @@ export const verifyDisplaySession = async (input: DisplaySession) => {
 };
 
 export const verifyPlayerSession = async (input: PlayerSession) => {
-  const player = await GameRedisService.getPlayerRecord(input.gameCode, input.playerId);
+  const player = await RoomPlayersService.getPlayerRecord(input.gameCode, input.playerId);
   if (!player || player.sessionToken !== input.sessionToken) {
     throw new UnauthorizedException("Invalid player session");
   }

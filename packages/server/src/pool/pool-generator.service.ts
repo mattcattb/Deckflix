@@ -4,7 +4,7 @@ import type {
   MoviePopularityPreset,
 } from "@deckflix/shared";
 import {createHash, randomUUID} from "node:crypto";
-import {BadRequestException, NotFoundException} from "../common/errors";
+import {BadRequestException} from "../common/errors";
 import {
   discoverTmdbMovies,
   getTmdbMovieRecommendations,
@@ -13,11 +13,9 @@ import {
 } from "../lib/tmdb";
 import {ensureRedis, redis} from "../lib/redis";
 import * as MoviesService from "../movies/movies.service";
+import * as RoomMetaService from "../rooms/room-meta.service";
 import * as GameSettingsService from "../settings/game-settings.service";
-import type * as SwipeQueueService from "../swipe/swipe-queue.service";
-import * as GameRedisService from "./game-redis.service";
 import type {
-  PoolBuildResult,
   PoolCandidateRecord,
   PoolPlan,
   PoolQueryFilters,
@@ -27,20 +25,8 @@ import type {
   PoolSourceMovie,
   PoolStrategy,
   PoolTimeWindow,
-} from "./game-pool.types";
+} from "./pool.types";
 
-const poolKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool`;
-const poolSeedKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool:seed`;
-const poolPlanKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool:plan`;
-const poolCandidatesKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool:candidates`;
-const poolCandidateKey = (gameCode: string, movieId: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool:candidate:${movieId}`;
-const poolCandidatePattern = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:pool:candidate:*`;
 const recentPoolHistoryKey = () => "pool:recent-history";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -59,7 +45,10 @@ const stableStringify = (value: unknown): string => {
   if (value && typeof value === "object") {
     return `{${Object.entries(value)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableStringify(nestedValue)}`)
+      .map(
+        ([key, nestedValue]) =>
+          `${JSON.stringify(key)}:${stableStringify(nestedValue)}`,
+      )
       .join(",")}}`;
   }
 
@@ -69,7 +58,8 @@ const stableStringify = (value: unknown): string => {
 const hashValue = (value: unknown) =>
   createHash("sha256").update(stableStringify(value)).digest("hex");
 
-const numberFromSeed = (seed: string) => Number.parseInt(hashValue(seed).slice(0, 8), 16);
+const numberFromSeed = (seed: string) =>
+  Number.parseInt(hashValue(seed).slice(0, 8), 16);
 
 const createSeededRandom = (seed: string) => {
   let state = numberFromSeed(seed) || 1;
@@ -183,13 +173,21 @@ const toPoolSourceMovie = (movie: MovieCandidate): PoolSourceMovie => ({
   originalLanguage: null,
 });
 
-const getPrimarySourceFamily = (sourceHits: PoolSourceHit[]): PoolSourceFamily => {
+const getPrimarySourceFamily = (
+  sourceHits: PoolSourceHit[],
+): PoolSourceFamily => {
   const totals = new Map<PoolSourceFamily, number>();
   for (const hit of sourceHits) {
-    totals.set(hit.sourceFamily, (totals.get(hit.sourceFamily) ?? 0) + hit.weight);
+    totals.set(
+      hit.sourceFamily,
+      (totals.get(hit.sourceFamily) ?? 0) + hit.weight,
+    );
   }
 
-  return [...totals.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "discover";
+  return (
+    [...totals.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ??
+    "discover"
+  );
 };
 
 const createSourceHit = (
@@ -204,7 +202,10 @@ const createSourceHit = (
   ...(anchorMovieId ? {anchorMovieId} : {}),
 });
 
-const toCandidateRecord = (movie: PoolSourceMovie, sourceHit: PoolSourceHit): PoolCandidateRecord => ({
+const toCandidateRecord = (
+  movie: PoolSourceMovie,
+  sourceHit: PoolSourceHit,
+): PoolCandidateRecord => ({
   movie: {
     id: movie.id,
     title: movie.title,
@@ -238,12 +239,16 @@ const toCandidateRecord = (movie: PoolSourceMovie, sourceHit: PoolSourceHit): Po
   },
 });
 
-const mergeSourceHits = (existingHits: PoolSourceHit[], nextHit: PoolSourceHit) => {
-  const duplicate = existingHits.some((hit) =>
-    hit.sourceFamily === nextHit.sourceFamily &&
-    hit.strategyId === nextHit.strategyId &&
-    hit.page === nextHit.page &&
-    hit.anchorMovieId === nextHit.anchorMovieId,
+const mergeSourceHits = (
+  existingHits: PoolSourceHit[],
+  nextHit: PoolSourceHit,
+) => {
+  const duplicate = existingHits.some(
+    (hit) =>
+      hit.sourceFamily === nextHit.sourceFamily &&
+      hit.strategyId === nextHit.strategyId &&
+      hit.page === nextHit.page &&
+      hit.anchorMovieId === nextHit.anchorMovieId,
   );
 
   return duplicate ? existingHits : [...existingHits, nextHit];
@@ -257,31 +262,36 @@ const mergeCandidateRecord = (
   const sourceHits = mergeSourceHits(current.sourceHits, sourceHit);
   return {
     ...current,
-    movie: current.movie.rating >= movie.rating ? current.movie : {
-      id: movie.id,
-      title: movie.title,
-      year: movie.year,
-      overview: movie.overview,
-      posterUrl: movie.posterUrl,
-      rating: movie.rating,
-    },
+    movie:
+      current.movie.rating >= movie.rating
+        ? current.movie
+        : {
+            id: movie.id,
+            title: movie.title,
+            year: movie.year,
+            overview: movie.overview,
+            posterUrl: movie.posterUrl,
+            rating: movie.rating,
+          },
     primarySourceFamily: getPrimarySourceFamily(sourceHits),
     sourceHits,
-    discoveredPages: [...new Set([...current.discoveredPages, sourceHit.page])].sort(
-      (left, right) => left - right,
-    ),
+    discoveredPages: [
+      ...new Set([...current.discoveredPages, sourceHit.page]),
+    ].sort((left, right) => left - right),
     features: {
       year: current.features.year || movie.year,
       releaseDate: current.features.releaseDate ?? movie.releaseDate,
       rating: Math.max(current.features.rating, movie.rating),
       voteCount: Math.max(current.features.voteCount, movie.voteCount),
       popularity: Math.max(current.features.popularity, movie.popularity),
-      genreIds: current.features.genreIds.length > 0
-        ? current.features.genreIds
-        : movie.genreIds,
+      genreIds:
+        current.features.genreIds.length > 0
+          ? current.features.genreIds
+          : movie.genreIds,
       dominantGenreId:
         current.features.dominantGenreId ?? dominantGenreId(movie.genreIds),
-      originalLanguage: current.features.originalLanguage ?? movie.originalLanguage,
+      originalLanguage:
+        current.features.originalLanguage ?? movie.originalLanguage,
     },
   };
 };
@@ -306,12 +316,10 @@ const mergeCandidates = (
   }
 };
 
-const getSettingsFingerprint = (settings: GameSettings) => hashValue(settings).slice(0, 16);
+const getSettingsFingerprint = (settings: GameSettings) =>
+  hashValue(settings).slice(0, 16);
 
-const fetchDiscoverStrategy = async (
-  strategy: PoolStrategy,
-  seed: string,
-) => {
+const fetchDiscoverStrategy = async (strategy: PoolStrategy, seed: string) => {
   const probePage = strategy.pageBandStart ?? 1;
   const filters = strategy.filters ?? {};
   const probe = await discoverTmdbMovies({
@@ -399,7 +407,10 @@ const fetchPopularFallback = async (page: number) => {
   };
 };
 
-const scoreFilterFit = (candidate: PoolCandidateRecord, filters: PoolQueryFilters) => {
+const scoreFilterFit = (
+  candidate: PoolCandidateRecord,
+  filters: PoolQueryFilters,
+) => {
   let checks = 0;
   let score = 0;
 
@@ -421,20 +432,25 @@ const scoreFilterFit = (candidate: PoolCandidateRecord, filters: PoolQueryFilter
 
   if (filters.primaryReleaseDateGte || filters.primaryReleaseDateLte) {
     checks += 1;
-    const releaseDate = candidate.features.releaseDate ?? `${candidate.features.year}-01-01`;
+    const releaseDate =
+      candidate.features.releaseDate ?? `${candidate.features.year}-01-01`;
     const withinLower =
-      !filters.primaryReleaseDateGte || releaseDate >= filters.primaryReleaseDateGte;
+      !filters.primaryReleaseDateGte ||
+      releaseDate >= filters.primaryReleaseDateGte;
     const withinUpper =
-      !filters.primaryReleaseDateLte || releaseDate <= filters.primaryReleaseDateLte;
+      !filters.primaryReleaseDateLte ||
+      releaseDate <= filters.primaryReleaseDateLte;
     score += withinLower && withinUpper ? 1 : 0;
   }
 
   if (filters.voteAverageGte != null || filters.voteAverageLte != null) {
     checks += 1;
     const withinLower =
-      filters.voteAverageGte == null || candidate.features.rating >= filters.voteAverageGte;
+      filters.voteAverageGte == null ||
+      candidate.features.rating >= filters.voteAverageGte;
     const withinUpper =
-      filters.voteAverageLte == null || candidate.features.rating <= filters.voteAverageLte;
+      filters.voteAverageLte == null ||
+      candidate.features.rating <= filters.voteAverageLte;
     score += withinLower && withinUpper ? 1 : 0;
   }
 
@@ -451,47 +467,62 @@ const scoreFreshness = (
   candidate: PoolCandidateRecord,
   popularityPreset: MoviePopularityPreset,
 ) => {
-  const familySet = new Set(candidate.sourceHits.map((hit) => hit.sourceFamily));
+  const familySet = new Set(
+    candidate.sourceHits.map((hit) => hit.sourceFamily),
+  );
   const releaseYear = candidate.features.year;
   const currentYear = new Date().getUTCFullYear();
-  const yearDelta = releaseYear > 0 ? Math.max(0, currentYear - releaseYear) : 30;
+  const yearDelta =
+    releaseYear > 0 ? Math.max(0, currentYear - releaseYear) : 30;
   const releaseScore =
-    yearDelta <= 1 ? 1
-    : yearDelta <= 3 ? 0.8
-    : yearDelta <= 7 ? 0.55
-    : 0.3;
+    yearDelta <= 1 ? 1 : yearDelta <= 3 ? 0.8 : yearDelta <= 7 ? 0.55 : 0.3;
   const sourceBonus =
     (familySet.has("trending") ? 0.35 : 0) +
     (familySet.has("recommendation") ? 0.22 : 0) +
     (familySet.has("similar") ? 0.15 : 0);
-  const popularitySupport = clamp(Math.log10(candidate.features.popularity + 1) / 3.5);
+  const popularitySupport = clamp(
+    Math.log10(candidate.features.popularity + 1) / 3.5,
+  );
   const presetBoost =
-    popularityPreset === "popular" ? popularitySupport * 0.08
-    : popularityPreset === "niche" ? (1 - popularitySupport) * 0.08
-    : 0;
-  return clamp(releaseScore * 0.65 + sourceBonus + popularitySupport * 0.15 + presetBoost);
+    popularityPreset === "popular"
+      ? popularitySupport * 0.08
+      : popularityPreset === "niche"
+        ? (1 - popularitySupport) * 0.08
+        : 0;
+  return clamp(
+    releaseScore * 0.65 + sourceBonus + popularitySupport * 0.15 + presetBoost,
+  );
 };
 
 const scoreNovelty = (
   candidate: PoolCandidateRecord,
   popularityPreset: MoviePopularityPreset,
 ) => {
-  const familyCount = new Set(candidate.sourceHits.map((hit) => hit.sourceFamily)).size;
+  const familyCount = new Set(
+    candidate.sourceHits.map((hit) => hit.sourceFamily),
+  ).size;
   const averagePage =
     candidate.sourceHits.reduce((total, hit) => total + hit.page, 0) /
     candidate.sourceHits.length;
   const familyBase =
-    familyCount <= 1 ? 0.55
-    : familyCount === 2 ? 0.85
-    : familyCount === 3 ? 0.5
-    : 0.25;
+    familyCount <= 1
+      ? 0.55
+      : familyCount === 2
+        ? 0.85
+        : familyCount === 3
+          ? 0.5
+          : 0.25;
   const pageDepthScore = clamp((averagePage - 1) / 40);
   const popularityPenalty = clamp(candidate.features.popularity / 140);
   const presetOffset =
-    popularityPreset === "popular" ? popularityPenalty * 0.08
-    : popularityPreset === "niche" ? (1 - popularityPenalty) * 0.12
-    : 0;
-  return clamp(familyBase + pageDepthScore * 0.2 - popularityPenalty * 0.15 + presetOffset);
+    popularityPreset === "popular"
+      ? popularityPenalty * 0.08
+      : popularityPreset === "niche"
+        ? (1 - popularityPenalty) * 0.12
+        : 0;
+  return clamp(
+    familyBase + pageDepthScore * 0.2 - popularityPenalty * 0.15 + presetOffset,
+  );
 };
 
 const scoreDiversityPotential = (
@@ -505,21 +536,38 @@ const scoreDiversityPotential = (
   const pageDepthScore = clamp((pageDepth - 1) / 50);
   const lowPopularityBonus = 1 - clamp(candidate.features.popularity / 110);
   if (popularityPreset === "popular") {
-    const popularityReach = clamp(Math.log10(candidate.features.popularity + 1) / 3.5);
+    const popularityReach = clamp(
+      Math.log10(candidate.features.popularity + 1) / 3.5,
+    );
     return genreBreadth * 0.35 + pageDepthScore * 0.2 + popularityReach * 0.45;
   }
 
   const lowPopularityWeight = popularityPreset === "niche" ? 0.5 : 0.35;
   const genreWeight = popularityPreset === "niche" ? 0.3 : 0.35;
   const pageWeight = popularityPreset === "niche" ? 0.2 : 0.3;
-  return genreBreadth * genreWeight + pageDepthScore * pageWeight + lowPopularityBonus * lowPopularityWeight;
+  return (
+    genreBreadth * genreWeight +
+    pageDepthScore * pageWeight +
+    lowPopularityBonus * lowPopularityWeight
+  );
 };
 
 const scoreSource = (candidate: PoolCandidateRecord) => {
-  const totalWeight = candidate.sourceHits.reduce((total, hit) => total + hit.weight, 0);
-  const familyCount = new Set(candidate.sourceHits.map((hit) => hit.sourceFamily)).size;
-  const anchorBoost = candidate.sourceHits.some((hit) => hit.anchorMovieId) ? 0.1 : 0;
-  return clamp(totalWeight / 0.5) * 0.8 + clamp((familyCount - 1) / 3) * 0.1 + anchorBoost;
+  const totalWeight = candidate.sourceHits.reduce(
+    (total, hit) => total + hit.weight,
+    0,
+  );
+  const familyCount = new Set(
+    candidate.sourceHits.map((hit) => hit.sourceFamily),
+  ).size;
+  const anchorBoost = candidate.sourceHits.some((hit) => hit.anchorMovieId)
+    ? 0.1
+    : 0;
+  return (
+    clamp(totalWeight / 0.5) * 0.8 +
+    clamp((familyCount - 1) / 3) * 0.1 +
+    anchorBoost
+  );
 };
 
 const scoreRecentHistoryPenalty = (lastServedAtMs?: number | null) => {
@@ -540,48 +588,16 @@ const scoreRecentHistoryPenalty = (lastServedAtMs?: number | null) => {
   return 0;
 };
 
-const clearStoredCandidates = async (gameCode: string) => {
-  await ensureRedis();
-  const keys = await redis.keys(poolCandidatePattern(gameCode));
-  const deletions = [poolPlanKey(gameCode), poolCandidatesKey(gameCode), ...keys];
-  if (deletions.length === 0) {
-    return;
-  }
-
-  await redis.del(deletions);
-};
-
-const savePoolArtifacts = async (gameCode: string, buildResult: PoolBuildResult) => {
-  await ensureRedis();
-  await clearStoredCandidates(gameCode);
-  await redis.set(poolPlanKey(gameCode), JSON.stringify(buildResult.plan));
-
-  if (buildResult.candidates.length > 0) {
-    await redis.zAdd(
-      poolCandidatesKey(gameCode),
-      buildResult.candidates.map((candidate) => ({
-        value: candidate.movie.id,
-        score: candidate.scores.final,
-      })),
-    );
-
-    for (const candidate of buildResult.candidates) {
-      await redis.set(
-        poolCandidateKey(gameCode, candidate.movie.id),
-        JSON.stringify(candidate),
-      );
-    }
-  }
-};
-
 const listBaseStrategies = (plan: PoolPlan) =>
-  plan.strategies.filter((strategy) =>
-    strategy.source === "discover" || strategy.source === "trending",
+  plan.strategies.filter(
+    (strategy) =>
+      strategy.source === "discover" || strategy.source === "trending",
   );
 
 const listExpansionStrategies = (plan: PoolPlan) =>
-  plan.strategies.filter((strategy) =>
-    strategy.source === "recommendation" || strategy.source === "similar",
+  plan.strategies.filter(
+    (strategy) =>
+      strategy.source === "recommendation" || strategy.source === "similar",
   );
 
 const selectExpansionAnchors = (
@@ -632,7 +648,11 @@ const selectExpansionAnchors = (
 
 const getRecentHistoryTimestamps = async (movieIds: string[]) => {
   await ensureRedis();
-  await redis.zRemRangeByScore(recentPoolHistoryKey(), 0, Date.now() - RECENT_HISTORY_TTL_MS);
+  await redis.zRemRangeByScore(
+    recentPoolHistoryKey(),
+    0,
+    Date.now() - RECENT_HISTORY_TTL_MS,
+  );
 
   const scores = await Promise.all(
     movieIds.map(async (movieId) => {
@@ -657,7 +677,8 @@ const scoreBaseCandidatesForAnchors = (
       const quality = scoreQuality(candidate);
       const freshness = scoreFreshness(candidate, popularityPreset);
       const novelty = scoreNovelty(candidate, popularityPreset);
-      const anchorScore = filterFit * 0.42 + quality * 0.34 + freshness * 0.14 + novelty * 0.10;
+      const anchorScore =
+        filterFit * 0.42 + quality * 0.34 + freshness * 0.14 + novelty * 0.1;
       return {
         ...candidate,
         scores: {
@@ -679,14 +700,19 @@ const getSelectionCaps = (
   maxConsecutivePerDecade: 2,
   maxConsecutivePerGenre: 2,
   maxPerSourceFamily:
-    popularityPreset === "any" ? Math.max(1, Math.floor(maxMovies * 0.45))
-    : popularityPreset === "popular" ? Math.max(1, Math.floor(maxMovies * 0.4))
-    : Math.max(1, Math.floor(maxMovies * 0.35)),
+    popularityPreset === "any"
+      ? Math.max(1, Math.floor(maxMovies * 0.45))
+      : popularityPreset === "popular"
+        ? Math.max(1, Math.floor(maxMovies * 0.4))
+        : Math.max(1, Math.floor(maxMovies * 0.35)),
   maxHighPopularity:
-    popularityPreset === "any" ? maxMovies
-    : popularityPreset === "popular" ? Math.max(1, Math.floor(maxMovies * 0.6))
-    : popularityPreset === "niche" ? Math.max(1, Math.floor(maxMovies * 0.25))
-    : Math.max(1, Math.floor(maxMovies * 0.4)),
+    popularityPreset === "any"
+      ? maxMovies
+      : popularityPreset === "popular"
+        ? Math.max(1, Math.floor(maxMovies * 0.6))
+        : popularityPreset === "niche"
+          ? Math.max(1, Math.floor(maxMovies * 0.25))
+          : Math.max(1, Math.floor(maxMovies * 0.4)),
 });
 
 type SelectionRelaxation = {
@@ -753,14 +779,17 @@ const passesSelectionConstraints = (
     relaxation.enforceGenre &&
     candidate.features.dominantGenreId &&
     recent.length >= caps.maxConsecutivePerGenre &&
-    recent.every((item) => item.features.dominantGenreId === candidate.features.dominantGenreId)
+    recent.every(
+      (item) =>
+        item.features.dominantGenreId === candidate.features.dominantGenreId,
+    )
   ) {
     return false;
   }
 
   if (relaxation.enforceSourceFamily) {
-    const sourceFamilyCount = selected.filter((item) =>
-      item.primarySourceFamily === candidate.primarySourceFamily,
+    const sourceFamilyCount = selected.filter(
+      (item) => item.primarySourceFamily === candidate.primarySourceFamily,
     ).length;
     if (sourceFamilyCount >= caps.maxPerSourceFamily) {
       return false;
@@ -811,34 +840,39 @@ const updateRecentPoolHistory = async (movies: MovieCandidate[]) => {
       score: now,
     })),
   );
-  await redis.zRemRangeByScore(recentPoolHistoryKey(), 0, now - RECENT_HISTORY_TTL_MS);
+  await redis.zRemRangeByScore(
+    recentPoolHistoryKey(),
+    0,
+    now - RECENT_HISTORY_TTL_MS,
+  );
 };
 
 export const createPoolSeed = () => randomUUID();
 
 export const setPoolSeed = async (context: PoolSeedContext) => {
-  await ensureRedis();
-  await redis.set(poolSeedKey(context.gameCode), context.seed);
+  const meta = await RoomMetaService.getGameMetaOrThrow(context.gameCode);
+  await RoomMetaService.setGameMeta(context.gameCode, {
+    ...meta,
+    poolSeed: context.seed,
+  });
 };
 
-export const getPoolSeedOrThrow = async (gameCode: string) => {
-  await ensureRedis();
-  const seed = await redis.get(poolSeedKey(gameCode));
-  if (!seed) {
-    throw new NotFoundException(
-      `Pool seed missing for game ${GameRedisService.normalizeGameCode(gameCode)}`,
-    );
-  }
+export const getPoolSeedOrThrow = async (gameCode: string) =>
+  (await RoomMetaService.getGameMetaOrThrow(gameCode)).poolSeed;
 
-  return seed;
-};
-
-export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan => {
+export const planPoolQueries = (
+  settings: GameSettings,
+  seed: string,
+): PoolPlan => {
   const baseFilters = GameSettingsService.buildMovieDiscoveryFilters(settings);
   const popularityPreset = getPopularityPreset(settings);
   const weights = getPresetWeights(popularityPreset);
   const currentYear = new Date().getUTCFullYear();
-  const deepCutStart = pickInt(`${seed}:deep:start`, 1982, Math.max(1982, currentYear - 18));
+  const deepCutStart = pickInt(
+    `${seed}:deep:start`,
+    1982,
+    Math.max(1982, currentYear - 18),
+  );
   const deepCutEnd = Math.min(deepCutStart + 8, currentYear - 3);
 
   return {
@@ -856,20 +890,25 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         pageSampleSize: popularityPreset === "niche" ? 2 : 3,
         pageBandStart: popularityPreset === "niche" ? 2 : 1,
         pageBandEnd:
-          popularityPreset === "popular" ? 2
-          : popularityPreset === "any" ? 6
-          : popularityPreset === "niche" ? 8
-          : 3,
+          popularityPreset === "popular"
+            ? 2
+            : popularityPreset === "any"
+              ? 6
+              : popularityPreset === "niche"
+                ? 8
+                : 3,
         filters: {
           ...baseFilters,
           sortBy: "popularity.desc",
           voteCountGte:
-            popularityPreset === "popular" ? 250
-            : popularityPreset === "niche" ? 20
-            : popularityPreset === "any" ? 25
-            : 50,
-          voteCountLte:
-            popularityPreset === "niche" ? 2000 : undefined,
+            popularityPreset === "popular"
+              ? 250
+              : popularityPreset === "niche"
+                ? 20
+                : popularityPreset === "any"
+                  ? 25
+                  : 50,
+          voteCountLte: popularityPreset === "niche" ? 2000 : undefined,
         },
       },
       {
@@ -880,21 +919,31 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         weight: weights.mid,
         pageSampleSize: 3,
         pageBandStart:
-          popularityPreset === "popular" ? 2
-          : popularityPreset === "niche" ? 8
-          : 4,
+          popularityPreset === "popular"
+            ? 2
+            : popularityPreset === "niche"
+              ? 8
+              : 4,
         pageBandEnd:
-          popularityPreset === "popular" ? 10
-          : popularityPreset === "niche" ? 28
-          : popularityPreset === "any" ? 20
-          : 15,
+          popularityPreset === "popular"
+            ? 10
+            : popularityPreset === "niche"
+              ? 28
+              : popularityPreset === "any"
+                ? 20
+                : 15,
         filters: {
           ...baseFilters,
-          sortBy: popularityPreset === "popular" ? "popularity.desc" : "vote_average.desc",
+          sortBy:
+            popularityPreset === "popular"
+              ? "popularity.desc"
+              : "vote_average.desc",
           voteCountGte:
-            popularityPreset === "popular" ? 150
-            : popularityPreset === "niche" ? 50
-            : 120,
+            popularityPreset === "popular"
+              ? 150
+              : popularityPreset === "niche"
+                ? 50
+                : 120,
           voteAverageGte: Math.max(baseFilters.voteAverageGte ?? 0, 6.2),
         },
       },
@@ -906,27 +955,37 @@ export const planPoolQueries = (settings: GameSettings, seed: string): PoolPlan 
         weight: weights.deep,
         pageSampleSize: popularityPreset === "popular" ? 2 : 4,
         pageBandStart:
-          popularityPreset === "popular" ? 8
-          : popularityPreset === "any" ? 12
-          : popularityPreset === "niche" ? 20
-          : 16,
+          popularityPreset === "popular"
+            ? 8
+            : popularityPreset === "any"
+              ? 12
+              : popularityPreset === "niche"
+                ? 20
+                : 16,
         pageBandEnd:
-          popularityPreset === "popular" ? 30
-          : popularityPreset === "any" ? 100
-          : popularityPreset === "niche" ? 120
-          : 80,
+          popularityPreset === "popular"
+            ? 30
+            : popularityPreset === "any"
+              ? 100
+              : popularityPreset === "niche"
+                ? 120
+                : 80,
         filters: maybeApplyDateWindow(
           {
             ...baseFilters,
             sortBy: "vote_count.desc",
             voteCountGte:
-              popularityPreset === "popular" ? 40
-              : popularityPreset === "niche" ? 5
-              : 15,
+              popularityPreset === "popular"
+                ? 40
+                : popularityPreset === "niche"
+                  ? 5
+                  : 15,
             voteCountLte:
-              popularityPreset === "popular" ? 5000
-              : popularityPreset === "niche" ? 700
-              : 1500,
+              popularityPreset === "popular"
+                ? 5000
+                : popularityPreset === "niche"
+                  ? 700
+                  : 1500,
           },
           deepCutStart,
           deepCutEnd,
@@ -1027,7 +1086,11 @@ export const fetchPoolCandidates = async (
     }
   }
 
-  if (candidates.size === 0 || (discoverSuccessCount === 0 && candidates.size < settings.gameplay.maxMovies)) {
+  if (
+    candidates.size === 0 ||
+    (discoverSuccessCount === 0 &&
+      candidates.size < settings.gameplay.maxMovies)
+  ) {
     try {
       const fallback = await fetchPopularFallback(1);
       const popularStrategy: PoolStrategy = {
@@ -1037,7 +1100,12 @@ export const fetchPoolCandidates = async (
         sourceFamily: "popular",
         weight: 0.08,
       };
-      mergeCandidates(candidates, fallback.items, popularStrategy, fallback.page);
+      mergeCandidates(
+        candidates,
+        fallback.items,
+        popularStrategy,
+        fallback.page,
+      );
     } catch {
       // Keep the existing failure path below.
     }
@@ -1060,17 +1128,20 @@ export const scorePoolCandidates = (
       const quality = scoreQuality(candidate);
       const freshness = scoreFreshness(candidate, popularityPreset);
       const novelty = scoreNovelty(candidate, popularityPreset);
-      const diversityPotential = scoreDiversityPotential(candidate, popularityPreset);
+      const diversityPotential = scoreDiversityPotential(
+        candidate,
+        popularityPreset,
+      );
       const source = scoreSource(candidate);
       const recentHistoryPenalty = scoreRecentHistoryPenalty(
         recentHistoryTimestamps.get(candidate.movie.id),
       );
       const final =
         filterFit * 0.28 +
-        quality * 0.20 +
+        quality * 0.2 +
         freshness * 0.12 +
         novelty * 0.16 +
-        diversityPotential * 0.10 +
+        diversityPotential * 0.1 +
         source * 0.08 -
         recentHistoryPenalty * 0.14;
 
@@ -1125,8 +1196,8 @@ export const selectFinalPool = (
       break;
     }
 
-    const pickedIndex = remaining.findIndex((candidate) =>
-      candidate.movie.id === pickedCandidate?.movie.id,
+    const pickedIndex = remaining.findIndex(
+      (candidate) => candidate.movie.id === pickedCandidate?.movie.id,
     );
     if (pickedIndex === -1) {
       break;
@@ -1139,7 +1210,7 @@ export const selectFinalPool = (
   return selected.map((candidate) => candidate.movie);
 };
 
-export const buildInitialPool = async (input: {
+export const generatePool = async (input: {
   gameCode: string;
   settings: GameSettings;
 }): Promise<MovieCandidate[]> => {
@@ -1165,67 +1236,8 @@ export const buildInitialPool = async (input: {
     throw new BadRequestException("No movies available to build queue");
   }
 
-  await savePoolArtifacts(input.gameCode, {
-    plan: {
-      ...plan,
-      selectionSalt,
-    },
-    candidates,
-    movies,
-  });
-
-  return movies;
-};
-
-export const saveInitialPool = async (gameCode: string, movies: MovieCandidate[]) => {
-  if (movies.length === 0) {
-    return;
-  }
-
-  await ensureRedis();
-  await redis.del(poolKey(gameCode));
-  await redis.zAdd(
-    poolKey(gameCode),
-    movies.map((movie, order) => ({
-      value: movie.id,
-      score: order,
-    })),
-  );
-
   await updateRecentPoolHistory(movies);
-
-  for (const movie of movies) {
-    const record: GameRedisService.MovieRecord = {
-      movie,
-      status: "pending",
-      likeCount: 0,
-      dislikeCount: 0,
-      maybeCount: 0,
-      superLikeCount: 0,
-      skipCount: 0,
-      totalVotes: 0,
-      resolvedAt: null,
-      lastActivityAt: null,
-      matchedAt: null,
-    };
-    await GameRedisService.setMovieRecord(gameCode, movie.id, record);
-  }
-};
-
-export const getPoolEntries = async (
-  gameCode: string,
-): Promise<SwipeQueueService.PlayerQueueEntry[]> => {
-  await ensureRedis();
-  const movieIds = await redis.zRange(poolKey(gameCode), 0, -1);
-  return movieIds.map((movieId, order) => ({
-    movieId,
-    order,
-  }));
-};
-
-export const getPoolSize = async (gameCode: string) => {
-  await ensureRedis();
-  return redis.zCard(poolKey(gameCode));
+  return movies;
 };
 
 export const maybeRefillPool = async (_input: {gameCode: string}) => {

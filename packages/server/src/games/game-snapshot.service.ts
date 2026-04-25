@@ -8,19 +8,18 @@ import type {
   PlayerGameState,
 } from "@deckflix/shared";
 import {UnauthorizedException} from "../common/errors";
-import * as GamePoolService from "./game-pool.service";
+import * as PoolService from "../pool/pool.service";
 import * as GameSettingsService from "../settings/game-settings.service";
-import * as SwipeLedgerService from "../swipe/swipe-ledger.service";
-import * as SwipeService from "../swipe/swipe.service";
+import * as DeckService from "../swipe/deck.service";
 import {isDisplayConnected, isPlayerConnected} from "../ws/presence.ws";
-import * as GameRedisService from "./game-redis.service";
 import * as RoomMetaService from "../rooms/room-meta.service";
+import * as RoomPlayersService from "../rooms/room-players.service";
 
 export const getGameSummary = async (gameCode: string): Promise<GameSummary> => {
   const [meta, players, queueSize, settings] = await Promise.all([
     RoomMetaService.getGameMetaOrThrow(gameCode),
-    GameRedisService.listPlayers(gameCode),
-    GamePoolService.getPoolSize(gameCode),
+    RoomPlayersService.listPlayers(gameCode),
+    PoolService.getPoolSize(gameCode),
     GameSettingsService.getGameSettingsOrThrow(gameCode),
   ]);
 
@@ -40,7 +39,7 @@ export const getGameSummary = async (gameCode: string): Promise<GameSummary> => 
 };
 
 export const getGamePlayers = async (gameCode: string): Promise<GamePlayers> => {
-  const players = await GameRedisService.listPlayers(gameCode);
+  const players = await RoomPlayersService.listPlayers(gameCode);
   return {
     players: players.map((player) => ({
       id: player.id,
@@ -52,32 +51,34 @@ export const getGamePlayers = async (gameCode: string): Promise<GamePlayers> => 
 };
 
 export const getGameResults = async (gameCode: string): Promise<GameResults> => {
-  const [poolEntries, matchedMovieIds, rejectedMovieIds] = await Promise.all([
-    GamePoolService.getPoolEntries(gameCode),
-    SwipeLedgerService.getMatchedMovieIds(gameCode),
-    SwipeLedgerService.getRejectedMovieIds(gameCode),
-  ]);
-  const movieRecords = await GameRedisService.getMovieRecords(
+  const poolEntries = await PoolService.listPoolEntries(gameCode);
+  const movieStates = await PoolService.getMovieStates(
     gameCode,
     poolEntries.map((entry) => entry.movieId),
   );
 
   const voteSummary: GameVoteSummary[] = poolEntries.map((entry) => {
-    const movieRecord = movieRecords.get(entry.movieId)!;
+    const movieState = movieStates.get(entry.movieId)!;
     return {
       movieId: entry.movieId,
-      like: movieRecord.likeCount,
-      dislike: movieRecord.dislikeCount,
-      maybe: movieRecord.maybeCount,
-      superLike: movieRecord.superLikeCount,
-      skip: movieRecord.skipCount,
-      totalVotes: movieRecord.totalVotes,
-      matched: movieRecord.status === "matched",
-      resolvedAt: movieRecord.resolvedAt ?? null,
-      lastActivityAt: movieRecord.lastActivityAt ?? null,
-      matchedAt: movieRecord.matchedAt ?? null,
+      like: movieState.likeCount,
+      dislike: movieState.dislikeCount,
+      maybe: movieState.maybeCount,
+      superLike: movieState.superLikeCount,
+      skip: movieState.skipCount,
+      totalVotes: movieState.totalVotes,
+      matched: movieState.status === "matched",
+      resolvedAt: movieState.resolvedAt ?? null,
+      lastActivityAt: movieState.lastActivityAt ?? null,
+      matchedAt: movieState.matchedAt ?? null,
     };
   });
+  const matchedMovieIds = voteSummary
+    .filter((entry) => entry.matched)
+    .map((entry) => entry.movieId);
+  const rejectedMovieIds = poolEntries
+    .filter((entry) => movieStates.get(entry.movieId)?.status === "rejected")
+    .map((entry) => entry.movieId);
 
   return {
     voteSummary,
@@ -101,11 +102,11 @@ export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
 export const getDisplayGameState = async (gameCode: string): Promise<DisplayGameState> => {
   const [summary, poolEntries, players, results] = await Promise.all([
     getGameSummary(gameCode),
-    GamePoolService.getPoolEntries(gameCode),
-    GameRedisService.listPlayers(gameCode),
+    PoolService.listPoolEntries(gameCode),
+    RoomPlayersService.listPlayers(gameCode),
     getGameResults(gameCode),
   ]);
-  const movieRecords = await GameRedisService.getMovieRecords(
+  const movieMetas = await PoolService.getMovieMetas(
     gameCode,
     poolEntries.map((entry) => entry.movieId),
   );
@@ -113,14 +114,14 @@ export const getDisplayGameState = async (gameCode: string): Promise<DisplayGame
   return {
     summary,
     queue: poolEntries.map((entry) => ({
-      movie: movieRecords.get(entry.movieId)!.movie,
+      movie: movieMetas.get(entry.movieId)!,
       order: entry.order,
     })),
     playerProgress: await Promise.all(
       players.map(async (player) => ({
         playerId: player.id,
-        currentIndex: await SwipeService.getPlayerCurrentIndex(gameCode, player.id),
-        completed: await SwipeService.isPlayerCompleted(gameCode, player.id),
+        currentIndex: await DeckService.getCurrentIndex(gameCode, player.id),
+        completed: await DeckService.isPlayerCompleted(gameCode, player.id),
       })),
     ),
     results,
@@ -131,22 +132,30 @@ export const getPlayerGameState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => {
-  const player = await GameRedisService.getPlayerRecord(input.gameCode, input.playerId);
+  const player = await RoomPlayersService.getPlayerRecord(input.gameCode, input.playerId);
   if (!player) {
     throw new UnauthorizedException("Player not found");
   }
 
-  const [summary, settings, currentIndex, completed, currentItem] = await Promise.all([
+  const [summary, settings, currentIndex, completed, currentMovieId] = await Promise.all([
     getGameSummary(input.gameCode),
     GameSettingsService.getGameSettingsOrThrow(input.gameCode),
-    SwipeService.getPlayerCurrentIndex(input.gameCode, input.playerId),
-    SwipeService.isPlayerCompleted(input.gameCode, input.playerId),
-    SwipeService.getCurrentOrNextMovie(input.gameCode, input.playerId),
+    DeckService.getCurrentIndex(input.gameCode, input.playerId),
+    DeckService.isPlayerCompleted(input.gameCode, input.playerId),
+    DeckService.peekOrTopUpCurrentMovieId(input.gameCode, input.playerId),
   ]);
-  const remainingCount = await SwipeService.getPlayerRemainingCount(
+  const remainingCount = await DeckService.getRemainingCount(
     input.gameCode,
     input.playerId,
   );
+  const currentItem = currentMovieId
+    ? {
+        movie: await PoolService.getMovieMetaOrThrow(
+          input.gameCode,
+          currentMovieId,
+        ),
+      }
+    : null;
 
   return {
     summary,

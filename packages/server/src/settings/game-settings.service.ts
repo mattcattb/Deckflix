@@ -3,13 +3,11 @@ import {gameSettingsSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
 import {getTmdbMovieGenres} from "../lib/tmdb";
 import {ensureRedis, redis} from "../lib/redis";
-
-const GAME_TTL_SECONDS = 60 * 60 * 24;
-
-const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCase();
-
-const settingsKey = (gameCode: string) =>
-  `game:${normalizeGameCode(gameCode)}:settings`;
+import {
+  normalizeGameCode,
+  roomKey,
+  ROOM_TTL_SECONDS,
+} from "../rooms/room-lifecycle.service";
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   gameplay: {
@@ -126,7 +124,7 @@ export const getSelectableMovieGenres = async (language = "en-US") =>
 
 export const getGameSettingsOrThrow = async (gameCode: string) => {
   await ensureRedis();
-  const raw = await redis.get(settingsKey(gameCode));
+  const raw = await redis.hGet(roomKey(gameCode), "settings");
   if (!raw) {
     throw new NotFoundException(
       `Game ${normalizeGameCode(gameCode)} not found`,
@@ -141,7 +139,7 @@ export const setGameSettings = async (
   settings: GameSettings,
 ) => {
   await ensureRedis();
-  await redis.set(settingsKey(gameCode), JSON.stringify(settings), {
-    EX: GAME_TTL_SECONDS,
-  });
+  const key = roomKey(gameCode);
+  await redis.hSet(key, "settings", JSON.stringify(settings));
+  await redis.expire(key, ROOM_TTL_SECONDS);
 };

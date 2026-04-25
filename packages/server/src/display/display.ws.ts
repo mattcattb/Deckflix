@@ -4,18 +4,18 @@ import {
   encodeDisplayServerMessage,
 } from "@deckflix/shared";
 import {ensureSocketPubSub} from "../lib/redis";
-import * as GameRedisService from "../games/game-redis.service";
 import {
   getProjectedDisplayState,
   publishGameState,
 } from "../games/game-state.pubsub";
+import * as RoomPlayersService from "../rooms/room-players.service";
 import * as GamePresenceService from "../ws/presence.ws";
 
 const publishDisplayRoomState = async (
   server: Parameters<typeof publishGameState>[0],
   gameCode: string,
 ) => {
-  const playerIds = await GameRedisService.listPlayerIds(gameCode);
+  const playerIds = await RoomPlayersService.listPlayerIds(gameCode);
   await publishGameState(server, gameCode, playerIds);
 };
 

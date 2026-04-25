@@ -14,7 +14,7 @@ import type {
   PoolSourceMovieListResult,
   PoolSortOption,
   PoolTimeWindow,
-} from "../games/game-pool.types";
+} from "../pool/pool.types";
 import {ensureRedis, redis} from "./redis";
 
 type TmdbSourceMovie = {

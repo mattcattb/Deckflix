@@ -2,7 +2,11 @@ import {z} from "zod";
 import {gameCodeSchema, gameStatusSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
-import * as GameRedisService from "../games/game-redis.service";
+import {
+  normalizeGameCode,
+  roomKey,
+  ROOM_TTL_SECONDS,
+} from "./room-lifecycle.service";
 
 const displayRecordSchema = z.object({
   id: z.string().min(1),
@@ -13,6 +17,7 @@ const gameMetaRecordSchema = z.object({
   id: z.string().min(1),
   code: gameCodeSchema,
   roomName: z.string().min(1).max(60).nullable(),
+  poolSeed: z.string().min(1),
   status: gameStatusSchema,
   createdAt: z.string().datetime(),
   endedAt: z.string().datetime().nullable(),
@@ -22,8 +27,10 @@ const gameMetaRecordSchema = z.object({
 export type DisplayRecord = z.infer<typeof displayRecordSchema>;
 export type GameMetaRecord = z.infer<typeof gameMetaRecordSchema>;
 
-const metaKey = (gameCode: string) =>
-  `game:${GameRedisService.normalizeGameCode(gameCode)}:meta`;
+const gameStatusRecordSchema = z.object({
+  status: gameStatusSchema,
+  endedAt: z.string().datetime().nullable(),
+});
 
 const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
   let parsedValue: unknown;
@@ -44,30 +51,87 @@ const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
 
 export const createGameMeta = async (meta: GameMetaRecord) => {
   await ensureRedis();
-  const normalized = GameRedisService.normalizeGameCode(meta.code);
-  const created = await redis.set(metaKey(normalized), JSON.stringify({
-    ...meta,
+  const normalized = normalizeGameCode(meta.code);
+  const key = roomKey(normalized);
+  const normalizedMeta = {
+    id: meta.id,
     code: normalized,
-  }), {
-    NX: true,
-    EX: GameRedisService.GAME_TTL_SECONDS,
-  });
+    roomName: meta.roomName,
+    createdAt: meta.createdAt,
+  };
+  const created = await redis.hSetNX(key, "meta", JSON.stringify(normalizedMeta));
+
+  if (created) {
+    const multi = redis.multi();
+    multi.hSet(key, "status", JSON.stringify({
+      status: meta.status,
+      endedAt: meta.endedAt,
+    }));
+    multi.hSet(key, "display", JSON.stringify(meta.display));
+    multi.hSet(key, "poolSeed", meta.poolSeed);
+    multi.expire(key, ROOM_TTL_SECONDS);
+    await multi.exec();
+  }
 
   return Boolean(created);
 };
 
 export const getGameMetaOrThrow = async (gameCode: string) => {
   await ensureRedis();
-  const normalized = GameRedisService.normalizeGameCode(gameCode);
-  const raw = await redis.get(metaKey(normalized));
-  if (!raw) {
+  const normalized = normalizeGameCode(gameCode);
+  const [metaRaw, statusRaw, displayRaw, poolSeed] = await redis.hmGet(
+    roomKey(normalized),
+    ["meta", "status", "display", "poolSeed"],
+  );
+  if (!metaRaw || !statusRaw || !displayRaw || !poolSeed) {
     throw new NotFoundException(`Game ${normalized} not found`);
   }
 
-  return parseJson(raw, gameMetaRecordSchema, `Game ${normalized} not found`);
+  const meta = parseJson(
+    metaRaw,
+    gameMetaRecordSchema.pick({
+      id: true,
+      code: true,
+      roomName: true,
+      createdAt: true,
+    }),
+    `Game ${normalized} not found`,
+  );
+  const status = parseJson(
+    statusRaw,
+    gameStatusRecordSchema,
+    `Game ${normalized} not found`,
+  );
+  const display = parseJson(
+    displayRaw,
+    displayRecordSchema,
+    `Game ${normalized} not found`,
+  );
+
+  return gameMetaRecordSchema.parse({
+    ...meta,
+    ...status,
+    display,
+    poolSeed,
+  });
 };
 
 export const setGameMeta = async (gameCode: string, meta: GameMetaRecord) => {
   await ensureRedis();
-  await redis.set(metaKey(gameCode), JSON.stringify(meta));
+  const key = roomKey(gameCode);
+  const multi = redis.multi();
+  multi.hSet(key, "meta", JSON.stringify({
+    id: meta.id,
+    code: normalizeGameCode(meta.code),
+    roomName: meta.roomName,
+    createdAt: meta.createdAt,
+  }));
+  multi.hSet(key, "status", JSON.stringify({
+    status: meta.status,
+    endedAt: meta.endedAt,
+  }));
+  multi.hSet(key, "display", JSON.stringify(meta.display));
+  multi.hSet(key, "poolSeed", meta.poolSeed);
+  multi.expire(key, ROOM_TTL_SECONDS);
+  await multi.exec();
 };
