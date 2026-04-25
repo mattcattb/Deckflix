@@ -73,6 +73,11 @@ export const listPlayers = async (gameCode: string) => {
 export const listPlayerIds = async (gameCode: string) =>
   (await listPlayers(gameCode)).map((player) => player.id);
 
+export const countPlayers = async (gameCode: string) => {
+  await ensureRedis();
+  return redis.hLen(playersKey(gameCode));
+};
+
 export const deletePlayerRecord = async (
   gameCode: string,
   playerId: string,

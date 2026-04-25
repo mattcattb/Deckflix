@@ -1,6 +1,7 @@
 import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException, NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
+import {withRedisLock} from "../lib/redis-lock";
 import * as PoolService from "../pool/pool.service";
 import {
   normalizeGameCode,
@@ -24,19 +25,20 @@ const swipeChoices = new Set<SwipeChoice>([
 ]);
 
 const roomPrefix = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:`;
-const votesKey = (gameCode: string) => `${roomPrefix(gameCode)}votes`;
+const votesKey = (gameCode: string, movieId: string) =>
+  `${roomPrefix(gameCode)}votes:${movieId}`;
 const movieStateKey = (gameCode: string) => `${roomPrefix(gameCode)}movie_state`;
-const voteField = (playerId: string, movieId: string) =>
-  `${playerId}:${movieId}`;
+const voteLockKey = (gameCode: string, movieId: string) =>
+  `${roomPrefix(gameCode)}vote_lock:${movieId}`;
 
 const parseVoteRecord = (
-  field: string,
+  playerId: string,
+  movieId: string,
   raw: string,
 ): VoteRecord | null => {
   try {
     const parsed = JSON.parse(raw) as Partial<VoteRecord>;
-    const [playerId, movieId] = field.split(":");
-    return parsed.choice && swipeChoices.has(parsed.choice) && playerId && movieId
+    return parsed.choice && swipeChoices.has(parsed.choice)
       ? {
           playerId,
           movieId,
@@ -49,6 +51,86 @@ const parseVoteRecord = (
   }
 };
 
+const parseMovieState = (
+  raw: string | null,
+  gameCode: string,
+  movieId: string,
+): PoolService.MovieState => {
+  if (!raw) {
+    throw new NotFoundException(
+      `Movie ${movieId} not found in game ${normalizeGameCode(gameCode)}`,
+    );
+  }
+
+  return JSON.parse(raw) as PoolService.MovieState;
+};
+
+const applyVoteToMovieState = (input: {
+  state: PoolService.MovieState;
+  choice: SwipeChoice;
+  totalPlayers: number;
+  votedAt: string;
+}) => {
+  const previousStatus = input.state.status;
+  const state: PoolService.MovieState = {
+    ...input.state,
+    totalVotes: input.state.totalVotes + 1,
+    lastActivityAt: input.votedAt,
+    resolvedAt: input.state.resolvedAt ?? null,
+    matchedAt: input.state.matchedAt ?? null,
+  };
+
+  switch (input.choice) {
+    case "like":
+      state.likeCount += 1;
+      break;
+    case "dislike":
+      state.dislikeCount += 1;
+      break;
+    case "maybe":
+      state.maybeCount += 1;
+      break;
+    case "super_like":
+      state.superLikeCount += 1;
+      break;
+    case "skip":
+      state.skipCount += 1;
+      break;
+  }
+
+  const positiveVotes = state.likeCount + state.superLikeCount;
+  const hasBlockingVote =
+    state.dislikeCount > 0 || state.maybeCount > 0 || state.skipCount > 0;
+
+  if (
+    input.totalPlayers > 0 &&
+    state.totalVotes === input.totalPlayers &&
+    positiveVotes === input.totalPlayers
+  ) {
+    state.status = "matched";
+  } else if (hasBlockingVote) {
+    state.status = "rejected";
+  } else if (input.totalPlayers > 0 && state.totalVotes === input.totalPlayers) {
+    state.status = "rejected";
+  } else {
+    state.status = "pending";
+  }
+
+  if (state.status === "pending") {
+    state.resolvedAt = null;
+    state.matchedAt = null;
+  } else {
+    state.resolvedAt = state.resolvedAt ?? input.votedAt;
+    state.matchedAt =
+      state.status === "matched" ? state.matchedAt ?? input.votedAt : null;
+  }
+
+  return {
+    justMatched: previousStatus !== "matched" && state.status === "matched",
+    state,
+  };
+};
+
 export const recordVote = async (input: {
   gameCode: string;
   movieId: string;
@@ -57,131 +139,81 @@ export const recordVote = async (input: {
 }) => {
   await ensureRedis();
   const votedAt = new Date().toISOString();
-  const totalPlayers = (await RoomPlayersService.listPlayerIds(input.gameCode))
-    .length;
-  const result = await redis.eval(
-    `
-      local voteSet = redis.call("HSETNX", KEYS[1], ARGV[1], ARGV[2])
-      if voteSet == 0 then
-        return cjson.encode({status = "duplicate"})
-      end
+  const totalPlayers = await RoomPlayersService.countPlayers(input.gameCode);
 
-      local rawState = redis.call("HGET", KEYS[2], ARGV[3])
-      if not rawState then
-        return cjson.encode({status = "missing_movie"})
-      end
-
-      local state = cjson.decode(rawState)
-      local previousStatus = state.status
-      state.totalVotes = (state.totalVotes or 0) + 1
-      state.lastActivityAt = ARGV[5]
-      state.resolvedAt = state.resolvedAt or cjson.null
-      state.matchedAt = state.matchedAt or cjson.null
-
-      if ARGV[4] == "like" then
-        state.likeCount = (state.likeCount or 0) + 1
-      elseif ARGV[4] == "dislike" then
-        state.dislikeCount = (state.dislikeCount or 0) + 1
-      elseif ARGV[4] == "maybe" then
-        state.maybeCount = (state.maybeCount or 0) + 1
-      elseif ARGV[4] == "super_like" then
-        state.superLikeCount = (state.superLikeCount or 0) + 1
-      elseif ARGV[4] == "skip" then
-        state.skipCount = (state.skipCount or 0) + 1
-      end
-
-      local positiveVotes = (state.likeCount or 0) + (state.superLikeCount or 0)
-      local totalPlayers = tonumber(ARGV[6])
-      local hasBlockingVote =
-        (state.dislikeCount or 0) > 0 or
-        (state.maybeCount or 0) > 0 or
-        (state.skipCount or 0) > 0
-
-      if totalPlayers > 0 and state.totalVotes == totalPlayers and positiveVotes == totalPlayers then
-        state.status = "matched"
-      elseif hasBlockingVote then
-        state.status = "rejected"
-      elseif totalPlayers > 0 and state.totalVotes == totalPlayers then
-        state.status = "rejected"
-      else
-        state.status = "pending"
-      end
-
-      if state.status == "pending" then
-        state.resolvedAt = cjson.null
-        state.matchedAt = cjson.null
-      else
-        state.resolvedAt = state.resolvedAt == cjson.null and ARGV[5] or state.resolvedAt
-        state.matchedAt = state.status == "matched" and (state.matchedAt == cjson.null and ARGV[5] or state.matchedAt) or cjson.null
-      end
-
-      redis.call("HSET", KEYS[2], ARGV[3], cjson.encode(state))
-      redis.call("EXPIRE", KEYS[1], ARGV[7])
-      redis.call("EXPIRE", KEYS[2], ARGV[7])
-
-      return cjson.encode({
-        status = "recorded",
-        justMatched = previousStatus ~= "matched" and state.status == "matched",
-        state = state
-      })
-    `,
+  return withRedisLock(
     {
-      keys: [votesKey(input.gameCode), movieStateKey(input.gameCode)],
-      arguments: [
-        voteField(input.playerId, input.movieId),
+      key: voteLockKey(input.gameCode, input.movieId),
+      ttlMs: 2_000,
+      retryCount: 20,
+      retryDelayMs: 25,
+      busyMessage: "Movie vote is busy, please try again",
+    },
+    async () => {
+      const state = parseMovieState(
+        await redis.hGet(movieStateKey(input.gameCode), input.movieId),
+        input.gameCode,
+        input.movieId,
+      );
+      const voteSet = await redis.hSetNX(
+        votesKey(input.gameCode, input.movieId),
+        input.playerId,
         JSON.stringify({
           choice: input.choice,
           votedAt,
         }),
-        input.movieId,
-        input.choice,
+      );
+      if (!voteSet) {
+        throw new BadRequestException("Vote already recorded for this movie");
+      }
+
+      const next = applyVoteToMovieState({
+        state,
+        choice: input.choice,
+        totalPlayers,
         votedAt,
-        String(totalPlayers),
-        String(ROOM_TTL_SECONDS),
-      ],
+      });
+      const multi = redis.multi();
+      multi.hSet(
+        movieStateKey(input.gameCode),
+        input.movieId,
+        JSON.stringify(next.state),
+      );
+      multi.expire(votesKey(input.gameCode, input.movieId), ROOM_TTL_SECONDS);
+      multi.expire(movieStateKey(input.gameCode), ROOM_TTL_SECONDS);
+      await multi.exec();
+
+      return next;
     },
   );
-  const parsed = JSON.parse(String(result)) as {
-    status: "recorded" | "duplicate" | "missing_movie";
-    justMatched?: boolean;
-    state?: PoolService.MovieState;
-  };
-
-  if (parsed.status === "duplicate") {
-    throw new BadRequestException("Vote already recorded for this movie");
-  }
-  if (parsed.status === "missing_movie" || !parsed.state) {
-    throw new NotFoundException(
-      `Movie ${input.movieId} not found in game ${normalizeGameCode(input.gameCode)}`,
-    );
-  }
-
-  return {
-    justMatched: Boolean(parsed.justMatched),
-    state: parsed.state,
-  };
 };
 
-export const getVoteRecords = async (gameCode: string) => {
+export const getMovieVoteRecords = async (gameCode: string, movieId: string) => {
   await ensureRedis();
-  const rawVotes = await redis.hGetAll(votesKey(gameCode));
+  const rawVotes = await redis.hGetAll(votesKey(gameCode, movieId));
   return Object.entries(rawVotes)
-    .map(([field, raw]) => parseVoteRecord(field, raw))
+    .map(([playerId, raw]) => parseVoteRecord(playerId, movieId, raw))
     .filter((record): record is VoteRecord => Boolean(record));
 };
 
-export const getMovieVoteRecords = async (gameCode: string, movieId: string) =>
-  (await getVoteRecords(gameCode)).filter((record) => record.movieId === movieId);
+export const getVoteRecords = async (gameCode: string) => {
+  const movieIds = await PoolService.listPoolMovieIds(gameCode);
+  return (
+    await Promise.all(
+      movieIds.map((movieId) => getMovieVoteRecords(gameCode, movieId)),
+    )
+  ).flat();
+};
 
 export const getMovieVoteSummaries = async (
   gameCode: string,
   movieIds: string[],
 ) => {
-  const voteRecords = await getVoteRecords(gameCode);
-  return new Map(
-    movieIds.map((movieId) => [
+  const entries = await Promise.all(
+    movieIds.map(async (movieId) => [
       movieId,
-      voteRecords.filter((record) => record.movieId === movieId),
-    ]),
+      await getMovieVoteRecords(gameCode, movieId),
+    ] as const),
   );
+  return new Map(entries);
 };

@@ -6,6 +6,7 @@ const hSet = mock();
 const expire = mock();
 const hGetAll = mock();
 const hDel = mock();
+const hLen = mock();
 
 mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({
   ensureRedis,
@@ -15,6 +16,7 @@ mock.module(new URL("../lib/redis.ts", import.meta.url).href, () => ({
     expire,
     hGetAll,
     hDel,
+    hLen,
   },
 }));
 
@@ -34,6 +36,7 @@ beforeEach(() => {
   expire.mockReset();
   hGetAll.mockReset();
   hDel.mockReset();
+  hLen.mockReset();
 });
 
 describe("room-players.service", () => {
@@ -85,5 +88,14 @@ describe("room-players.service", () => {
     await RoomPlayersService.deletePlayerRecord("abcd", "player-1");
 
     expect(hDel).toHaveBeenCalledWith("game:ABCD:players", "player-1");
+  });
+
+  test("counts players without reading player records", async () => {
+    hLen.mockResolvedValue(2);
+
+    await expect(RoomPlayersService.countPlayers("abcd")).resolves.toBe(2);
+
+    expect(hLen).toHaveBeenCalledWith("game:ABCD:players");
+    expect(hGetAll).not.toHaveBeenCalled();
   });
 });
