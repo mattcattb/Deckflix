@@ -61,6 +61,26 @@ export const activeRoomClientQueryOptions = queryOptions({
   queryFn: getActiveRoomClient,
 });
 
+const ACTIVE_ROOM_CLIENT_SETTLE_TIMEOUT_MS = 1_500;
+const ACTIVE_ROOM_CLIENT_SETTLE_INTERVAL_MS = 75;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+export const waitForActiveRoomClient = async (queryClient: QueryClient) => {
+  const deadline = Date.now() + ACTIVE_ROOM_CLIENT_SETTLE_TIMEOUT_MS;
+  let activeClient = await queryClient.fetchQuery(activeRoomClientQueryOptions);
+
+  while (activeClient.role === "none" && Date.now() < deadline) {
+    await sleep(ACTIVE_ROOM_CLIENT_SETTLE_INTERVAL_MS);
+    activeClient = await queryClient.fetchQuery(activeRoomClientQueryOptions);
+  }
+
+  return activeClient;
+};
+
 export const roomMetaQueryOptions = (gameCode: string) =>
   queryOptions({
     queryKey: gameKeys.meta(gameCode),

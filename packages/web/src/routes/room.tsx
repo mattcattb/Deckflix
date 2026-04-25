@@ -3,17 +3,15 @@ import {createFileRoute, redirect} from "@tanstack/react-router";
 import {DisplayRoomShell} from "../features/room";
 import {
   activeDisplayStateQueryOptions,
-  activeRoomClientQueryOptions,
   clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   isMissingRoomSessionError,
+  waitForActiveRoomClient,
 } from "../lib/games";
 
 const getDisplayClient = async (queryClient: QueryClient) => {
-  const activeClient = await queryClient.ensureQueryData(
-    activeRoomClientQueryOptions,
-  );
+  const activeClient = await waitForActiveRoomClient(queryClient);
 
   if (activeClient.role === "none") {
     throw redirect({to: "/", replace: true});

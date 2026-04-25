@@ -14,6 +14,14 @@ Right now the project is centered around a few core flows:
 - build a movie pool from settings and available providers
 - let players vote with quick swipe-style actions
 - show the display a live view of players, progress, and results
+- ANIMATIONS SUPER GLITCHY
+- FARRRR too slow to create
+- "swipe not availible" fix the locking behavior and speed for the websockets
+- more durable retry behavior
+- length of movie filtering
+- streaming platforms availible
+-
+- regions based around work
 
 The product direction is intentionally social-first and low-friction. Accounts can matter later, but the current experience is designed to work fast in a room without forcing signup.
 

@@ -111,26 +111,54 @@ export function GameSettingsSection({
           Gameplay
         </h3>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-2">
-            <Label htmlFor="maxMovies" className="text-sm">
-              Movies
-            </Label>
-            <Input
-              id="maxMovies"
-              type="number"
-              min={1}
-              max={500}
-              className="w-20 text-center"
-              value={settings.gameplay.maxMovies}
-              onChange={(event) =>
-                updateGameplaySetting(
-                  "maxMovies",
-                  Number.parseInt(event.target.value, 10) || 1,
-                )
-              }
-            />
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="maxMovies" className="text-sm">
+                Movies
+              </Label>
+              <Input
+                id="maxMovies"
+                type="number"
+                min={1}
+                max={500}
+                className="w-20 text-center"
+                value={settings.gameplay.maxMovies}
+                onChange={(event) =>
+                  updateGameplaySetting(
+                    "maxMovies",
+                    Number.parseInt(event.target.value, 10) || 1,
+                  )
+                }
+              />
+            </div>
+
+            <div className="ml-auto flex min-w-[12rem] items-center gap-2">
+              <Label htmlFor="popularityPreset" className="text-sm">
+                Popularity
+              </Label>
+              <Select
+                id="popularityPreset"
+                className="h-9 min-w-0 flex-1 px-2"
+                value={settings.movieFilters.popularityPreset}
+                onChange={(event) =>
+                  updateMovieFilterSetting(
+                    "popularityPreset",
+                    event.target
+                      .value as GameSettings["movieFilters"]["popularityPreset"],
+                  )
+                }>
+                <option value="any">Any</option>
+                <option value="balanced">Balanced</option>
+                <option value="popular">Popular</option>
+                <option value="niche">Allison (Niche)</option>
+              </Select>
+            </div>
           </div>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            {POPULARITY_PRESET_COPY[settings.movieFilters.popularityPreset]}
+          </p>
         </div>
 
         <p className="rounded-xl border border-swipe-like/20 bg-swipe-like/10 px-3 py-2 text-sm text-swipe-like">
@@ -144,30 +172,6 @@ export function GameSettingsSection({
         </h3>
 
         <div className="grid gap-2">
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-3">
-            <Label htmlFor="popularityPreset" className="text-sm">
-              Popularity
-            </Label>
-            <Select
-              id="popularityPreset"
-              className="mt-2"
-              value={settings.movieFilters.popularityPreset}
-              onChange={(event) =>
-                updateMovieFilterSetting(
-                  "popularityPreset",
-                  event.target.value as GameSettings["movieFilters"]["popularityPreset"],
-                )
-              }>
-              <option value="any">Any</option>
-              <option value="balanced">Balanced</option>
-              <option value="popular">Popular</option>
-              <option value="niche">Niche</option>
-            </Select>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {POPULARITY_PRESET_COPY[settings.movieFilters.popularityPreset]}
-            </p>
-          </div>
-
           <RangeSlider
             label="TMDB rating"
             min={0}

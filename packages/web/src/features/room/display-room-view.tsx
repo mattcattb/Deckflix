@@ -210,6 +210,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
+  const refetchState = stateQuery.refetch;
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
       return;
@@ -401,6 +402,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "swipe.match_found") {
+        void refetchState();
         setQueuedMatchIds((current) =>
           current.includes(message.payload.movieId)
             ? current
@@ -410,6 +412,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "swipe.vote_recorded") {
+        void refetchState();
         const tone =
           message.payload.choice === "like" || message.payload.choice === "super_like"
             ? "positive"
@@ -447,7 +450,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [refetchMeta, refetchPlayers, resetRoomSession]);
+  }, [refetchMeta, refetchPlayers, refetchState, resetRoomSession]);
 
   useEffect(() => {
     if (!state) {

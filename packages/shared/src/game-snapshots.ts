@@ -6,6 +6,7 @@ import {
   gameSettingsSchema,
   gameStatusSchema,
   gameVoteSummarySchema,
+  movieCandidateSchema,
   swipeChoiceSchema,
 } from "./game-core";
 import {gameCodeSchema} from "./game-sessions";
@@ -24,8 +25,8 @@ const gamePlayerSelfSchema = z.object({
   completed: z.boolean(),
 });
 
-const activeGameQueueItemSchema = gameQueueItemSchema.extend({
-  assignmentId: z.string().min(1),
+const activeGameQueueItemSchema = z.object({
+  movie: movieCandidateSchema,
 });
 
 const gameSummarySchema = z.object({
@@ -79,7 +80,6 @@ export const joinGamePayloadSchema = z.object({
 });
 
 export const voteGamePayloadSchema = z.object({
-  assignmentId: z.string().min(1),
   movieId: z.string().min(1),
   choice: swipeChoiceSchema,
 });

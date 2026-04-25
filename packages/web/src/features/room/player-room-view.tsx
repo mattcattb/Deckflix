@@ -12,7 +12,6 @@ import {
   clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
-  activeRoomResultsQueryOptions,
   createActivePlayerWebSocketUrl,
   gameKeys,
   isMissingRoomSessionError,
@@ -33,11 +32,9 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   const [state, setState] = useState<PlayerGameState | null>(null);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
-  const resultsQuery = useQuery(activeRoomResultsQueryOptions(gameCode));
   const stateQuery = useQuery(activePlayerStateQueryOptions(gameCode));
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
-  const refetchResults = resultsQuery.refetch;
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
       return;
@@ -59,29 +56,20 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
     const roomError =
       metaQuery.error ??
       playersQuery.error ??
-      resultsQuery.error ??
       stateQuery.error;
     if (roomError && isMissingRoomSessionError(roomError)) {
       resetRoomSession();
     }
-  }, [
-    metaQuery.error,
-    playersQuery.error,
-    resetRoomSession,
-    resultsQuery.error,
-    stateQuery.error,
-  ]);
+  }, [metaQuery.error, playersQuery.error, resetRoomSession, stateQuery.error]);
 
   const voteMutation = useMutation({
     mutationFn: async (payload: {
-      assignmentId: string;
       choice: SwipeChoice;
       movieId: string;
     }) =>
       parseRpc(
         api.api.player.vote.$post({
           json: {
-            assignmentId: payload.assignmentId,
             movieId: payload.movieId,
             choice: payload.choice,
           },
@@ -89,7 +77,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
       ),
     onSuccess: (result) => {
       setState(result.state);
-      void resultsQuery.refetch();
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -156,14 +143,12 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
         setState(message.payload);
         void refetchMeta();
         void refetchPlayers();
-        void refetchResults();
         return;
       }
 
       if (message.type === "room.status_changed") {
         void refetchMeta();
         void refetchPlayers();
-        void refetchResults();
         return;
       }
 
@@ -195,12 +180,11 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [refetchMeta, refetchPlayers, refetchResults, resetRoomSession]);
+  }, [refetchMeta, refetchPlayers, resetRoomSession]);
 
   if (
     metaQuery.isLoading ||
     playersQuery.isLoading ||
-    resultsQuery.isLoading ||
     stateQuery.isLoading ||
     !state
   ) {
@@ -210,7 +194,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
   if (
     metaQuery.error ||
     playersQuery.error ||
-    resultsQuery.error ||
     stateQuery.error ||
     !metaQuery.data ||
     !playersQuery.data
@@ -218,7 +201,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
     if (
       isMissingRoomSessionError(metaQuery.error) ||
       isMissingRoomSessionError(playersQuery.error) ||
-      isMissingRoomSessionError(resultsQuery.error) ||
       isMissingRoomSessionError(stateQuery.error)
     ) {
       return null;
@@ -233,9 +215,7 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
               ? metaQuery.error.message
               : playersQuery.error instanceof Error
                 ? playersQuery.error.message
-                : resultsQuery.error instanceof Error
-                  ? resultsQuery.error.message
-                  : "This room is not available."
+                : "This room is not available."
         }
       />
     );
@@ -248,7 +228,6 @@ export function PlayerRoomView({gameCode}: {gameCode: string}) {
 
     setGameError(null);
     voteMutation.mutate({
-      assignmentId: state.currentItem.assignmentId,
       choice,
       movieId: movieId ?? state.currentItem.movie.id,
     });
