@@ -8,8 +8,7 @@ import {
 } from "../common/errors";
 import {appEnv} from "../common/env";
 import * as GameSettingsService from "../settings/game-settings.service";
-import * as RoomSessionService from "./room-session.service";
-import * as RoomMetaService from "./room-meta.service";
+import * as RoomsService from "./rooms.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
 const isProduction =
@@ -73,7 +72,7 @@ export const gameParamMiddleware = createMiddleware(async (c, next) => {
   c.set("room", {
     gameCode: normalizedGameCode,
     session: null,
-    meta: await RoomMetaService.getGameMetaOrThrow(normalizedGameCode),
+    meta: await RoomsService.getGameMetaOrThrow(normalizedGameCode),
   });
 
   await next();
@@ -86,7 +85,7 @@ const getRequiredRoomSession = async (c: CookieContext) => {
   }
 
   try {
-    return await RoomSessionService.verifyRoomSession(session);
+    return await RoomsService.verifyRoomSession(session);
   } catch (error) {
     if (error instanceof UnauthorizedException) {
       clearRoomSessionCookie(c);
@@ -103,7 +102,7 @@ const getRequiredActiveRoomMeta = async (
 ) => {
   try {
     const [meta] = await Promise.all([
-      RoomMetaService.getGameMetaOrThrow(gameCode),
+      RoomsService.getGameMetaOrThrow(gameCode),
       GameSettingsService.getGameSettingsOrThrow(gameCode),
     ]);
     return meta;
@@ -167,12 +166,12 @@ export const activeDisplayMiddleware = createMiddleware(async (c, next) => {
 });
 
 const requireRoomStatus = (
-  statuses: Array<RoomMetaService.GameMetaRecord["status"]>,
+  statuses: Array<RoomsService.GameMetaRecord["status"]>,
   message: string,
 ) =>
   createMiddleware(async (c, next) => {
     const room = c.get("room");
-    const meta = await RoomMetaService.getGameMetaOrThrow(room.gameCode);
+    const meta = await RoomsService.getGameMetaOrThrow(room.gameCode);
     c.set("room", {
       ...room,
       meta,

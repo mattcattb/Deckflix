@@ -1,27 +1,25 @@
 import type {PlayerSession, SwipeChoice} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
-import {
-  getProjectedPlayerState,
-  publishGameState,
-} from "../games/game-state.pubsub";
-import type {RealtimeServer} from "../realtime/socket-bus";
-import * as RoomPlayersService from "../rooms/room-players.service";
-import * as RoomSessionService from "../rooms/room-session.service";
+import type {RealtimeServer} from "../realtime/realtime.service";
+import * as RoomsService from "../rooms/rooms.service";
 import * as DeckService from "./deck.service";
-import {publishMatchFound, publishVoteRecorded} from "./swipe.pubsub";
 import * as VoteService from "./vote.service";
 
 export const getSwipeState = async (player: {
   gameCode: string;
   playerId: string;
-}) => getProjectedPlayerState(player);
+}) => {
+  const GameStateService = await import("../state/game-state.service");
+  return GameStateService.getProjectedPlayerState(player);
+};
 
 export const publishStateForGame = async (
   server: RealtimeServer,
   gameCode: string,
 ) => {
-  const playerIds = await RoomPlayersService.listPlayerIds(gameCode);
-  await publishGameState(server, gameCode, playerIds);
+  const playerIds = await RoomsService.listPlayerIds(gameCode);
+  const GameStateService = await import("../state/game-state.service");
+  await GameStateService.publishGameState(server, gameCode, playerIds);
 };
 
 export const recordSwipe = async (input: {
@@ -30,7 +28,7 @@ export const recordSwipe = async (input: {
   choice: SwipeChoice;
   server: RealtimeServer;
 }) => {
-  await RoomSessionService.verifyPlayerSession(input.player);
+  await RoomsService.verifyPlayerSession(input.player);
 
   const popped = await DeckService.popCurrentMovieId(
     input.player.gameCode,
@@ -51,7 +49,7 @@ export const recordSwipe = async (input: {
     choice: input.choice,
   });
 
-  publishVoteRecorded({
+  VoteService.publishVoteRecorded({
     server: input.server,
     gameCode: input.player.gameCode,
     playerId: input.player.playerId,
@@ -60,7 +58,7 @@ export const recordSwipe = async (input: {
   });
 
   if (vote.justMatched) {
-    publishMatchFound(input.server, input.player.gameCode, popped.movieId);
+    VoteService.publishMatchFound(input.server, input.player.gameCode, popped.movieId);
   }
 
   return {

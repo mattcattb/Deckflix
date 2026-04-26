@@ -1,6 +1,6 @@
 import type {RoomSession} from "@deckflix/shared";
 import {Hono} from "hono";
-import type {GameMetaRecord} from "../rooms/room-meta.service";
+import type {GameMetaRecord} from "../rooms/rooms.service";
 import {corsMiddleware} from "./cors";
 import {createChildLogger, getPinoLogger} from "./logger";
 import {ZodError} from "zod/v4";

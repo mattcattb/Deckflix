@@ -1,12 +1,8 @@
 import {createHash} from "node:crypto";
 import {BadRequestException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
-import {
-  normalizeGameCode,
-  ROOM_TTL_SECONDS,
-} from "../rooms/room-lifecycle.service";
-import * as PoolService from "../pool/pool.service";
-import * as RoomMetaService from "../rooms/room-meta.service";
+import * as RecommendationsService from "../recommendations/recommendations.service";
+import * as RoomsService from "../rooms/rooms.service";
 
 export const PLAYER_DECK_TARGET = 3;
 export const PLAYER_DECK_REFILL_THRESHOLD = 1;
@@ -18,7 +14,7 @@ type PopDeckResult =
   | {status: "empty"}
   | {status: "mismatch"; actualMovieId: string};
 
-const roomPrefix = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:`;
+const roomPrefix = (gameCode: string) => `game:${RoomsService.normalizeGameCode(gameCode)}:`;
 const deckKey = (gameCode: string, playerId: string) =>
   `${roomPrefix(gameCode)}deck:${playerId}`;
 const assignedKey = (gameCode: string, playerId: string) =>
@@ -36,7 +32,7 @@ const getQueueWindowIndex = (order: number) =>
   Math.floor(order / PLAYER_DECK_RANDOMIZATION_WINDOW);
 
 export const orderPoolEntriesForPlayer = (
-  entries: PoolService.PoolEntry[],
+  entries: RecommendationsService.PoolEntry[],
   seed: string,
   playerId: string,
 ) =>
@@ -100,8 +96,8 @@ export const topUpPlayerDeck = async (
   const [currentLength, cursor, meta, poolEntries] = await Promise.all([
     getDeckLength(gameCode, playerId),
     getCursor(gameCode, playerId),
-    RoomMetaService.getGameMetaOrThrow(gameCode),
-    PoolService.listPoolEntries(gameCode),
+    RoomsService.getGameMetaOrThrow(gameCode),
+    RecommendationsService.listPoolEntries(gameCode),
   ]);
   if (currentLength >= targetSize || cursor >= poolEntries.length) {
     return;
@@ -132,11 +128,11 @@ export const topUpPlayerDeck = async (
   if (acceptedMovieIds.length > 0) {
     multi.rPush(deckKey(gameCode, playerId), acceptedMovieIds);
     multi.sAdd(assignedKey(gameCode, playerId), acceptedMovieIds);
-    multi.expire(deckKey(gameCode, playerId), ROOM_TTL_SECONDS);
-    multi.expire(assignedKey(gameCode, playerId), ROOM_TTL_SECONDS);
+    multi.expire(deckKey(gameCode, playerId), RoomsService.ROOM_TTL_SECONDS);
+    multi.expire(assignedKey(gameCode, playerId), RoomsService.ROOM_TTL_SECONDS);
   }
   multi.set(cursorKey(gameCode, playerId), String(nextCursor), {
-    EX: ROOM_TTL_SECONDS,
+    EX: RoomsService.ROOM_TTL_SECONDS,
   });
   await multi.exec();
 };
@@ -209,7 +205,7 @@ export const popCurrentMovieId = async (
 
 export const getCurrentIndex = async (gameCode: string, playerId: string) => {
   const [poolSize, deckLength] = await Promise.all([
-    PoolService.getPoolSize(gameCode),
+    RecommendationsService.getPoolSize(gameCode),
     getDeckLength(gameCode, playerId),
   ]);
   return Math.max(0, poolSize - deckLength);

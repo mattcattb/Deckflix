@@ -2,12 +2,14 @@ import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException, NotFoundException} from "../common/errors";
 import {ensureRedis, redis} from "../lib/redis";
 import {withRedisLock} from "../lib/redis-lock";
-import * as PoolService from "../pool/pool.service";
+import * as RecommendationsService from "../recommendations/recommendations.service";
 import {
-  normalizeGameCode,
-  ROOM_TTL_SECONDS,
-} from "../rooms/room-lifecycle.service";
-import * as RoomPlayersService from "../rooms/room-players.service";
+  publishDisplayMessage,
+  publishPlayerMessage,
+  type RealtimeServer,
+} from "../realtime/realtime.service";
+import * as RoomsService from "../rooms/rooms.service";
+import {applyVoteToMovieState} from "./match-rules";
 
 export type VoteRecord = {
   playerId: string;
@@ -24,7 +26,7 @@ const swipeChoices = new Set<SwipeChoice>([
   "skip",
 ]);
 
-const roomPrefix = (gameCode: string) => `game:${normalizeGameCode(gameCode)}:`;
+const roomPrefix = (gameCode: string) => `game:${RoomsService.normalizeGameCode(gameCode)}:`;
 const votesKey = (gameCode: string, movieId: string) =>
   `${roomPrefix(gameCode)}votes:${movieId}`;
 const movieStateKey = (gameCode: string) => `${roomPrefix(gameCode)}movie_state`;
@@ -55,80 +57,14 @@ const parseMovieState = (
   raw: string | null,
   gameCode: string,
   movieId: string,
-): PoolService.MovieState => {
+): RecommendationsService.MovieState => {
   if (!raw) {
     throw new NotFoundException(
-      `Movie ${movieId} not found in game ${normalizeGameCode(gameCode)}`,
+      `Movie ${movieId} not found in game ${RoomsService.normalizeGameCode(gameCode)}`,
     );
   }
 
-  return JSON.parse(raw) as PoolService.MovieState;
-};
-
-const applyVoteToMovieState = (input: {
-  state: PoolService.MovieState;
-  choice: SwipeChoice;
-  totalPlayers: number;
-  votedAt: string;
-}) => {
-  const previousStatus = input.state.status;
-  const state: PoolService.MovieState = {
-    ...input.state,
-    totalVotes: input.state.totalVotes + 1,
-    lastActivityAt: input.votedAt,
-    resolvedAt: input.state.resolvedAt ?? null,
-    matchedAt: input.state.matchedAt ?? null,
-  };
-
-  switch (input.choice) {
-    case "like":
-      state.likeCount += 1;
-      break;
-    case "dislike":
-      state.dislikeCount += 1;
-      break;
-    case "maybe":
-      state.maybeCount += 1;
-      break;
-    case "super_like":
-      state.superLikeCount += 1;
-      break;
-    case "skip":
-      state.skipCount += 1;
-      break;
-  }
-
-  const positiveVotes = state.likeCount + state.superLikeCount;
-  const hasBlockingVote =
-    state.dislikeCount > 0 || state.maybeCount > 0 || state.skipCount > 0;
-
-  if (
-    input.totalPlayers > 0 &&
-    state.totalVotes === input.totalPlayers &&
-    positiveVotes === input.totalPlayers
-  ) {
-    state.status = "matched";
-  } else if (hasBlockingVote) {
-    state.status = "rejected";
-  } else if (input.totalPlayers > 0 && state.totalVotes === input.totalPlayers) {
-    state.status = "rejected";
-  } else {
-    state.status = "pending";
-  }
-
-  if (state.status === "pending") {
-    state.resolvedAt = null;
-    state.matchedAt = null;
-  } else {
-    state.resolvedAt = state.resolvedAt ?? input.votedAt;
-    state.matchedAt =
-      state.status === "matched" ? state.matchedAt ?? input.votedAt : null;
-  }
-
-  return {
-    justMatched: previousStatus !== "matched" && state.status === "matched",
-    state,
-  };
+  return JSON.parse(raw) as RecommendationsService.MovieState;
 };
 
 export const recordVote = async (input: {
@@ -139,7 +75,7 @@ export const recordVote = async (input: {
 }) => {
   await ensureRedis();
   const votedAt = new Date().toISOString();
-  const totalPlayers = await RoomPlayersService.countPlayers(input.gameCode);
+  const totalPlayers = await RoomsService.countPlayers(input.gameCode);
 
   return withRedisLock(
     {
@@ -179,8 +115,8 @@ export const recordVote = async (input: {
         input.movieId,
         JSON.stringify(next.state),
       );
-      multi.expire(votesKey(input.gameCode, input.movieId), ROOM_TTL_SECONDS);
-      multi.expire(movieStateKey(input.gameCode), ROOM_TTL_SECONDS);
+      multi.expire(votesKey(input.gameCode, input.movieId), RoomsService.ROOM_TTL_SECONDS);
+      multi.expire(movieStateKey(input.gameCode), RoomsService.ROOM_TTL_SECONDS);
       await multi.exec();
 
       return next;
@@ -197,7 +133,7 @@ export const getMovieVoteRecords = async (gameCode: string, movieId: string) => 
 };
 
 export const getVoteRecords = async (gameCode: string) => {
-  const movieIds = await PoolService.listPoolMovieIds(gameCode);
+  const movieIds = await RecommendationsService.listPoolMovieIds(gameCode);
   return (
     await Promise.all(
       movieIds.map((movieId) => getMovieVoteRecords(gameCode, movieId)),
@@ -216,4 +152,37 @@ export const getMovieVoteSummaries = async (
     ] as const),
   );
   return new Map(entries);
+};
+
+export const publishVoteRecorded = (input: {
+  server: RealtimeServer;
+  gameCode: string;
+  playerId: string;
+  movieId: string;
+  choice: SwipeChoice;
+}) => {
+  const message = {
+    type: "swipe.vote_recorded" as const,
+    payload: {
+      playerId: input.playerId,
+      movieId: input.movieId,
+      choice: input.choice,
+    },
+  };
+
+  publishDisplayMessage(input.server, input.gameCode, message);
+  publishPlayerMessage(input.server, input.gameCode, input.playerId, message);
+};
+
+export const publishMatchFound = (
+  server: RealtimeServer,
+  gameCode: string,
+  movieId: string,
+) => {
+  publishDisplayMessage(server, gameCode, {
+    type: "swipe.match_found",
+    payload: {
+      movieId,
+    },
+  });
 };

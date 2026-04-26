@@ -4,7 +4,7 @@ import {
   clearRoomSessionCookie,
   requireGameLobby,
 } from "../rooms/rooms.middleware";
-import {getProjectedDisplayState} from "../games/game-state.pubsub";
+import {getProjectedDisplayState} from "../state/game-state.service";
 import {createDisplaySocketHandler} from "./display.ws";
 import {zValidator} from "@hono/zod-validator";
 import {gameSettingsInputSchema} from "@deckflix/shared";

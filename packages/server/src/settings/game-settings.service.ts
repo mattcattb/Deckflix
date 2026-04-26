@@ -3,11 +3,7 @@ import {gameSettingsSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
 import {getTmdbMovieGenres} from "../lib/tmdb";
 import {ensureRedis, redis} from "../lib/redis";
-import {
-  normalizeGameCode,
-  roomKey,
-  ROOM_TTL_SECONDS,
-} from "../rooms/room-lifecycle.service";
+import * as RoomsService from "../rooms/rooms.service";
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   gameplay: {
@@ -33,14 +29,14 @@ const parseSettings = (raw: string, gameCode: string) => {
     parsedValue = JSON.parse(raw);
   } catch {
     throw new NotFoundException(
-      `Game ${normalizeGameCode(gameCode)} not found`,
+      `Game ${RoomsService.normalizeGameCode(gameCode)} not found`,
     );
   }
 
   const parsed = gameSettingsSchema.safeParse(parsedValue);
   if (!parsed.success) {
     throw new NotFoundException(
-      `Game ${normalizeGameCode(gameCode)} not found`,
+      `Game ${RoomsService.normalizeGameCode(gameCode)} not found`,
     );
   }
 
@@ -124,10 +120,10 @@ export const getSelectableMovieGenres = async (language = "en-US") =>
 
 export const getGameSettingsOrThrow = async (gameCode: string) => {
   await ensureRedis();
-  const raw = await redis.hGet(roomKey(gameCode), "settings");
+  const raw = await redis.hGet(RoomsService.roomKey(gameCode), "settings");
   if (!raw) {
     throw new NotFoundException(
-      `Game ${normalizeGameCode(gameCode)} not found`,
+      `Game ${RoomsService.normalizeGameCode(gameCode)} not found`,
     );
   }
 
@@ -139,7 +135,7 @@ export const setGameSettings = async (
   settings: GameSettings,
 ) => {
   await ensureRedis();
-  const key = roomKey(gameCode);
+  const key = RoomsService.roomKey(gameCode);
   await redis.hSet(key, "settings", JSON.stringify(settings));
-  await redis.expire(key, ROOM_TTL_SECONDS);
+  await redis.expire(key, RoomsService.ROOM_TTL_SECONDS);
 };

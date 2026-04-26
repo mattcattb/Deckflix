@@ -14,14 +14,13 @@ import {
   requireGameLobby,
   setRoomSessionCookie,
 } from "./rooms.middleware";
-import * as GameSnapshotService from "../games/game-snapshot.service";
-import * as RoomSessionService from "./room-session.service";
+import * as GameStateService from "../state/game-state.service";
 import * as RoomsService from "./rooms.service";
 
 export const roomController = createRouter()
   .post("/", zValidator("json", createGamePayloadSchema), async (c) => {
     const session = readRoomSessionCookie(c);
-    await RoomSessionService.assertRoomSessionAvailable(session);
+    await RoomsService.assertRoomSessionAvailable(session);
     if (session) {
       clearRoomSessionCookie(c);
     }
@@ -43,7 +42,7 @@ export const roomController = createRouter()
   })
   .get("/current", async (c) => {
     const session = readRoomSessionCookie(c);
-    const activeClient = await RoomSessionService.getActiveRoomClient(session);
+    const activeClient = await RoomsService.getActiveRoomClient(session);
     if (session && activeClient.role === "none") {
       clearRoomSessionCookie(c);
     }
@@ -54,20 +53,20 @@ export const roomController = createRouter()
     return c.body(null, 204);
   })
   .get("/meta", activeRoomMiddleware, async (c) => {
-    return c.json(await GameSnapshotService.getGameMeta(c.get("room").gameCode));
+    return c.json(await GameStateService.getGameMeta(c.get("room").gameCode));
   })
   .get("/players", activeRoomMiddleware, async (c) => {
-    return c.json(await GameSnapshotService.getGamePlayers(c.get("room").gameCode));
+    return c.json(await GameStateService.getGamePlayers(c.get("room").gameCode));
   })
   .get("/results", activeRoomMiddleware, async (c) => {
-    return c.json(await GameSnapshotService.getGameResults(c.get("room").gameCode));
+    return c.json(await GameStateService.getGameResults(c.get("room").gameCode));
   })
   .use("/:gameCode/*", gameParamMiddleware)
   .get("/:gameCode/meta", async (c) => {
-    return c.json(await GameSnapshotService.getGameMeta(c.get("room").gameCode));
+    return c.json(await GameStateService.getGameMeta(c.get("room").gameCode));
   })
   .get("/:gameCode/players", async (c) => {
-    return c.json(await GameSnapshotService.getGamePlayers(c.get("room").gameCode));
+    return c.json(await GameStateService.getGamePlayers(c.get("room").gameCode));
   })
   .post(
     "/:gameCode/join",
@@ -75,7 +74,7 @@ export const roomController = createRouter()
     zValidator("json", joinGamePayloadSchema),
     async (c) => {
       const session = readRoomSessionCookie(c);
-      await RoomSessionService.assertRoomSessionAvailable(session);
+      await RoomsService.assertRoomSessionAvailable(session);
       if (session) {
         clearRoomSessionCookie(c);
       }

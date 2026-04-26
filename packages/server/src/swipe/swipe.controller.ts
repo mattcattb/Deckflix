@@ -12,8 +12,8 @@ import {
   clearRoomSessionCookie,
   requireStartedGame,
 } from "../rooms/rooms.middleware";
-import * as SwipeService from "./swipe.service";
-import * as GamePresenceService from "../ws/presence.ws";
+import * as SwipeService from "../gameplay/swipe.service";
+import * as PresenceService from "../presence/presence.service";
 import * as RoomsService from "../rooms/rooms.service";
 
 const createPlayerSocketHandler = () =>
@@ -25,7 +25,7 @@ const createPlayerSocketHandler = () =>
 
     return {
       onOpen: (_, ws) => {
-        void GamePresenceService.connectPlayer({
+        void PresenceService.connectPlayer({
           gameCode,
           playerId,
           sessionToken,
@@ -39,15 +39,15 @@ const createPlayerSocketHandler = () =>
               }),
             );
             SwipeService.publishStateForGame(server, gameCode);
-            GamePresenceService.subscribePlayerSocket(ws, gameCode, playerId);
+            PresenceService.subscribePlayerSocket(ws, gameCode, playerId);
           })
           .catch(() => {
             ws.close(4001, "Invalid player session");
           });
       },
       onClose: (_, ws) => {
-        GamePresenceService.unsubscribePlayerSocket(ws, gameCode, playerId);
-        GamePresenceService.disconnectPlayer({
+        PresenceService.unsubscribePlayerSocket(ws, gameCode, playerId);
+        PresenceService.disconnectPlayer({
           gameCode,
           playerId,
           socket: ws,

@@ -1,13 +1,13 @@
-import type {DisplaySession, PlayerSession} from "@deckflix/shared";
+import type {DisplaySession, GamePlayerPresence, PlayerSession} from "@deckflix/shared";
 import {
+  publishDisplayMessage,
   subscribeDisplaySocket as subscribeToDisplay,
-  unsubscribeDisplaySocket as unsubscribeFromDisplay,
-} from "../realtime/display-channel";
-import {
   subscribePlayerSocket as subscribeToPlayer,
+  type RealtimeServer,
+  unsubscribeDisplaySocket as unsubscribeFromDisplay,
   unsubscribePlayerSocket as unsubscribeFromPlayer,
-} from "../realtime/player-channel";
-import * as RoomSessionService from "../rooms/room-session.service";
+} from "../realtime/realtime.service";
+import * as RoomsService from "../rooms/rooms.service";
 
 export type SocketLike = {
   send: (data: string) => void;
@@ -40,7 +40,7 @@ export const clearPresenceState = (gameCode: string) => {
 };
 
 export const connectDisplay = async (input: DisplaySession & {socket: SocketLike}) => {
-  await RoomSessionService.verifyDisplaySession(input);
+  await RoomsService.verifyDisplaySession(input);
   const key = normalizeGameCode(input.gameCode);
   const sockets = displaySocketsByGameCode.get(key) ?? new Set<SocketLike>();
   sockets.add(input.socket);
@@ -61,7 +61,7 @@ export const disconnectDisplay = (input: {gameCode: string; socket: SocketLike})
 };
 
 export const connectPlayer = async (input: PlayerSession & {socket: SocketLike}) => {
-  await RoomSessionService.verifyPlayerSession(input);
+  await RoomsService.verifyPlayerSession(input);
   const key = normalizeGameCode(input.gameCode);
   const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
   const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();
@@ -118,4 +118,28 @@ export const unsubscribePlayerSocket = (
   playerId: string,
 ) => {
   unsubscribeFromPlayer(ws as never, gameCode, playerId);
+};
+
+export const publishPlayerJoined = (
+  server: RealtimeServer,
+  gameCode: string,
+  player: GamePlayerPresence,
+) => {
+  publishDisplayMessage(server, gameCode, {
+    type: "presence.player_joined",
+    payload: player,
+  });
+};
+
+export const publishPlayerLeft = (
+  server: RealtimeServer,
+  gameCode: string,
+  playerId: string,
+) => {
+  publishDisplayMessage(server, gameCode, {
+    type: "presence.player_left",
+    payload: {
+      playerId,
+    },
+  });
 };

@@ -64,19 +64,6 @@ const gameSettingsSchema = z.object({
     }),
 });
 
-mock.module("@deckflix/shared", () => ({
-  ERROR_MESSAGES: {
-    BAD_REQUEST: "Bad request",
-    UNAUTHORIZED: "Unauthorized",
-    FORBIDDEN: "Forbidden",
-    CONFLICT: "Conflict",
-    NOT_FOUND: "Not found",
-    VALIDATION_ERROR: "Validation failed",
-    SERVICE_ERROR: "Service error",
-    INTERNAL_ERROR: "Internal server error",
-  },
-  gameSettingsSchema,
-}));
 mock.module(new URL("../lib/tmdb.ts", import.meta.url).href, () => ({
   discoverTmdbMovies,
   searchTmdbMovies,

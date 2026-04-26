@@ -7,17 +7,19 @@ import {ensureSocketPubSub} from "../lib/redis";
 import {
   getProjectedDisplayState,
   publishGameState,
-} from "../games/game-state.pubsub";
-import * as RoomPlayersService from "../rooms/room-players.service";
-import * as GamePresenceService from "../ws/presence.ws";
+} from "../state/game-state.service";
+import * as RoomsService from "../rooms/rooms.service";
+import * as PresenceService from "../presence/presence.service";
 
 const publishDisplayRoomState = async (
   server: Parameters<typeof publishGameState>[0],
   gameCode: string,
 ) => {
-  const playerIds = await RoomPlayersService.listPlayerIds(gameCode);
+  const playerIds = await RoomsService.listPlayerIds(gameCode);
   await publishGameState(server, gameCode, playerIds);
 };
+
+//! this will be replaced with the overall middleware handler here
 
 export const createDisplaySocketHandler = () =>
   upgradeWebSocket((c) => {
@@ -28,27 +30,29 @@ export const createDisplaySocketHandler = () =>
 
     return {
       onOpen: (_, ws) => {
-        void GamePresenceService.connectDisplay({
+        void PresenceService.connectDisplay({
           gameCode,
           displayId,
           sessionToken,
           socket: ws,
         })
           .then(async () => {
-            ws.send(encodeDisplayServerMessage({
-              type: "display.snapshot",
-              payload: await getProjectedDisplayState(gameCode),
-            }));
+            ws.send(
+              encodeDisplayServerMessage({
+                type: "display.snapshot",
+                payload: await getProjectedDisplayState(gameCode),
+              }),
+            );
             void publishDisplayRoomState(server, gameCode);
-            GamePresenceService.subscribeDisplaySocket(ws, gameCode);
+            PresenceService.subscribeDisplaySocket(ws, gameCode);
           })
           .catch(() => {
             ws.close(4001, "Invalid display session");
           });
       },
       onClose: (_, ws) => {
-        GamePresenceService.unsubscribeDisplaySocket(ws, gameCode);
-        GamePresenceService.disconnectDisplay({
+        PresenceService.unsubscribeDisplaySocket(ws, gameCode);
+        PresenceService.disconnectDisplay({
           gameCode,
           socket: ws,
         });
@@ -61,11 +65,16 @@ export const createDisplaySocketHandler = () =>
             ws.send(encodeDisplayServerMessage({type: "socket.pong"}));
           }
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Invalid websocket message";
-          ws.send(encodeDisplayServerMessage({
-            type: "socket.error",
-            payload: {message},
-          }));
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Invalid websocket message";
+          ws.send(
+            encodeDisplayServerMessage({
+              type: "socket.error",
+              payload: {message},
+            }),
+          );
         }
       },
     };
