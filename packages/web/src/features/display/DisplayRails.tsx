@@ -1,130 +1,75 @@
 import {useEffect, useMemo, useRef, useState} from "react";
-import type {GameVoteSummary, MovieCandidate} from "@deckflix/shared";
+import type {GameActivityItem, MovieCandidate} from "@deckflix/shared";
 import {MovieDetailsOverlay} from "../movie-catalog/components/movie-details-overlay";
 
-export type DisplayBoardItem = {
-  movie: MovieCandidate;
-  votes: GameVoteSummary;
-  outcome: "match" | "rejected" | "active";
+type DisplayRailProps = {
+  title: string;
+  items: GameActivityItem[];
+  tone: "match" | "mixed" | "stinker";
+  interactive?: boolean;
 };
 
-export type DisplayBoard = {
-  matches: DisplayBoardItem[];
-  recentHistory: DisplayBoardItem[];
-  stinkers: DisplayBoardItem[];
-};
-
-type RailKey = "matches" | "recentHistory" | "stinkers";
-
-type DisplayBrowseViewProps = {
-  board: DisplayBoard;
-  mode: "live" | "results";
-};
-
-export function DisplayBrowseView({board, mode}: DisplayBrowseViewProps) {
-  const isResults = mode === "results";
-  const seenByRailRef = useRef<Record<RailKey, Set<string>>>({
-    matches: new Set(),
-    recentHistory: new Set(),
-    stinkers: new Set(),
-  });
-  const [newCardIdsByRail, setNewCardIdsByRail] = useState<Record<RailKey, string[]>>({
-    matches: [],
-    recentHistory: [],
-    stinkers: [],
-  });
+export function DisplayRail({
+  title,
+  items,
+  tone,
+  interactive = true,
+}: DisplayRailProps) {
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const [newCardIds, setNewCardIds] = useState<string[]>([]);
   const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
   const movieById = useMemo(
-    () =>
-      new Map(
-        [...board.matches, ...board.recentHistory, ...board.stinkers].map((item) => [
-          item.movie.id,
-          item.movie,
-        ] as const),
-      ),
-    [board.matches, board.recentHistory, board.stinkers],
+    () => new Map(items.map((item) => [item.movie.id, item.movie] as const)),
+    [items],
   );
-  const selectedMovie = selectedMovieId ? movieById.get(selectedMovieId) ?? null : null;
+  const selectedMovie = selectedMovieId
+    ? movieById.get(selectedMovieId) ?? null
+    : null;
 
   useEffect(() => {
-    const rails: Record<RailKey, DisplayBoardItem[]> = {
-      matches: board.matches,
-      recentHistory: board.recentHistory,
-      stinkers: board.stinkers,
-    };
-    const nextNewIds: Record<RailKey, string[]> = {
-      matches: [],
-      recentHistory: [],
-      stinkers: [],
-    };
-
-    (Object.keys(rails) as RailKey[]).forEach((railKey) => {
-      const seen = seenByRailRef.current[railKey];
-      const ids = rails[railKey].map((item) => item.movie.id);
-      if (seen.size === 0) {
-        ids.forEach((id) => seen.add(id));
-        return;
-      }
-
-      nextNewIds[railKey] = ids.filter((id) => !seen.has(id));
-      ids.forEach((id) => seen.add(id));
-    });
-
-    if (
-      nextNewIds.matches.length === 0 &&
-      nextNewIds.recentHistory.length === 0 &&
-      nextNewIds.stinkers.length === 0
-    ) {
+    const ids = items.map((item) => item.movie.id);
+    if (seenIdsRef.current.size === 0) {
+      ids.forEach((id) => seenIdsRef.current.add(id));
       return;
     }
 
-    setNewCardIdsByRail(nextNewIds);
-    const timeout = window.setTimeout(() => {
-      setNewCardIdsByRail({
-        matches: [],
-        recentHistory: [],
-        stinkers: [],
-      });
-    }, 700);
+    const nextNewIds = ids.filter((id) => !seenIdsRef.current.has(id));
+    ids.forEach((id) => seenIdsRef.current.add(id));
+    if (nextNewIds.length === 0) {
+      return;
+    }
 
+    setNewCardIds(nextNewIds);
+    const timeout = window.setTimeout(() => setNewCardIds([]), 700);
     return () => window.clearTimeout(timeout);
-  }, [board.matches, board.recentHistory, board.stinkers]);
+  }, [items]);
+
+  if (items.length === 0) {
+    return null;
+  }
 
   return (
-    <div className="space-y-6">
+    <section className="space-y-4">
       <MovieDetailsOverlay
         movie={selectedMovie}
         movieId={selectedMovieId}
         onClose={() => setSelectedMovieId(null)}
       />
 
-      <BrowseRail
-        title={isResults ? "Final Matches" : "Matches"}
-        items={board.matches}
-        newCardIds={newCardIdsByRail.matches}
-        tone="match"
-        onSelectMovie={setSelectedMovieId}
-        interactive
-      />
-
-      <BrowseRail
-        title="Recent History"
-        items={board.recentHistory}
-        newCardIds={newCardIdsByRail.recentHistory}
-        tone="mixed"
-        onSelectMovie={setSelectedMovieId}
-        interactive={false}
-      />
-
-      <BrowseRail
-        title="Stinkers"
-        items={board.stinkers}
-        newCardIds={newCardIdsByRail.stinkers}
-        tone="stinker"
-        onSelectMovie={setSelectedMovieId}
-        interactive
-      />
-    </div>
+      <h2 className="text-2xl font-medium font-display text-white">{title}</h2>
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {items.map((item) => (
+          <DisplayRailCard
+            key={`${title}-${item.movie.id}`}
+            item={item}
+            isNew={newCardIds.includes(item.movie.id)}
+            tone={tone}
+            interactive={interactive}
+            onSelect={() => setSelectedMovieId(item.movie.id)}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -159,52 +104,14 @@ export function MatchFoundOverlay({movie}: {movie: MovieCandidate}) {
   );
 }
 
-function BrowseRail({
-  title,
-  items,
-  newCardIds,
-  tone,
-  onSelectMovie,
-  interactive,
-}: {
-  title: string;
-  items: DisplayBoardItem[];
-  newCardIds: string[];
-  tone: "match" | "mixed" | "stinker";
-  onSelectMovie: (movieId: string) => void;
-  interactive: boolean;
-}) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="space-y-4">
-      <h2 className="text-2xl font-medium font-display text-white">{title}</h2>
-      <div className="flex gap-4 overflow-x-auto pb-2">
-        {items.map((item) => (
-          <BrowseRailCard
-            key={`${title}-${item.movie.id}`}
-            item={item}
-            isNew={newCardIds.includes(item.movie.id)}
-            tone={tone}
-            interactive={interactive}
-            onSelect={() => onSelectMovie(item.movie.id)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function BrowseRailCard({
+function DisplayRailCard({
   item,
   isNew,
   tone,
   interactive,
   onSelect,
 }: {
-  item: DisplayBoardItem;
+  item: GameActivityItem;
   isNew: boolean;
   tone: "match" | "mixed" | "stinker";
   interactive: boolean;

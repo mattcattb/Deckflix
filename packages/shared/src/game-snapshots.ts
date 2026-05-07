@@ -1,7 +1,5 @@
 import {z} from "zod";
 import {
-  gameQueueItemSchema,
-  gamePlayerProgressSchema,
   gameSettingsInputSchema,
   gameSettingsSchema,
   gameStatusSchema,
@@ -55,11 +53,14 @@ const gameResultsSchema = z.object({
   rejectedMovieIds: z.array(z.string().min(1)),
 });
 
-export const displayGameStateSchema = z.object({
-  summary: gameSummarySchema,
-  queue: z.array(gameQueueItemSchema),
-  playerProgress: z.array(gamePlayerProgressSchema),
-  results: gameResultsSchema,
+export const gameActivityItemSchema = z.object({
+  movie: movieCandidateSchema,
+  votes: gameVoteSummarySchema,
+  outcome: z.enum(["match", "rejected", "active"]),
+});
+
+export const gameActivitySliceSchema = z.object({
+  items: z.array(gameActivityItemSchema),
 });
 
 export const playerGameStateSchema = z.object({
@@ -90,5 +91,6 @@ export type GameSummary = z.infer<typeof gameSummarySchema>;
 export type GameMeta = z.infer<typeof gameMetaSchema>;
 export type GamePlayers = z.infer<typeof gamePlayersSchema>;
 export type GameResults = z.infer<typeof gameResultsSchema>;
-export type DisplayGameState = z.infer<typeof displayGameStateSchema>;
+export type GameActivityItem = z.infer<typeof gameActivityItemSchema>;
+export type GameActivitySlice = z.infer<typeof gameActivitySliceSchema>;
 export type PlayerGameState = z.infer<typeof playerGameStateSchema>;

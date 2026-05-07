@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {displayGameStateSchema, playerGameStateSchema} from "../game-snapshots";
+import {playerGameStateSchema} from "../game-snapshots";
 import {
   presencePlayerJoinedEventSchema,
   presencePlayerLeftEventSchema,
@@ -27,11 +27,6 @@ export const playerClientMessageSchema = z.discriminatedUnion("type", [
   socketPingEventSchema,
 ]);
 
-export const displaySnapshotEventSchema = z.object({
-  type: z.literal("display.snapshot"),
-  payload: displayGameStateSchema,
-});
-
 export const playerSnapshotEventSchema = z.object({
   type: z.literal("player.snapshot"),
   payload: playerGameStateSchema,
@@ -39,7 +34,6 @@ export const playerSnapshotEventSchema = z.object({
 
 // Need to better organzie this to have a shared serverMessagesSchema, seperating out dispaly and player messages a bit less here
 export const displayServerMessageSchema = z.discriminatedUnion("type", [
-  displaySnapshotEventSchema,
   roomStartedEventSchema,
   roomStatusChangedEventSchema,
   roomDeletedEventSchema,

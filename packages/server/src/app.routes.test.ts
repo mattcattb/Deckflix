@@ -11,4 +11,14 @@ describe("app routes", () => {
     expect((await app.request("/api/room/ABCD/meta")).status).toBe(404);
     expect((await app.request("/api/room/ABCD/players")).status).toBe(404);
   });
+
+  test("does not expose the old display snapshot route", async () => {
+    expect((await app.request("/api/game/display")).status).toBe(404);
+  });
+
+  test("game slice routes require an active room session", async () => {
+    expect((await app.request("/api/game/matches")).status).toBe(404);
+    expect((await app.request("/api/game/recent")).status).toBe(404);
+    expect((await app.request("/api/game/stinkers")).status).toBe(404);
+  });
 });

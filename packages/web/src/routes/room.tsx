@@ -1,7 +1,6 @@
 import {createFileRoute, redirect} from "@tanstack/react-router";
 import {DisplayRoomShell} from "../features/display/DisplayRoomView";
 import {
-  activeDisplayStateQueryOptions,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
 } from "../features/room/room.queries";
@@ -27,9 +26,6 @@ export const Route = createFileRoute("/room")({
         ),
         context.queryClient.prefetchQuery(
           activeRoomPlayersQueryOptions(activeClient.gameCode),
-        ),
-        context.queryClient.prefetchQuery(
-          activeDisplayStateQueryOptions(activeClient.gameCode),
         ),
         context.queryClient.prefetchQuery(
           activeRoomSettingsQueryOptions(activeClient.gameCode),

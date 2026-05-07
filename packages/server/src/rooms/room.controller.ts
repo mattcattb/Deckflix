@@ -109,7 +109,7 @@ export const roomController = createRouter()
         result.nextStatus,
       );
       GameEventsService.publishRoomStarted(server, result.gameCode);
-      await GameEventsService.publishRoomSnapshot(
+      await GameEventsService.publishPlayerRoomSnapshots(
         server,
         result.gameCode,
         result.playerIds,
@@ -157,7 +157,7 @@ export const roomController = createRouter()
         playerId,
       });
       GameEventsService.publishPlayerLeft(server, result.gameCode, playerId);
-      await GameEventsService.publishRoomSnapshot(
+      await GameEventsService.publishPlayerRoomSnapshots(
         server,
         result.gameCode,
         result.playerIds,
@@ -189,7 +189,7 @@ export const roomController = createRouter()
         result.gameCode,
         result.player,
       );
-      await GameEventsService.publishRoomSnapshot(
+      await GameEventsService.publishPlayerRoomSnapshots(
         server,
         result.gameCode,
         result.playerIds,

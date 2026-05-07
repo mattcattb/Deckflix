@@ -1,5 +1,6 @@
 import type {
-  DisplayGameState,
+  GameActivityItem,
+  GameActivitySlice,
   GameMeta,
   GamePlayers,
   GameResults,
@@ -16,7 +17,6 @@ import {
 import * as MovieStateService from "../gameplay/movie-state.service";
 import * as PoolService from "../recommendations/pool.service";
 import {
-  publishDisplayMessage,
   publishPlayerMessage,
   type RealtimeServer,
 } from "../realtime/realtime.service";
@@ -101,6 +101,98 @@ export const getGameResults = async (
   };
 };
 
+const getTimestamp = (value: string | null | undefined) =>
+  value ? Date.parse(value) : 0;
+
+const getResolvedTimestamp = (item: GameActivityItem) =>
+  getTimestamp(item.votes.resolvedAt) || getTimestamp(item.votes.lastActivityAt);
+
+const getActivityItems = async (gameCode: string) => {
+  const poolEntries = await PoolService.listPoolEntries(gameCode);
+  const movieIds = poolEntries.map((entry) => entry.movieId);
+  const [movieStates, movieMetas] = await Promise.all([
+    MovieStateService.getMovieStates(gameCode, movieIds),
+    PoolService.getMovieMetas(gameCode, movieIds),
+  ]);
+
+  return poolEntries
+    .map((entry) => {
+      const movieState = movieStates.get(entry.movieId)!;
+      const votes: GameVoteSummary = {
+        movieId: entry.movieId,
+        like: movieState.likeCount,
+        dislike: movieState.dislikeCount,
+        maybe: movieState.maybeCount,
+        superLike: movieState.superLikeCount,
+        skip: movieState.skipCount,
+        totalVotes: movieState.totalVotes,
+        matched: movieState.status === "matched",
+        resolvedAt: movieState.resolvedAt ?? null,
+        lastActivityAt: movieState.lastActivityAt ?? null,
+        matchedAt: movieState.matchedAt ?? null,
+      };
+
+      if (votes.totalVotes === 0 || !votes.lastActivityAt) {
+        return null;
+      }
+
+      const outcome =
+        movieState.status === "matched"
+          ? "match"
+          : movieState.status === "rejected"
+            ? "rejected"
+            : "active";
+
+      return {
+        movie: movieMetas.get(entry.movieId)!,
+        votes,
+        outcome,
+      } satisfies GameActivityItem;
+    })
+    .filter((item): item is GameActivityItem => Boolean(item));
+};
+
+export const getGameMatches = async (
+  gameCode: string,
+): Promise<GameActivitySlice> => {
+  const items = await getActivityItems(gameCode);
+  return {
+    items: items
+      .filter((item) => item.outcome === "match")
+      .sort(
+        (left, right) =>
+          getTimestamp(right.votes.matchedAt) -
+            getTimestamp(left.votes.matchedAt) ||
+          getTimestamp(right.votes.lastActivityAt) -
+            getTimestamp(left.votes.lastActivityAt),
+      ),
+  };
+};
+
+export const getGameRecent = async (
+  gameCode: string,
+): Promise<GameActivitySlice> => {
+  const items = await getActivityItems(gameCode);
+  return {
+    items: items.sort(
+      (left, right) =>
+        getTimestamp(right.votes.lastActivityAt) -
+        getTimestamp(left.votes.lastActivityAt),
+    ),
+  };
+};
+
+export const getGameStinkers = async (
+  gameCode: string,
+): Promise<GameActivitySlice> => {
+  const items = await getActivityItems(gameCode);
+  return {
+    items: items
+      .filter((item) => item.outcome === "rejected")
+      .sort((left, right) => getResolvedTimestamp(right) - getResolvedTimestamp(left)),
+  };
+};
+
 export const getGameQueue = async (gameCode: string) => {
   const poolEntries = await PoolService.listPoolEntries(gameCode);
   const movieMetas = await PoolService.getMovieMetas(
@@ -141,25 +233,7 @@ export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
   };
 };
 
-export const getDisplayGameState = async (
-  gameCode: string,
-): Promise<DisplayGameState> => {
-  const [summary, queue, progress, results] = await Promise.all([
-    getGameSummary(gameCode),
-    getGameQueue(gameCode),
-    getPlayerProgress(gameCode),
-    getGameResults(gameCode),
-  ]);
-
-  return {
-    summary,
-    queue: queue.queue,
-    playerProgress: progress.playerProgress,
-    results,
-  };
-};
-
-export const getPlayerGameState = async (input: {
+const getPlayerGameState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => {
@@ -206,46 +280,33 @@ export const getPlayerGameState = async (input: {
   };
 };
 
-export const getProjectedDisplayState = async (
-  gameCode: string,
-): Promise<DisplayGameState> => getDisplayGameState(gameCode);
-
 export const getProjectedPlayerState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => getPlayerGameState(input);
 
-export const materializeGameState = async (
+const materializePlayerStates = async (
   gameCode: string,
   playerIds: string[],
 ) => {
-  const [displayState, playerEntries] = await Promise.all([
-    getDisplayGameState(gameCode),
-    Promise.all(
-      playerIds.map(
-        async (playerId) =>
-          [playerId, await getPlayerGameState({gameCode, playerId})] as const,
-      ),
+  const playerEntries = await Promise.all(
+    playerIds.map(
+      async (playerId) =>
+        [playerId, await getPlayerGameState({gameCode, playerId})] as const,
     ),
-  ]);
+  );
 
   return {
-    displayState,
     playerStates: new Map(playerEntries),
   };
 };
 
-export const publishGameState = async (
+export const publishPlayerSnapshots = async (
   server: RealtimeServer,
   gameCode: string,
   playerIds: string[],
 ) => {
-  const materialized = await materializeGameState(gameCode, playerIds);
-
-  publishDisplayMessage(server, gameCode, {
-    type: "display.snapshot",
-    payload: materialized.displayState,
-  });
+  const materialized = await materializePlayerStates(gameCode, playerIds);
 
   for (const [playerId, state] of materialized.playerStates) {
     publishPlayerMessage(server, gameCode, playerId, {

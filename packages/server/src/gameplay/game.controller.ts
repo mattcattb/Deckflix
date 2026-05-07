@@ -12,20 +12,19 @@ import {
   requireStartedGame,
 } from "../rooms/rooms.middleware";
 import {
+  getGameMatches,
   getGameQueue,
+  getGameRecent,
   getGameResults,
   getGameSummary,
+  getGameStinkers,
   getPlayerProgress,
-  getProjectedDisplayState,
   getProjectedPlayerState,
 } from "../rooms/game-state.service";
 import * as GameService from "./game.service";
 
 export const gameController = createRouter()
   .use("*", activeRoomMiddleware)
-  .get("/display", async (c) => {
-    return c.json(await getProjectedDisplayState(c.get("room").gameCode));
-  })
   .get("/player", requirePlayerActor, async (c) => {
     const {gameCode} = c.get("room");
     const {playerId} = c.get("playerActor");
@@ -42,6 +41,15 @@ export const gameController = createRouter()
   })
   .get("/results", async (c) => {
     return c.json(await getGameResults(c.get("room").gameCode));
+  })
+  .get("/matches", async (c) => {
+    return c.json(await getGameMatches(c.get("room").gameCode));
+  })
+  .get("/recent", async (c) => {
+    return c.json(await getGameRecent(c.get("room").gameCode));
+  })
+  .get("/stinkers", async (c) => {
+    return c.json(await getGameStinkers(c.get("room").gameCode));
   })
   .get("/preferences", async (c) => {
     return c.json(

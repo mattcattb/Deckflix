@@ -4,14 +4,14 @@ import {
   publishPlayerMessage,
   type RealtimeServer,
 } from "./realtime.service";
-import {publishGameState} from "../rooms/game-state.service";
+import {publishPlayerSnapshots} from "../rooms/game-state.service";
 
-export const publishRoomSnapshot = async (
+export const publishPlayerRoomSnapshots = async (
   server: RealtimeServer,
   gameCode: string,
   playerIds: string[],
 ) => {
-  await publishGameState(server, gameCode, playerIds);
+  await publishPlayerSnapshots(server, gameCode, playerIds);
 };
 
 export const publishRoomStatusChanged = (

@@ -11,18 +11,17 @@ import * as RealtimeService from "../realtime/realtime.service";
 import {ensureSocketPubSub} from "../realtime/socket-pubsub.service";
 import {
   getProjectedPlayerState,
-  getProjectedDisplayState,
-  publishGameState,
+  publishPlayerSnapshots,
 } from "../rooms/game-state.service";
 import {activeRoomMiddleware} from "../rooms/rooms.middleware";
 import * as RoomsService from "../rooms/rooms.service";
 
-const publishRoomState = async (
-  server: Parameters<typeof publishGameState>[0],
+const publishPlayerRoomState = async (
+  server: Parameters<typeof publishPlayerSnapshots>[0],
   gameCode: string,
 ) => {
   const playerIds = await RoomsService.listPlayerIds(gameCode);
-  await publishGameState(server, gameCode, playerIds);
+  await publishPlayerSnapshots(server, gameCode, playerIds);
 };
 
 const createSocketHandler = () =>
@@ -40,13 +39,7 @@ const createSocketHandler = () =>
                 gameCode,
                 socket: ws,
               });
-              ws.send(
-                encodeDisplayServerMessage({
-                  type: "display.snapshot",
-                  payload: await getProjectedDisplayState(gameCode),
-                }),
-              );
-              void publishRoomState(server, gameCode);
+              void publishPlayerRoomState(server, gameCode);
               RealtimeService.subscribeDisplaySocket(ws, gameCode);
             } catch {
               ws.close(4001, "Invalid display session");
@@ -59,7 +52,7 @@ const createSocketHandler = () =>
             gameCode,
             socket: ws,
           });
-          void publishRoomState(server, gameCode);
+          void publishPlayerRoomState(server, gameCode);
         },
         onMessage: (event, ws) => {
           try {
@@ -100,7 +93,7 @@ const createSocketHandler = () =>
                 payload: await getProjectedPlayerState({gameCode, playerId}),
               }),
             );
-            void publishRoomState(server, gameCode);
+            void publishPlayerRoomState(server, gameCode);
             RealtimeService.subscribePlayerSocket(ws, gameCode, playerId);
           } catch {
             ws.close(4001, "Invalid player session");
@@ -114,7 +107,7 @@ const createSocketHandler = () =>
           playerId,
           socket: ws,
         });
-        void publishRoomState(server, gameCode);
+        void publishPlayerRoomState(server, gameCode);
       },
       onMessage: (event, ws) => {
         try {

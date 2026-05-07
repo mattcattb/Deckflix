@@ -10,16 +10,14 @@ import {Outlet, useLocation, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {
   ActiveRoomClient,
-  DisplayGameState,
   GameMeta,
   GamePlayerPresence,
   GamePreferences,
   GameSettings,
-  MovieCandidate,
+  DisplayServerMessage,
 } from "@deckflix/shared";
 import {api, parseRpc} from "../../lib/api";
 import {
-  activeDisplayStateQueryOptions,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   roomKeys,
@@ -47,22 +45,12 @@ import {
   getDisplayRoomViewMode,
 } from "../room/room-view-modes";
 import {
-  MatchFoundOverlay,
-  type DisplayBoard,
-  type DisplayBoardItem,
-} from "./DisplayBrowseView";
-import {
   RoomHeader,
   RoomScreenShell,
   RoomSidebarSection,
 } from "../../components/layout";
 
 type PlayerVoteFlashTone = "positive" | "negative";
-
-type MatchReveal = {
-  id: string;
-  movie: MovieCandidate;
-};
 
 type MovieGenre = {
   id: number;
@@ -72,13 +60,13 @@ type MovieGenre = {
 type PlayerRailPlayer = Pick<GamePlayerPresence, "id" | "displayName">;
 
 type DisplayRoomContextValue = {
-  board: DisplayBoard;
   deleteRoom: () => void;
   deleteRoomPending: boolean;
   draftSettings: GameSettings;
   draftPreferences: GamePreferences;
   gameError: string | null;
   gameCode: string;
+  lastDisplayMessage: DisplayServerMessage | null;
   meta: GameMeta;
   movieGenres: MovieGenre[];
   movieGenresError: string | null;
@@ -89,73 +77,10 @@ type DisplayRoomContextValue = {
   setDraftSettings: (settings: GameSettings) => void;
   startGame: () => void;
   startGamePending: boolean;
-  state: DisplayGameState;
   viewMode: ReturnType<typeof getDisplayRoomViewMode>;
 };
 
 const DisplayRoomContext = createContext<DisplayRoomContextValue | null>(null);
-
-const getTimestamp = (value: string | null | undefined) =>
-  value ? Date.parse(value) : 0;
-
-const sortByLastActivity = (left: DisplayBoardItem, right: DisplayBoardItem) =>
-  getTimestamp(right.votes.lastActivityAt) - getTimestamp(left.votes.lastActivityAt);
-
-const sortByRecentHistory = (left: DisplayBoardItem, right: DisplayBoardItem) =>
-  right.votes.totalVotes - left.votes.totalVotes || sortByLastActivity(left, right);
-
-const sortByMatchedAt = (left: DisplayBoardItem, right: DisplayBoardItem) =>
-  getTimestamp(right.votes.matchedAt) - getTimestamp(left.votes.matchedAt) ||
-  sortByLastActivity(left, right);
-
-const getBoardSections = (state: DisplayGameState | null): DisplayBoard => {
-  if (!state) {
-    return {
-      matches: [],
-      recentHistory: [],
-      stinkers: [],
-    };
-  }
-
-  const rejectedIds = new Set(state.results.rejectedMovieIds);
-  const voteSummaryByMovieId = new Map(
-    state.results.voteSummary.map((entry) => [entry.movieId, entry] as const),
-  );
-  const boardItems = state.queue
-    .map((item) => {
-      const votes = voteSummaryByMovieId.get(item.movie.id);
-      if (!votes || votes.totalVotes === 0 || !votes.lastActivityAt) {
-        return null;
-      }
-
-      if (votes.matched) {
-        return {
-          movie: item.movie,
-          votes,
-          outcome: "match" as const,
-        };
-      }
-
-      return {
-        movie: item.movie,
-        votes,
-        outcome: rejectedIds.has(votes.movieId) ? "rejected" as const : "active" as const,
-      };
-    })
-    .filter((item): item is DisplayBoardItem => Boolean(item));
-
-  const matches = boardItems.filter((item) => item.outcome === "match").sort(sortByMatchedAt);
-  const recentHistory = [...boardItems].sort(sortByRecentHistory);
-  const stinkers = boardItems
-    .filter((item) => item.outcome === "rejected")
-    .sort(sortByLastActivity);
-
-  return {
-    matches,
-    recentHistory,
-    stinkers,
-  };
-};
 
 export const useDisplayRoom = () => {
   const context = useContext(DisplayRoomContext);
@@ -173,18 +98,16 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const socketRef = useRef<WebSocket | null>(null);
   const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
-  const [state, setState] = useState<DisplayGameState | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
   const [draftPreferences, setDraftPreferences] =
     useState<GamePreferences | null>(null);
-  const [activeMatch, setActiveMatch] = useState<MatchReveal | null>(null);
-  const [queuedMatchIds, setQueuedMatchIds] = useState<string[]>([]);
+  const [lastDisplayMessage, setLastDisplayMessage] =
+    useState<DisplayServerMessage | null>(null);
   const [playerVoteFlashById, setPlayerVoteFlashById] = useState<
     Record<string, PlayerVoteFlashTone>
   >({});
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
-  const stateQuery = useQuery(activeDisplayStateQueryOptions(gameCode));
   const settingsQuery = useQuery(activeRoomSettingsQueryOptions(gameCode));
   const preferencesQuery = useQuery(activeGamePreferencesQueryOptions(gameCode));
   const movieGenresQuery = useQuery(movieGenresQueryOptions());
@@ -195,7 +118,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
-  const refetchState = stateQuery.refetch;
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
       return;
@@ -206,12 +128,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       navigate({to: "/", replace: true});
     });
   }, [gameCode, navigate, queryClient]);
-
-  useEffect(() => {
-    if (stateQuery.data) {
-      setState(stateQuery.data);
-    }
-  }, [stateQuery.data]);
 
   useEffect(() => {
     if (settingsQuery.data) {
@@ -229,7 +145,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     const roomError =
       metaQuery.error ??
       playersQuery.error ??
-      stateQuery.error ??
       settingsQuery.error ??
       preferencesQuery.error;
     if (roomError && isMissingRoomSessionError(roomError)) {
@@ -241,44 +156,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     preferencesQuery.error,
     resetRoomSession,
     settingsQuery.error,
-    stateQuery.error,
   ]);
-
-  useEffect(() => {
-    if (activeMatch || queuedMatchIds.length === 0) {
-      return;
-    }
-
-    const nextMatchId = queuedMatchIds[0];
-    const matchMovie =
-      state?.queue.find((item) => item.movie.id === nextMatchId)?.movie ??
-      stateQuery.data?.queue.find((item) => item.movie.id === nextMatchId)?.movie;
-
-    if (!matchMovie) {
-      setQueuedMatchIds((current) => current.slice(1));
-      return;
-    }
-
-    setActiveMatch({
-      id: nextMatchId,
-      movie: matchMovie,
-    });
-    setQueuedMatchIds((current) => current.slice(1));
-  }, [activeMatch, queuedMatchIds, state, stateQuery.data]);
-
-  useEffect(() => {
-    if (!activeMatch) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setActiveMatch((current) =>
-        current?.id === activeMatch.id ? null : current,
-      );
-    }, 2600);
-
-    return () => window.clearTimeout(timeout);
-  }, [activeMatch]);
 
   const settingsMutation = useMutation({
     mutationFn: async () => {
@@ -326,7 +204,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     onSuccess: () => {
       setGameError(null);
       void metaQuery.refetch();
-      void stateQuery.refetch();
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -390,10 +267,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "display.snapshot") {
-        setState(message.payload);
-        return;
-      }
+      setLastDisplayMessage(message);
 
       if (message.type === "room.started") {
         void refetchMeta();
@@ -423,17 +297,10 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       }
 
       if (message.type === "swipe.match_found") {
-        void refetchState();
-        setQueuedMatchIds((current) =>
-          current.includes(message.payload.movieId)
-            ? current
-            : [...current, message.payload.movieId],
-        );
         return;
       }
 
       if (message.type === "swipe.vote_recorded") {
-        void refetchState();
         const tone =
           message.payload.choice === "like" || message.payload.choice === "super_like"
             ? "positive"
@@ -471,26 +338,24 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [refetchMeta, refetchPlayers, refetchState, resetRoomSession]);
+  }, [refetchMeta, refetchPlayers, resetRoomSession]);
 
   useEffect(() => {
-    if (!state) {
+    if (!metaQuery.data) {
       return;
     }
 
-    const nextPath = getDisplayRoomPath(state.summary.status);
+    const nextPath = getDisplayRoomPath(metaQuery.data.summary.status);
     if (location.pathname !== nextPath) {
       navigate({to: nextPath, replace: true});
     }
-  }, [location.pathname, navigate, state]);
+  }, [location.pathname, metaQuery.data, navigate]);
 
   if (
     metaQuery.isLoading ||
     playersQuery.isLoading ||
-    stateQuery.isLoading ||
     settingsQuery.isLoading ||
     preferencesQuery.isLoading ||
-    !state ||
     !draftSettings ||
     !draftPreferences
   ) {
@@ -500,7 +365,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   if (
     metaQuery.error ||
     playersQuery.error ||
-    stateQuery.error ||
     settingsQuery.error ||
     preferencesQuery.error ||
     !metaQuery.data ||
@@ -509,7 +373,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     if (
       isMissingRoomSessionError(metaQuery.error) ||
       isMissingRoomSessionError(playersQuery.error) ||
-      isMissingRoomSessionError(stateQuery.error) ||
       isMissingRoomSessionError(settingsQuery.error) ||
       isMissingRoomSessionError(preferencesQuery.error)
     ) {
@@ -519,32 +382,29 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     return (
       <RoomUnavailable
         message={
-          stateQuery.error instanceof Error
-            ? stateQuery.error.message
-            : settingsQuery.error instanceof Error
-              ? settingsQuery.error.message
+          settingsQuery.error instanceof Error
+            ? settingsQuery.error.message
             : preferencesQuery.error instanceof Error
               ? preferencesQuery.error.message
-            : metaQuery.error instanceof Error
-              ? metaQuery.error.message
-              : playersQuery.error instanceof Error
-                ? playersQuery.error.message
-                : "This room is not available."
+              : metaQuery.error instanceof Error
+                ? metaQuery.error.message
+                : playersQuery.error instanceof Error
+                  ? playersQuery.error.message
+                  : "This room is not available."
         }
       />
     );
   }
 
-  const board = getBoardSections(state);
-  const viewMode = getDisplayRoomViewMode(state.summary.status);
+  const viewMode = getDisplayRoomViewMode(metaQuery.data.summary.status);
   const contextValue: DisplayRoomContextValue = {
-    board,
     deleteRoom: () => deleteRoomMutation.mutate(),
     deleteRoomPending: deleteRoomMutation.isPending,
     draftPreferences,
     draftSettings,
     gameCode,
     gameError,
+    lastDisplayMessage,
     meta: metaQuery.data,
     movieGenres: movieGenresQuery.data?.items ?? [],
     movieGenresError,
@@ -555,17 +415,12 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     setDraftSettings,
     startGame: () => startGameMutation.mutate(),
     startGamePending: startGameMutation.isPending,
-    state,
     viewMode,
   };
 
   return (
     <DisplayRoomContext.Provider value={contextValue}>
       <>
-        {activeMatch && location.pathname === "/room/live" ? (
-          <MatchFoundOverlay movie={activeMatch.movie} />
-        ) : null}
-
         <RoomScreenShell
           error={gameError}
           header={

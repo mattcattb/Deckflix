@@ -9,8 +9,12 @@ export const roomKeys = {
     ["room", normalizeGameCode(gameCode), "players"] as const,
   results: (gameCode: string) =>
     ["room", normalizeGameCode(gameCode), "results"] as const,
-  displayState: (gameCode: string) =>
-    ["room", normalizeGameCode(gameCode), "display-state"] as const,
+  matches: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "matches"] as const,
+  recent: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "recent"] as const,
+  stinkers: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "stinkers"] as const,
   playerState: (gameCode: string) =>
     ["room", normalizeGameCode(gameCode), "player-state"] as const,
 };
@@ -33,10 +37,22 @@ export const activeRoomResultsQueryOptions = (gameCode: string) =>
     queryFn: () => parseRpc(api.api.game.results.$get()),
   });
 
-export const activeDisplayStateQueryOptions = (gameCode: string) =>
+export const activeGameMatchesQueryOptions = (gameCode: string) =>
   queryOptions({
-    queryKey: roomKeys.displayState(gameCode),
-    queryFn: () => parseRpc(api.api.game.display.$get()),
+    queryKey: roomKeys.matches(gameCode),
+    queryFn: () => parseRpc(api.api.game.matches.$get()),
+  });
+
+export const activeGameRecentQueryOptions = (gameCode: string) =>
+  queryOptions({
+    queryKey: roomKeys.recent(gameCode),
+    queryFn: () => parseRpc(api.api.game.recent.$get()),
+  });
+
+export const activeGameStinkersQueryOptions = (gameCode: string) =>
+  queryOptions({
+    queryKey: roomKeys.stinkers(gameCode),
+    queryFn: () => parseRpc(api.api.game.stinkers.$get()),
   });
 
 export const activePlayerStateQueryOptions = (gameCode: string) =>
