@@ -1,6 +1,6 @@
-import {useState} from "react";
+import {useState, type ReactNode} from "react";
 import {Popover} from "@base-ui/react/popover";
-import {Checkbox} from "../ui";
+import {Checkbox} from "../../components/ui";
 import {cn} from "../../lib/cn";
 
 type MovieGenre = {
@@ -16,6 +16,7 @@ export type GenrePickerProps = {
   onClear: () => void;
   tone?: "include" | "exclude";
   emptyLabel?: string;
+  renderIcon?: (genre: MovieGenre) => ReactNode;
 };
 
 export function GenrePicker({
@@ -26,6 +27,7 @@ export function GenrePicker({
   onClear,
   tone = "include",
   emptyLabel = "None",
+  renderIcon,
 }: GenrePickerProps) {
   const [open, setOpen] = useState(false);
   const selected = genres.filter((g) => selectedGenreIds.includes(g.id));
@@ -57,17 +59,13 @@ export function GenrePicker({
           </span>
         ) : (
           selected.map((genre) => (
-            <button
+            <GenreChip
               key={genre.id}
-              type="button"
-              onClick={() => onToggle(genre.id, false)}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition hover:brightness-110",
-                badgeClass,
-              )}>
-              {genre.name}
-              <span className="opacity-60">×</span>
-            </button>
+              genre={genre}
+              icon={renderIcon?.(genre)}
+              className={badgeClass}
+              onRemove={() => onToggle(genre.id, false)}
+            />
           ))
         )}
 
@@ -87,17 +85,15 @@ export function GenrePicker({
               <Popover.Popup className="z-50 w-64 max-h-72 overflow-y-auto rounded-xl border border-white/[0.08] bg-surface/95 backdrop-blur p-2 shadow-xl outline-none">
                 <div className="grid grid-cols-1 gap-0.5">
                   {genres.map((genre) => (
-                    <div
+                    <GenreOption
                       key={genre.id}
-                      className="rounded-md px-2 py-1.5 hover:bg-white/[0.06]">
-                      <Checkbox
-                        checked={selectedGenreIds.includes(genre.id)}
-                        onCheckedChange={(checked) =>
-                          onToggle(genre.id, checked === true)
-                        }
-                        label={genre.name}
-                      />
-                    </div>
+                      genre={genre}
+                      checked={selectedGenreIds.includes(genre.id)}
+                      icon={renderIcon?.(genre)}
+                      onCheckedChange={(checked) =>
+                        onToggle(genre.id, checked === true)
+                      }
+                    />
                   ))}
                 </div>
               </Popover.Popup>
@@ -105,6 +101,55 @@ export function GenrePicker({
           </Popover.Portal>
         </Popover.Root>
       </div>
+    </div>
+  );
+}
+
+function GenreChip({
+  className,
+  genre,
+  icon,
+  onRemove,
+}: {
+  className: string;
+  genre: MovieGenre;
+  icon?: ReactNode;
+  onRemove: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition hover:brightness-110",
+        className,
+      )}>
+      {icon}
+      {genre.name}
+      <span className="opacity-60">x</span>
+    </button>
+  );
+}
+
+function GenreOption({
+  checked,
+  genre,
+  icon,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  genre: MovieGenre;
+  icon?: ReactNode;
+  onCheckedChange: (checked: boolean | "indeterminate") => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground/90 hover:bg-white/[0.06]">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+      />
+      {icon}
+      <span>{genre.name}</span>
     </div>
   );
 }

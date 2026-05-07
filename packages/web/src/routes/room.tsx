@@ -3,12 +3,18 @@ import {createFileRoute, redirect} from "@tanstack/react-router";
 import {DisplayRoomShell} from "../features/room";
 import {
   activeDisplayStateQueryOptions,
-  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
+} from "../features/room/room.queries";
+import {
+  activeGamePreferencesQueryOptions,
+  activeRoomSettingsQueryOptions,
+} from "../features/preferences/preferences.queries";
+import {
+  clearActiveRoomSession,
   isMissingRoomSessionError,
   waitForActiveRoomClient,
-} from "../lib/games";
+} from "../features/room/room-session";
 
 const getDisplayClient = async (queryClient: QueryClient) => {
   const activeClient = await waitForActiveRoomClient(queryClient);
@@ -39,6 +45,12 @@ export const Route = createFileRoute("/room")({
         ),
         context.queryClient.prefetchQuery(
           activeDisplayStateQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeRoomSettingsQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeGamePreferencesQueryOptions(activeClient.gameCode),
         ),
       ]);
     } catch (error) {

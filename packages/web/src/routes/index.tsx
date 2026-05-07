@@ -3,13 +3,15 @@ import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
 import {GAME_CODE_LENGTH} from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
+import {BrandMark} from "../components/common";
+import {CenteredPanel} from "../components/layout";
 import {Button, Input, Label, useToast} from "../components/ui";
 import {
   activeRoomClientQueryOptions,
-  gameKeys,
+  activeRoomSessionKeys,
   getActiveRoomPath,
   normalizeGameCode,
-} from "../lib/games";
+} from "../features/room/room-session";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async ({context}) => {
@@ -48,7 +50,10 @@ function HomePage() {
         }),
       ),
     onSuccess: () => {
-      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+      queryClient.removeQueries({
+        queryKey: activeRoomSessionKeys.activeClient,
+        exact: true,
+      });
       navigate({to: "/room"});
     },
     onError: (error) => {
@@ -71,7 +76,10 @@ function HomePage() {
         }),
       ),
     onSuccess: () => {
-      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+      queryClient.removeQueries({
+        queryKey: activeRoomSessionKeys.activeClient,
+        exact: true,
+      });
       navigate({to: "/play"});
     },
     onError: (error) => {
@@ -84,14 +92,14 @@ function HomePage() {
   });
 
   return (
-    <div className="flex flex-1 items-center justify-center px-5 py-12">
+    <CenteredPanel>
       <div className="enter-rise relative w-full max-w-md overflow-hidden rounded-2xl border border-white/[0.06] bg-[linear-gradient(160deg,hsl(0_0%_8%)_0%,hsl(0_0%_4%)_100%)] shadow-[0_12px_48px_hsl(0_0%_0%/0.6)]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-15%,hsl(0_80%_48%/0.12),transparent_60%)]" />
 
         <div className="relative space-y-6 p-6 md:p-8">
           <div className="space-y-3 text-center">
-            <h1 className="text-5xl font-bold tracking-tight font-display">
-              DECK<span className="flame-text">FLIX</span>
+            <h1>
+              <BrandMark size="lg" uppercase />
             </h1>
             <p className="text-sm text-muted-foreground">
               Swipe right on movie night
@@ -209,7 +217,7 @@ function HomePage() {
           )}
         </div>
       </div>
-    </div>
+    </CenteredPanel>
   );
 }
 

@@ -1,9 +1,10 @@
 import {Link} from "@tanstack/react-router";
+import {CenteredPanel} from "../../components/layout";
 import {Button, Card, CardContent} from "../../components/ui";
 
 export function RoomUnavailable({message}: {message: string}) {
   return (
-    <div className="flex flex-1 items-center justify-center px-5 py-16">
+    <CenteredPanel className="py-16">
       <Card className="w-full max-w-md">
         <CardContent className="space-y-4 p-6 text-center">
           <h1 className="text-2xl font-semibold font-display">
@@ -15,6 +16,6 @@ export function RoomUnavailable({message}: {message: string}) {
           </Link>
         </CardContent>
       </Card>
-    </div>
+    </CenteredPanel>
   );
 }

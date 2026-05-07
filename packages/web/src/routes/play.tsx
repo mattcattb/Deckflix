@@ -2,14 +2,16 @@ import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect} from "@tanstack/react-router";
 import {PlayerRoomView} from "../features/room";
 import {
-  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   activeRoomResultsQueryOptions,
   activePlayerStateQueryOptions,
+} from "../features/room/room.queries";
+import {
+  clearActiveRoomSession,
   isMissingRoomSessionError,
   waitForActiveRoomClient,
-} from "../lib/games";
+} from "../features/room/room-session";
 
 const getPlayerClient = async (queryClient: QueryClient) => {
   const activeClient = await waitForActiveRoomClient(queryClient);

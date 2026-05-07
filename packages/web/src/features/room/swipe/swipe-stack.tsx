@@ -1,7 +1,7 @@
 import {useMemo, useRef, useState} from "react";
 import type {PointerEvent as ReactPointerEvent} from "react";
 import type {ActiveGameQueueItem, SwipeChoice} from "@deckflix/shared";
-import {MovieCard} from "../movie-card";
+import {MovieCard} from "../../movie-catalog/components/movie-card";
 
 type SwipeDeckProps = {
   item: ActiveGameQueueItem | null;
@@ -96,8 +96,7 @@ export function SwipeDeck({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={resetDrag}
-      >
+        onPointerCancel={resetDrag}>
         <MovieCard
           movie={item.movie}
           active
@@ -112,8 +111,7 @@ export function SwipeDeck({
               swipeHint === "LIKE"
                 ? "left-6 border-success text-success rotate-[-12deg]"
                 : "right-6 border-danger text-danger rotate-[12deg]"
-            }`}
-          >
+            }`}>
             {swipeHint}
           </div>
         ) : null}

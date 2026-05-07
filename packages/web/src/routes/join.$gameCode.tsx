@@ -4,9 +4,7 @@ import {
   activeRoomClientQueryOptions,
   getActiveRoomPath,
   normalizeGameCode,
-  roomMetaQueryOptions,
-  roomPlayersQueryOptions,
-} from "../lib/games";
+} from "../features/room/room-session";
 
 export const Route = createFileRoute("/join/$gameCode")({
   beforeLoad: async ({context}) => {
@@ -21,14 +19,8 @@ export const Route = createFileRoute("/join/$gameCode")({
       });
     }
   },
-  loader: async ({context, params}) => {
+  loader: async ({params}) => {
     const gameCode = normalizeGameCode(params.gameCode);
-
-    await Promise.all([
-      context.queryClient.prefetchQuery(roomMetaQueryOptions(gameCode)),
-      context.queryClient.prefetchQuery(roomPlayersQueryOptions(gameCode)),
-    ]);
-
     return {gameCode};
   },
   component: JoinRoomPage,

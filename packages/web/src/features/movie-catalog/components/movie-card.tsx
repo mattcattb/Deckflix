@@ -1,6 +1,6 @@
-import type { CSSProperties } from "react";
-import type { GameVoteSummary, MovieCandidate } from "@deckflix/shared";
-import { cn } from "../../lib/cn";
+import type {CSSProperties} from "react";
+import type {GameVoteSummary, MovieCandidate} from "@deckflix/shared";
+import {cn} from "../../../lib/cn";
 
 type MovieCardProps = {
   movie: MovieCandidate;
@@ -24,8 +24,7 @@ export function MovieCard({
         active ? "select-none touch-none" : "",
         className,
       )}
-      style={style}
-    >
+      style={style}>
       <div className="relative">
         <img
           src={movie.posterUrl}
@@ -41,7 +40,12 @@ export function MovieCard({
             <span>{movie.year}</span>
             <span className="text-white/30">&bull;</span>
             <span className="flex items-center gap-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-warning">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="text-warning">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
               </svg>
               {movie.rating.toFixed(1)}
@@ -50,7 +54,9 @@ export function MovieCard({
         </div>
       </div>
       <div className="space-y-3 px-5 py-4">
-        <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{movie.overview}</p>
+        <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+          {movie.overview}
+        </p>
         {votes ? (
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="rounded-full bg-success/15 px-2.5 py-0.5 text-success">
