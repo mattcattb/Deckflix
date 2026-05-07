@@ -1,15 +1,15 @@
 import type {SwipeChoice} from "@deckflix/shared";
-import {BadRequestException, NotFoundException} from "../common/errors";
-import {ensureRedis, redis} from "../lib/redis";
-import {withRedisLock} from "../lib/redis-lock";
-import * as RecommendationsService from "../recommendations/recommendations.service";
+import {BadRequestException} from "../common/errors";
+import * as PoolService from "../recommendations/pool.service";
+import {ensureRedis, redisClient} from "../redis/redis";
+import * as MovieStateService from "./movie-state.service";
 import {
   publishDisplayMessage,
   publishPlayerMessage,
   type RealtimeServer,
 } from "../realtime/realtime.service";
 import * as RoomsService from "../rooms/rooms.service";
-import {applyVoteToMovieState} from "./match-rules";
+import {getVoteCountField, resolveMovieState} from "./match.service";
 
 export type VoteRecord = {
   playerId: string;
@@ -26,12 +26,10 @@ const swipeChoices = new Set<SwipeChoice>([
   "skip",
 ]);
 
-const roomPrefix = (gameCode: string) => `game:${RoomsService.normalizeGameCode(gameCode)}:`;
+const roomPrefix = (gameCode: string) =>
+  `game:${RoomsService.normalizeGameCode(gameCode)}:`;
 const votesKey = (gameCode: string, movieId: string) =>
   `${roomPrefix(gameCode)}votes:${movieId}`;
-const movieStateKey = (gameCode: string) => `${roomPrefix(gameCode)}movie_state`;
-const voteLockKey = (gameCode: string, movieId: string) =>
-  `${roomPrefix(gameCode)}vote_lock:${movieId}`;
 
 const parseVoteRecord = (
   playerId: string,
@@ -53,20 +51,6 @@ const parseVoteRecord = (
   }
 };
 
-const parseMovieState = (
-  raw: string | null,
-  gameCode: string,
-  movieId: string,
-): RecommendationsService.MovieState => {
-  if (!raw) {
-    throw new NotFoundException(
-      `Movie ${movieId} not found in game ${RoomsService.normalizeGameCode(gameCode)}`,
-    );
-  }
-
-  return JSON.parse(raw) as RecommendationsService.MovieState;
-};
-
 export const recordVote = async (input: {
   gameCode: string;
   movieId: string;
@@ -76,64 +60,69 @@ export const recordVote = async (input: {
   await ensureRedis();
   const votedAt = new Date().toISOString();
   const totalPlayers = await RoomsService.countPlayers(input.gameCode);
-
-  return withRedisLock(
-    {
-      key: voteLockKey(input.gameCode, input.movieId),
-      ttlMs: 2_000,
-      retryCount: 20,
-      retryDelayMs: 25,
-      busyMessage: "Movie vote is busy, please try again",
-    },
-    async () => {
-      const state = parseMovieState(
-        await redis.hGet(movieStateKey(input.gameCode), input.movieId),
-        input.gameCode,
-        input.movieId,
-      );
-      const voteSet = await redis.hSetNX(
-        votesKey(input.gameCode, input.movieId),
-        input.playerId,
-        JSON.stringify({
-          choice: input.choice,
-          votedAt,
-        }),
-      );
-      if (!voteSet) {
-        throw new BadRequestException("Vote already recorded for this movie");
-      }
-
-      const next = applyVoteToMovieState({
-        state,
-        choice: input.choice,
-        totalPlayers,
-        votedAt,
-      });
-      const multi = redis.multi();
-      multi.hSet(
-        movieStateKey(input.gameCode),
-        input.movieId,
-        JSON.stringify(next.state),
-      );
-      multi.expire(votesKey(input.gameCode, input.movieId), RoomsService.ROOM_TTL_SECONDS);
-      multi.expire(movieStateKey(input.gameCode), RoomsService.ROOM_TTL_SECONDS);
-      await multi.exec();
-
-      return next;
-    },
+  const previousState = await MovieStateService.getMovieStateOrThrow(
+    input.gameCode,
+    input.movieId,
   );
+
+  const voteSet = await redisClient.hSetNX(
+    votesKey(input.gameCode, input.movieId),
+    input.playerId,
+    JSON.stringify({
+      choice: input.choice,
+      votedAt,
+    }),
+  );
+  if (!voteSet) {
+    throw new BadRequestException("Vote already recorded for this movie");
+  }
+
+  await redisClient.expire(
+    votesKey(input.gameCode, input.movieId),
+    RoomsService.ROOM_TTL_SECONDS,
+  );
+
+  await MovieStateService.incrementMovieVoteState({
+    gameCode: input.gameCode,
+    movieId: input.movieId,
+    countField: getVoteCountField(input.choice),
+    votedAt,
+  });
+  const incrementedState = await MovieStateService.getMovieStateOrThrow(
+    input.gameCode,
+    input.movieId,
+  );
+  const next = resolveMovieState({
+    state: incrementedState,
+    totalPlayers,
+    votedAt,
+  });
+  await MovieStateService.setMovieResolution(
+    input.gameCode,
+    input.movieId,
+    next.state,
+  );
+
+  return {
+    ...next,
+    justMatched:
+      previousState.status !== "matched" && next.state.status === "matched",
+  };
 };
 
-export const getMovieVoteRecords = async (gameCode: string, movieId: string) => {
+export const getMovieVoteRecords = async (
+  gameCode: string,
+  movieId: string,
+) => {
   await ensureRedis();
-  const rawVotes = await redis.hGetAll(votesKey(gameCode, movieId));
+  const rawVotes = await redisClient.hGetAll(votesKey(gameCode, movieId));
   return Object.entries(rawVotes)
     .map(([playerId, raw]) => parseVoteRecord(playerId, movieId, raw))
     .filter((record): record is VoteRecord => Boolean(record));
 };
 
 export const getVoteRecords = async (gameCode: string) => {
-  const movieIds = await RecommendationsService.listPoolMovieIds(gameCode);
+  const movieIds = await PoolService.listPoolMovieIds(gameCode);
   return (
     await Promise.all(
       movieIds.map((movieId) => getMovieVoteRecords(gameCode, movieId)),
@@ -146,10 +135,10 @@ export const getMovieVoteSummaries = async (
   movieIds: string[],
 ) => {
   const entries = await Promise.all(
-    movieIds.map(async (movieId) => [
-      movieId,
-      await getMovieVoteRecords(gameCode, movieId),
-    ] as const),
+    movieIds.map(
+      async (movieId) =>
+        [movieId, await getMovieVoteRecords(gameCode, movieId)] as const,
+    ),
   );
   return new Map(entries);
 };

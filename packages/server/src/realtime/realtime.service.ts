@@ -6,7 +6,7 @@ import {
   type DisplayServerMessage,
   type PlayerServerMessage,
 } from "@deckflix/shared/game-messages";
-import * as RedisLib from "../lib/redis";
+import {publishSocketTopic} from "./socket-pubsub.service";
 
 export type RealtimeServer = {
   publish: (topic: string, payload: string) => void;
@@ -14,39 +14,58 @@ export type RealtimeServer = {
 
 export type TopicSocket = Pick<WSContext<ServerWebSocket<unknown>>, "raw">;
 
-export const normalizeRealtimeKey = (value: string) => value.trim().toUpperCase();
+const normalizeRealtimeKey = (value: string) =>
+  value.trim().toUpperCase();
 
-export const subscribeSocketTopic = (ws: TopicSocket, topic: string) => {
-  ws.raw?.subscribe(topic);
+const subscribeSocketTopic = (
+  ws: TopicSocket,
+  topic: string | string[],
+) => {
+  const topics = Array.isArray(topic) ? topic : [topic];
+  for (const item of topics) {
+    ws.raw?.subscribe(item);
+  }
 };
 
-export const unsubscribeSocketTopic = (ws: TopicSocket, topic: string) => {
-  ws.raw?.unsubscribe(topic);
+const unsubscribeSocketTopic = (
+  ws: TopicSocket,
+  topic: string | string[],
+) => {
+  const topics = Array.isArray(topic) ? topic : [topic];
+  for (const item of topics) {
+    ws.raw?.unsubscribe(item);
+  }
 };
 
-export const publishSocketPayload = (
+const publishSocketPayload = (
   server: RealtimeServer,
   topic: string,
   payload: string,
 ) => {
   server.publish(topic, payload);
-  if ("publishSocketTopic" in RedisLib) {
-    void RedisLib.publishSocketTopic(topic, payload);
-  }
+  void publishSocketTopic(topic, payload);
 };
 
-export const getDisplayTopic = (gameCode: string) =>
-  `ws:display:${normalizeRealtimeKey(gameCode)}`;
+const TOPICS = {
+  overall: (gameCode: string) => `ws:all:${normalizeRealtimeKey(gameCode)}`,
+  display: (gameCode: string) =>
+    `ws:display:${normalizeRealtimeKey(gameCode)}`,
+  player: (gameCode: string, playerId: string) =>
+    `ws:player:${normalizeRealtimeKey(gameCode)}:${playerId}`,
+};
 
-export const getPlayerTopic = (gameCode: string, playerId: string) =>
-  `ws:player:${normalizeRealtimeKey(gameCode)}:${playerId}`;
+export const getDisplayTopic = TOPICS.display;
+export const getPlayerTopic = TOPICS.player;
 
 export const subscribeDisplaySocket = (ws: TopicSocket, gameCode: string) => {
-  subscribeSocketTopic(ws, getDisplayTopic(gameCode));
+  subscribeSocketTopic(ws, [TOPICS.display(gameCode), TOPICS.overall(gameCode)]);
 };
 
 export const unsubscribeDisplaySocket = (ws: TopicSocket, gameCode: string) => {
-  unsubscribeSocketTopic(ws, getDisplayTopic(gameCode));
+  unsubscribeSocketTopic(ws, [
+    TOPICS.display(gameCode),
+    TOPICS.overall(gameCode),
+  ]);
 };
 
 export const subscribePlayerSocket = (
@@ -54,7 +73,10 @@ export const subscribePlayerSocket = (
   gameCode: string,
   playerId: string,
 ) => {
-  subscribeSocketTopic(ws, getPlayerTopic(gameCode, playerId));
+  subscribeSocketTopic(ws, [
+    TOPICS.player(gameCode, playerId),
+    TOPICS.overall(gameCode),
+  ]);
 };
 
 export const unsubscribePlayerSocket = (
@@ -62,7 +84,10 @@ export const unsubscribePlayerSocket = (
   gameCode: string,
   playerId: string,
 ) => {
-  unsubscribeSocketTopic(ws, getPlayerTopic(gameCode, playerId));
+  unsubscribeSocketTopic(ws, [
+    TOPICS.player(gameCode, playerId),
+    TOPICS.overall(gameCode),
+  ]);
 };
 
 export const publishDisplayMessage = (
@@ -72,7 +97,7 @@ export const publishDisplayMessage = (
 ) => {
   publishSocketPayload(
     server,
-    getDisplayTopic(gameCode),
+    TOPICS.display(gameCode),
     encodeDisplayServerMessage(message),
   );
 };
@@ -85,7 +110,7 @@ export const publishPlayerMessage = (
 ) => {
   publishSocketPayload(
     server,
-    getPlayerTopic(gameCode, playerId),
+    TOPICS.player(gameCode, playerId),
     encodePlayerServerMessage(message),
   );
 };

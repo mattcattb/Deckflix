@@ -3,25 +3,29 @@ import type {
   MovieCandidate,
   MoviePopularityPreset,
 } from "@deckflix/shared";
-import {movieCandidateSchema} from "@deckflix/shared";
 import {createHash, randomUUID} from "node:crypto";
-import {z} from "zod";
-import {BadRequestException, NotFoundException} from "../common/errors";
+import type {
+  Movie as TmdbMovie,
+  MovieQueryOptions,
+  Recommendation as TmdbRecommendation,
+} from "tmdb-ts";
+import {BadRequestException} from "../common/errors";
+import {buildTmdbImageUrl} from "../lib/tmdb";
 import {
   discoverTmdbMovies,
   getTmdbMovieRecommendations,
+  getTmdbPopularMovies,
   getTmdbSimilarMovies,
   getTmdbTrendingMovies,
-} from "../lib/tmdb";
-import {ensureRedis, redis} from "../lib/redis";
-import * as MoviesService from "../movies/movies.service";
+  toTmdbLanguage,
+} from "../movies/tmdb.service";
+import {ensureRedis, redisClient} from "../redis/redis";
+import * as PreferencesService from "../movies/preferences.service";
 import * as RoomsService from "../rooms/rooms.service";
-import * as GameSettingsService from "../settings/game-settings.service";
 import type {
   PoolCandidateRecord,
   PoolPlan,
   PoolQueryFilters,
-  PoolSeedContext,
   PoolSourceFamily,
   PoolSourceHit,
   PoolSourceMovie,
@@ -29,264 +33,12 @@ import type {
   PoolTimeWindow,
 } from "./recommendations.types";
 
-export type PoolEntry = {
-  movieId: string;
-  order: number;
-};
-
-const movieStatusSchema = z.enum(["pending", "matched", "rejected"]);
-const movieStateSchema = z.object({
-  status: movieStatusSchema,
-  likeCount: z.number().int().min(0),
-  dislikeCount: z.number().int().min(0),
-  maybeCount: z.number().int().min(0),
-  superLikeCount: z.number().int().min(0),
-  skipCount: z.number().int().min(0),
-  totalVotes: z.number().int().min(0),
-  resolvedAt: z.string().datetime().nullable().default(null),
-  lastActivityAt: z.string().datetime().nullable().default(null),
-  matchedAt: z.string().datetime().nullable().default(null),
-});
-
-export type MovieMeta = z.infer<typeof movieCandidateSchema>;
-export type MovieState = z.infer<typeof movieStateSchema>;
-export type MovieRecord = {
-  movie: MovieMeta;
-} & MovieState;
-export type MovieStatus = z.infer<typeof movieStatusSchema>;
-
 const recentPoolHistoryKey = () => "pool:recent-history";
-const roomPrefix = (gameCode: string) => `game:${RoomsService.normalizeGameCode(gameCode)}:`;
-const poolKey = (gameCode: string) => `${roomPrefix(gameCode)}pool`;
-const moviesKey = (gameCode: string) => `${roomPrefix(gameCode)}movies`;
-const movieStateKey = (gameCode: string) => `${roomPrefix(gameCode)}movie_state`;
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const RECENT_HISTORY_TTL_MS = 14 * DAY_IN_MS;
 const HIGH_POPULARITY_THRESHOLD = 65;
 const MIN_SELECTION_WEIGHT = 0.001;
-
-const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
-  try {
-    const parsed = schema.safeParse(JSON.parse(raw));
-    if (parsed.success) {
-      return parsed.data;
-    }
-  } catch {
-    // handled below
-  }
-
-  throw new NotFoundException(label);
-};
-
-const normalizeMovieState = (
-  state: Omit<MovieState, "resolvedAt" | "lastActivityAt" | "matchedAt"> &
-    Partial<Pick<MovieState, "resolvedAt" | "lastActivityAt" | "matchedAt">>,
-): MovieState => ({
-  ...state,
-  resolvedAt: state.resolvedAt ?? null,
-  lastActivityAt: state.lastActivityAt ?? null,
-  matchedAt: state.matchedAt ?? null,
-});
-
-export const createInitialMovieState = (): MovieState => ({
-  status: "pending",
-  likeCount: 0,
-  dislikeCount: 0,
-  maybeCount: 0,
-  superLikeCount: 0,
-  skipCount: 0,
-  totalVotes: 0,
-  resolvedAt: null,
-  lastActivityAt: null,
-  matchedAt: null,
-});
-
-export const savePool = async (
-  gameCode: string,
-  movies: MovieCandidate[],
-) => {
-  await ensureRedis();
-  const pool = poolKey(gameCode);
-  const movieHash = moviesKey(gameCode);
-  const stateHash = movieStateKey(gameCode);
-  const multi = redis.multi();
-
-  multi.del([pool, movieHash, stateHash]);
-  if (movies.length > 0) {
-    multi.rPush(pool, movies.map((movie) => movie.id));
-    for (const movie of movies) {
-      multi.hSet(movieHash, movie.id, JSON.stringify(movie));
-      multi.hSet(
-        stateHash,
-        movie.id,
-        JSON.stringify(createInitialMovieState()),
-      );
-    }
-  }
-  multi.expire(pool, RoomsService.ROOM_TTL_SECONDS);
-  multi.expire(movieHash, RoomsService.ROOM_TTL_SECONDS);
-  multi.expire(stateHash, RoomsService.ROOM_TTL_SECONDS);
-  await multi.exec();
-};
-
-export const listPoolEntries = async (
-  gameCode: string,
-): Promise<PoolEntry[]> => {
-  await ensureRedis();
-  const movieIds = await redis.lRange(poolKey(gameCode), 0, -1);
-  return movieIds.map((movieId, order) => ({movieId, order}));
-};
-
-export const listPoolMovieIds = async (gameCode: string) => {
-  await ensureRedis();
-  return redis.lRange(poolKey(gameCode), 0, -1);
-};
-
-export const getPoolSize = async (gameCode: string) => {
-  await ensureRedis();
-  return redis.lLen(poolKey(gameCode));
-};
-
-export const getMovieMetaOrThrow = async (
-  gameCode: string,
-  movieId: string,
-): Promise<MovieMeta> => {
-  await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
-  const raw = await redis.hGet(moviesKey(normalized), movieId);
-  if (!raw) {
-    throw new NotFoundException(
-      `Movie ${movieId} not found in game ${normalized}`,
-    );
-  }
-
-  return parseJson(
-    raw,
-    movieCandidateSchema,
-    `Movie ${movieId} not found in game ${normalized}`,
-  );
-};
-
-export const getMovieMetas = async (gameCode: string, movieIds: string[]) => {
-  await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
-  if (movieIds.length === 0) {
-    return new Map<string, MovieMeta>();
-  }
-
-  const raws = await redis.hmGet(moviesKey(normalized), movieIds);
-  return new Map(
-    movieIds.map((movieId, index) => {
-      const raw = raws[index];
-      if (!raw) {
-        throw new NotFoundException(
-          `Movie ${movieId} not found in game ${normalized}`,
-        );
-      }
-
-      return [
-        movieId,
-        parseJson(
-          raw,
-          movieCandidateSchema,
-          `Movie ${movieId} not found in game ${normalized}`,
-        ),
-      ] as const;
-    }),
-  );
-};
-
-export const getMovieStateOrThrow = async (
-  gameCode: string,
-  movieId: string,
-): Promise<MovieState> => {
-  await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
-  const raw = await redis.hGet(movieStateKey(normalized), movieId);
-  if (!raw) {
-    throw new NotFoundException(
-      `Movie ${movieId} not found in game ${normalized}`,
-    );
-  }
-
-  return normalizeMovieState(
-    parseJson(
-      raw,
-      movieStateSchema,
-      `Movie ${movieId} not found in game ${normalized}`,
-    ),
-  );
-};
-
-export const getMovieStates = async (gameCode: string, movieIds: string[]) => {
-  await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
-  if (movieIds.length === 0) {
-    return new Map<string, MovieState>();
-  }
-
-  const raws = await redis.hmGet(movieStateKey(normalized), movieIds);
-  return new Map(
-    movieIds.map((movieId, index) => {
-      const raw = raws[index];
-      if (!raw) {
-        throw new NotFoundException(
-          `Movie ${movieId} not found in game ${normalized}`,
-        );
-      }
-
-      return [
-        movieId,
-        normalizeMovieState(
-          parseJson(
-            raw,
-            movieStateSchema,
-            `Movie ${movieId} not found in game ${normalized}`,
-          ),
-        ),
-      ] as const;
-    }),
-  );
-};
-
-export const setMovieState = async (
-  gameCode: string,
-  movieId: string,
-  state: MovieState,
-) => {
-  await ensureRedis();
-  const key = movieStateKey(gameCode);
-  await redis.hSet(key, movieId, JSON.stringify(state));
-  await redis.expire(key, RoomsService.ROOM_TTL_SECONDS);
-};
-
-export const getMovieRecordOrThrow = async (
-  gameCode: string,
-  movieId: string,
-): Promise<MovieRecord> => {
-  const [movie, state] = await Promise.all([
-    getMovieMetaOrThrow(gameCode, movieId),
-    getMovieStateOrThrow(gameCode, movieId),
-  ]);
-  return {movie, ...state};
-};
-
-export const getMovieRecords = async (gameCode: string, movieIds: string[]) => {
-  const [metas, states] = await Promise.all([
-    getMovieMetas(gameCode, movieIds),
-    getMovieStates(gameCode, movieIds),
-  ]);
-  return new Map(
-    movieIds.map((movieId) => [
-      movieId,
-      {
-        movie: metas.get(movieId)!,
-        ...states.get(movieId)!,
-      },
-    ]),
-  );
-};
 
 const clamp = (value: number, min = 0, max = 1) =>
   Math.min(max, Math.max(min, value));
@@ -349,8 +101,9 @@ const maybeApplyDateWindow = (
   };
 };
 
-const getPopularityPreset = (settings: GameSettings): MoviePopularityPreset =>
-  settings.movieFilters.popularityPreset;
+const getPopularityPreset = (
+  preferences: PreferencesService.GamePreferences,
+): MoviePopularityPreset => preferences.popularityPreset;
 
 const getPresetWeights = (preset: MoviePopularityPreset) => {
   switch (preset) {
@@ -425,6 +178,58 @@ const toPoolSourceMovie = (movie: MovieCandidate): PoolSourceMovie => ({
   popularity: 0,
   genreIds: [],
   originalLanguage: null,
+});
+
+const toYear = (releaseDate?: string | null) => {
+  if (!releaseDate) return 0;
+  const year = Number(releaseDate.slice(0, 4));
+  return Number.isNaN(year) ? 0 : year;
+};
+
+const toPoolSourceMovieFromTmdb = (
+  movie: TmdbMovie | TmdbRecommendation,
+): PoolSourceMovie => ({
+  id: String(movie.id),
+  title: movie.title,
+  year: toYear(movie.release_date),
+  overview: movie.overview ?? "",
+  posterUrl: buildTmdbImageUrl(movie.poster_path) ?? "",
+  rating: Number(movie.vote_average?.toFixed(1) ?? 0),
+  releaseDate: movie.release_date ?? null,
+  voteCount: movie.vote_count ?? 0,
+  popularity: movie.popularity ?? 0,
+  genreIds: movie.genre_ids ?? [],
+  originalLanguage: movie.original_language ?? null,
+});
+
+const toTmdbMovieQuery = (
+  input: PoolQueryFilters & {language?: string},
+): MovieQueryOptions => ({
+  page: input.page ?? 1,
+  language: toTmdbLanguage(input.language),
+  include_adult: false,
+  sort_by: input.sortBy,
+  with_genres: input.includedGenreIds?.length
+    ? input.includedGenreIds.join("|")
+    : undefined,
+  without_genres: input.excludedGenreIds?.length
+    ? input.excludedGenreIds.join(",")
+    : undefined,
+  primary_release_year: input.primaryReleaseYear,
+  "primary_release_date.gte": input.primaryReleaseDateGte,
+  "primary_release_date.lte": input.primaryReleaseDateLte,
+  "vote_count.gte": input.voteCountGte,
+  "vote_count.lte": input.voteCountLte,
+  "vote_average.gte": input.voteAverageGte,
+  "vote_average.lte": input.voteAverageLte,
+  "with_runtime.gte": input.runtimeGte,
+  "with_runtime.lte": input.runtimeLte,
+  with_original_language: input.originalLanguage,
+  region: input.region,
+  watch_region: input.watchRegion,
+  with_watch_providers: input.watchProviderIds?.length
+    ? input.watchProviderIds.join("|")
+    : undefined,
 });
 
 const getPrimarySourceFamily = (
@@ -570,20 +375,22 @@ const mergeCandidates = (
   }
 };
 
-const getSettingsFingerprint = (settings: GameSettings) =>
-  hashValue(settings).slice(0, 16);
+const getSettingsFingerprint = (
+  settings: GameSettings,
+  preferences: PreferencesService.GamePreferences,
+) => hashValue({settings, preferences}).slice(0, 16);
 
 const fetchDiscoverStrategy = async (strategy: PoolStrategy, seed: string) => {
   const probePage = strategy.pageBandStart ?? 1;
   const filters = strategy.filters ?? {};
-  const probe = await discoverTmdbMovies({
+  const probe = await discoverTmdbMovies(toTmdbMovieQuery({
     ...filters,
     page: probePage,
-  });
+  }));
   const bandStart = strategy.pageBandStart ?? probePage;
-  const bandEnd = strategy.pageBandEnd ?? probe.totalPages;
+  const bandEnd = strategy.pageBandEnd ?? probe.total_pages;
   const pages = samplePagesInBand(
-    probe.totalPages,
+    probe.total_pages,
     strategy.pageSampleSize ?? 1,
     `${seed}:${strategy.id}`,
     bandStart,
@@ -595,17 +402,17 @@ const fetchDiscoverStrategy = async (strategy: PoolStrategy, seed: string) => {
       if (page === probePage) {
         return {
           page,
-          items: probe.items,
+          items: probe.results.map(toPoolSourceMovieFromTmdb),
         };
       }
 
-      const result = await discoverTmdbMovies({
+      const result = await discoverTmdbMovies(toTmdbMovieQuery({
         ...filters,
         page,
-      });
+      }));
       return {
         page,
-        items: result.items,
+        items: result.results.map(toPoolSourceMovieFromTmdb),
       };
     }),
   );
@@ -621,7 +428,7 @@ const fetchTrendingStrategy = async (strategy: PoolStrategy) => {
   return [
     {
       page: 1,
-      items: result.items,
+      items: result.results.map(toPoolSourceMovieFromTmdb),
     },
   ];
 };
@@ -634,7 +441,7 @@ const fetchRecommendationStrategy = async (anchorMovieId: string) => {
   return [
     {
       page: 1,
-      items: result.items,
+      items: result.results.map(toPoolSourceMovieFromTmdb),
     },
   ];
 };
@@ -647,17 +454,17 @@ const fetchSimilarStrategy = async (anchorMovieId: string) => {
   return [
     {
       page: 1,
-      items: result.items,
+      items: result.results.map(toPoolSourceMovieFromTmdb),
     },
   ];
 };
 
 const fetchPopularFallback = async (page: number) => {
-  const result = await MoviesService.getPopularMovies({page});
+  const result = await getTmdbPopularMovies({page});
   return {
     page,
-    items: result.items.map(toPoolSourceMovie),
-    totalPages: result.totalPages,
+    items: result.results.map(toPoolSourceMovieFromTmdb),
+    totalPages: result.total_pages,
   };
 };
 
@@ -902,7 +709,7 @@ const selectExpansionAnchors = (
 
 const getRecentHistoryTimestamps = async (movieIds: string[]) => {
   await ensureRedis();
-  await redis.zRemRangeByScore(
+  await redisClient.zRemRangeByScore(
     recentPoolHistoryKey(),
     0,
     Date.now() - RECENT_HISTORY_TTL_MS,
@@ -910,7 +717,7 @@ const getRecentHistoryTimestamps = async (movieIds: string[]) => {
 
   const scores = await Promise.all(
     movieIds.map(async (movieId) => {
-      const value = await redis.zScore(recentPoolHistoryKey(), movieId);
+      const value = await redisClient.zScore(recentPoolHistoryKey(), movieId);
       return [movieId, value == null ? null : Number(value)] as const;
     }),
   );
@@ -920,10 +727,10 @@ const getRecentHistoryTimestamps = async (movieIds: string[]) => {
 
 const scoreBaseCandidatesForAnchors = (
   candidates: PoolCandidateRecord[],
-  settings: GameSettings,
+  preferences: PreferencesService.GamePreferences,
 ) => {
-  const filters = GameSettingsService.buildMovieDiscoveryFilters(settings);
-  const popularityPreset = getPopularityPreset(settings);
+  const filters = PreferencesService.buildMovieDiscoveryFilters(preferences);
+  const popularityPreset = getPopularityPreset(preferences);
 
   return [...candidates]
     .map((candidate) => {
@@ -1087,14 +894,14 @@ const updateRecentPoolHistory = async (movies: MovieCandidate[]) => {
 
   await ensureRedis();
   const now = Date.now();
-  await redis.zAdd(
+  await redisClient.zAdd(
     recentPoolHistoryKey(),
     movies.map((movie) => ({
       value: movie.id,
       score: now,
     })),
   );
-  await redis.zRemRangeByScore(
+  await redisClient.zRemRangeByScore(
     recentPoolHistoryKey(),
     0,
     now - RECENT_HISTORY_TTL_MS,
@@ -1103,23 +910,22 @@ const updateRecentPoolHistory = async (movies: MovieCandidate[]) => {
 
 export const createPoolSeed = () => randomUUID();
 
-export const setPoolSeed = async (context: PoolSeedContext) => {
-  const meta = await RoomsService.getGameMetaOrThrow(context.gameCode);
-  await RoomsService.setGameMeta(context.gameCode, {
-    ...meta,
-    poolSeed: context.seed,
-  });
-};
-
-export const getPoolSeedOrThrow = async (gameCode: string) =>
+const getPoolSeedOrThrow = async (gameCode: string) =>
   (await RoomsService.getGameMetaOrThrow(gameCode)).poolSeed;
 
 export const planPoolQueries = (
   settings: GameSettings,
-  seed: string,
+  preferencesOrSeed: PreferencesService.GamePreferences | string,
+  maybeSeed?: string,
 ): PoolPlan => {
-  const baseFilters = GameSettingsService.buildMovieDiscoveryFilters(settings);
-  const popularityPreset = getPopularityPreset(settings);
+  const preferences =
+    typeof preferencesOrSeed === "string"
+      ? PreferencesService.DEFAULT_GAME_PREFERENCES
+      : preferencesOrSeed;
+  const seed =
+    typeof preferencesOrSeed === "string" ? preferencesOrSeed : maybeSeed!;
+  const baseFilters = PreferencesService.buildMovieDiscoveryFilters(preferences);
+  const popularityPreset = getPopularityPreset(preferences);
   const weights = getPresetWeights(popularityPreset);
   const currentYear = new Date().getUTCFullYear();
   const deepCutStart = pickInt(
@@ -1133,7 +939,7 @@ export const planPoolQueries = (
     version: 2,
     seed,
     generatedAt: new Date().toISOString(),
-    settingsFingerprint: getSettingsFingerprint(settings),
+    settingsFingerprint: getSettingsFingerprint(settings, preferences),
     strategies: [
       {
         id: "discover-broad",
@@ -1273,9 +1079,10 @@ export const planPoolQueries = (
   };
 };
 
-export const fetchPoolCandidates = async (
+const fetchPoolCandidates = async (
   plan: PoolPlan,
   settings: GameSettings,
+  preferences: PreferencesService.GamePreferences,
 ) => {
   const candidates = new Map<string, PoolCandidateRecord>();
   const baseStrategies = listBaseStrategies(plan);
@@ -1306,7 +1113,7 @@ export const fetchPoolCandidates = async (
   }, 0);
 
   const provisionalAnchors = selectExpansionAnchors(
-    scoreBaseCandidatesForAnchors([...candidates.values()], settings),
+    scoreBaseCandidatesForAnchors([...candidates.values()], preferences),
     3,
   );
 
@@ -1368,13 +1175,13 @@ export const fetchPoolCandidates = async (
   return [...candidates.values()];
 };
 
-export const scorePoolCandidates = (
+const scorePoolCandidates = (
   candidates: PoolCandidateRecord[],
-  settings: GameSettings,
+  preferences: PreferencesService.GamePreferences,
   recentHistoryTimestamps = new Map<string, number | null>(),
 ) => {
-  const filters = GameSettingsService.buildMovieDiscoveryFilters(settings);
-  const popularityPreset = getPopularityPreset(settings);
+  const filters = PreferencesService.buildMovieDiscoveryFilters(preferences);
+  const popularityPreset = getPopularityPreset(preferences);
 
   return candidates
     .map((candidate) => {
@@ -1420,11 +1227,20 @@ export const scorePoolCandidates = (
 export const selectFinalPool = (
   candidates: PoolCandidateRecord[],
   settings: GameSettings,
-  selectionSalt: string,
+  preferencesOrSelectionSalt: PreferencesService.GamePreferences | string,
+  maybeSelectionSalt?: string,
 ) => {
+  const preferences =
+    typeof preferencesOrSelectionSalt === "string"
+      ? PreferencesService.DEFAULT_GAME_PREFERENCES
+      : preferencesOrSelectionSalt;
+  const selectionSalt =
+    typeof preferencesOrSelectionSalt === "string"
+      ? preferencesOrSelectionSalt
+      : maybeSelectionSalt!;
   const maxMovies = settings.gameplay.maxMovies;
   const windowSize = toSelectionWindowSize(maxMovies);
-  const caps = getSelectionCaps(maxMovies, getPopularityPreset(settings));
+  const caps = getSelectionCaps(maxMovies, getPopularityPreset(preferences));
   const remaining = [...candidates.slice(0, windowSize)];
   const selected: PoolCandidateRecord[] = [];
   const random = createSeededRandom(selectionSalt);
@@ -1467,10 +1283,18 @@ export const selectFinalPool = (
 export const generatePool = async (input: {
   gameCode: string;
   settings: GameSettings;
+  preferences?: PreferencesService.GamePreferences;
 }): Promise<MovieCandidate[]> => {
   const seed = await getPoolSeedOrThrow(input.gameCode);
-  const plan = planPoolQueries(input.settings, seed);
-  const fetchedCandidates = await fetchPoolCandidates(plan, input.settings);
+  const preferences =
+    input.preferences ??
+    (await PreferencesService.getGamePreferencesOrThrow(input.gameCode));
+  const plan = planPoolQueries(input.settings, preferences, seed);
+  const fetchedCandidates = await fetchPoolCandidates(
+    plan,
+    input.settings,
+    preferences,
+  );
 
   if (fetchedCandidates.length === 0) {
     throw new BadRequestException("No movies available to build queue");
@@ -1481,19 +1305,20 @@ export const generatePool = async (input: {
   );
   const candidates = scorePoolCandidates(
     fetchedCandidates,
-    input.settings,
+    preferences,
     recentHistoryTimestamps,
   );
   const selectionSalt = randomUUID();
-  const movies = selectFinalPool(candidates, input.settings, selectionSalt);
+  const movies = selectFinalPool(
+    candidates,
+    input.settings,
+    preferences,
+    selectionSalt,
+  );
   if (movies.length === 0) {
     throw new BadRequestException("No movies available to build queue");
   }
 
   await updateRecentPoolHistory(movies);
   return movies;
-};
-
-export const maybeRefillPool = async (_input: {gameCode: string}) => {
-  return null;
 };

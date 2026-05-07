@@ -2,20 +2,25 @@ import {zValidator} from "@hono/zod-validator";
 import {getBunServer} from "hono/bun";
 import {
   createGamePayloadSchema,
+  gameSettingsInputSchema,
   joinGamePayloadSchema,
 } from "@deckflix/shared";
 import {createRouter} from "../common/hono";
-import {ensureSocketPubSub} from "../lib/redis";
+import * as GameEventsService from "../realtime/game-events.service";
+import {ensureSocketPubSub} from "../realtime/socket-pubsub.service";
 import {
   activeRoomMiddleware,
   clearRoomSessionCookie,
   gameParamMiddleware,
   readRoomSessionCookie,
+  requireDisplayActor,
   requireGameLobby,
+  requirePlayerActor,
   setRoomSessionCookie,
 } from "./rooms.middleware";
-import * as GameStateService from "../state/game-state.service";
+import * as GameStateService from "./game-state.service";
 import * as RoomsService from "./rooms.service";
+import * as RoomSettingsService from "./room-settings.service";
 
 export const roomController = createRouter()
   .post("/", zValidator("json", createGamePayloadSchema), async (c) => {
@@ -56,20 +61,114 @@ export const roomController = createRouter()
     return c.json(await GameStateService.getGameMeta(c.get("room").gameCode));
   })
   .get("/players", activeRoomMiddleware, async (c) => {
-    return c.json(await GameStateService.getGamePlayers(c.get("room").gameCode));
+    return c.json(
+      await GameStateService.getGamePlayers(c.get("room").gameCode),
+    );
   })
   .get("/results", activeRoomMiddleware, async (c) => {
-    return c.json(await GameStateService.getGameResults(c.get("room").gameCode));
+    return c.json(
+      await GameStateService.getGameResults(c.get("room").gameCode),
+    );
   })
-  .use("/:gameCode/*", gameParamMiddleware)
-  .get("/:gameCode/meta", async (c) => {
-    return c.json(await GameStateService.getGameMeta(c.get("room").gameCode));
+  .get("/settings", activeRoomMiddleware, async (c) => {
+    return c.json(
+      await RoomSettingsService.getGameSettingsOrThrow(c.get("room").gameCode),
+    );
   })
-  .get("/:gameCode/players", async (c) => {
-    return c.json(await GameStateService.getGamePlayers(c.get("room").gameCode));
-  })
+  .patch(
+    "/settings",
+    activeRoomMiddleware,
+    requireDisplayActor,
+    requireGameLobby,
+    zValidator("json", gameSettingsInputSchema),
+    async (c) => {
+      const gameCode = c.get("room").gameCode;
+      await RoomsService.updateSettings({
+        gameCode,
+        settings: c.req.valid("json"),
+      });
+      return c.json(await GameStateService.getGameMeta(gameCode));
+    },
+  )
+  .post(
+    "/start",
+    activeRoomMiddleware,
+    requireDisplayActor,
+    requireGameLobby,
+    async (c) => {
+      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+      void ensureSocketPubSub(server);
+      const result = await RoomsService.start({
+        gameCode: c.get("room").gameCode,
+      });
+      GameEventsService.publishRoomStatusChanged(
+        server,
+        result.gameCode,
+        result.playerIds,
+        result.previousStatus,
+        result.nextStatus,
+      );
+      GameEventsService.publishRoomStarted(server, result.gameCode);
+      await GameEventsService.publishRoomSnapshot(
+        server,
+        result.gameCode,
+        result.playerIds,
+      );
+      return c.body(null, 204);
+    },
+  )
+  .post(
+    "/end",
+    activeRoomMiddleware,
+    requireDisplayActor,
+    async (c) => {
+      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+      void ensureSocketPubSub(server);
+      const result = await RoomsService.end({
+        gameCode: c.get("room").gameCode,
+      });
+      GameEventsService.publishRoomStatusChanged(
+        server,
+        result.gameCode,
+        result.playerIds,
+        result.previousStatus,
+        result.nextStatus,
+      );
+      GameEventsService.publishRoomDeleted(
+        server,
+        result.gameCode,
+        result.playerIds,
+      );
+      clearRoomSessionCookie(c);
+      return c.body(null, 204);
+    },
+  )
+  .post(
+    "/leave",
+    activeRoomMiddleware,
+    requirePlayerActor,
+    async (c) => {
+      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
+      void ensureSocketPubSub(server);
+      const {gameCode} = c.get("room");
+      const {playerId} = c.get("playerActor");
+      const result = await RoomsService.removePlayer({
+        gameCode,
+        playerId,
+      });
+      GameEventsService.publishPlayerLeft(server, result.gameCode, playerId);
+      await GameEventsService.publishRoomSnapshot(
+        server,
+        result.gameCode,
+        result.playerIds,
+      );
+      clearRoomSessionCookie(c);
+      return c.body(null, 204);
+    },
+  )
   .post(
     "/:gameCode/join",
+    gameParamMiddleware,
     requireGameLobby,
     zValidator("json", joinGamePayloadSchema),
     async (c) => {
@@ -84,8 +183,17 @@ export const roomController = createRouter()
       const result = await RoomsService.join({
         gameCode: c.get("room").gameCode,
         displayName: c.req.valid("json").displayName,
-        server,
       });
+      GameEventsService.publishPlayerJoined(
+        server,
+        result.gameCode,
+        result.player,
+      );
+      await GameEventsService.publishRoomSnapshot(
+        server,
+        result.gameCode,
+        result.playerIds,
+      );
 
       setRoomSessionCookie(c, {
         gameCode: result.gameCode,
@@ -94,9 +202,12 @@ export const roomController = createRouter()
         sessionToken: result.playerSession.sessionToken,
       });
 
-      return c.json({
-        gameCode: result.gameCode,
-        playerSession: result.playerSession,
-      }, 201);
+      return c.json(
+        {
+          gameCode: result.gameCode,
+          playerSession: result.playerSession,
+        },
+        201,
+      );
     },
   );

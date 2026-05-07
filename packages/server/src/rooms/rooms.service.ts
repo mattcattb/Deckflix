@@ -7,26 +7,30 @@ import {
   type ActiveRoomClient,
   type DisplaySession,
   type GamePlayerPresence,
-  type GameStatus,
+  type GameSettingsInput,
   type PlayerSession,
   type RoomClient,
   type RoomSession,
 } from "@deckflix/shared";
 import {randomUUID} from "node:crypto";
+import * as DeckService from "../gameplay/deck.service";
+import * as MovieStateService from "../gameplay/movie-state.service";
+import * as PreferencesService from "../movies/preferences.service";
+import * as PresenceService from "../presence/presence.service";
+import * as RecommendationsService from "../recommendations/recommendations.service";
+import * as PoolService from "../recommendations/pool.service";
+
 import {
   BadRequestException,
   ConflictException,
   NotFoundException,
   UnauthorizedException,
 } from "../common/errors";
-import {ensureRedis, redis} from "../lib/redis";
-import {withRedisLock} from "../lib/redis-lock";
-import * as GameSettingsService from "../settings/game-settings.service";
-import {
-  publishDisplayMessage,
-  publishPlayerMessage,
-  type RealtimeServer,
-} from "../realtime/realtime.service";
+import {ensureRedis, redisClient} from "../redis/redis";
+import * as RoomSettingsService from "./room-settings.service";
+import {parseJson} from "../lib/json";
+import {withRedisLock} from "../redis/redis-lock";
+import {generateGameCode} from "../lib/gen";
 
 export const ROOM_TTL_SECONDS = 60 * 60 * 24;
 const ROOM_LOCK_TTL_MS = 5_000;
@@ -75,19 +79,6 @@ export const roomKey = (gameCode: string) => `${roomPrefix(gameCode)}room`;
 const playersKey = (gameCode: string) => `${roomPrefix(gameCode)}players`;
 const roomLockKey = (gameCode: string) => `${roomPrefix(gameCode)}lock`;
 
-const parseJson = <T>(raw: string, schema: z.ZodType<T>, label: string): T => {
-  try {
-    const parsed = schema.safeParse(JSON.parse(raw));
-    if (parsed.success) {
-      return parsed.data;
-    }
-  } catch {
-    // handled below
-  }
-
-  throw new NotFoundException(label);
-};
-
 const parsePlayer = (raw: string, label: string) =>
   parseJson(raw, playerRecordSchema, label);
 
@@ -108,16 +99,15 @@ export const withRoomLock = async <T>(
 
 export const deleteRoomKeys = async (gameCode: string) => {
   await ensureRedis();
-  const keys = await redis.keys(`${roomPrefix(gameCode)}*`);
+  const keys = await redisClient.keys(`${roomPrefix(gameCode)}*`);
   if (keys.length === 0) {
     return;
   }
 
-  await redis.del(keys);
+  await redisClient.del(keys);
 };
 
 export const createGameMeta = async (meta: GameMetaRecord) => {
-  await ensureRedis();
   const normalized = normalizeGameCode(meta.code);
   const key = roomKey(normalized);
   const normalizedMeta = {
@@ -126,14 +116,22 @@ export const createGameMeta = async (meta: GameMetaRecord) => {
     roomName: meta.roomName,
     createdAt: meta.createdAt,
   };
-  const created = await redis.hSetNX(key, "meta", JSON.stringify(normalizedMeta));
+  const created = await redisClient.hSetNX(
+    key,
+    "meta",
+    JSON.stringify(normalizedMeta),
+  );
 
   if (created) {
-    const multi = redis.multi();
-    multi.hSet(key, "status", JSON.stringify({
-      status: meta.status,
-      endedAt: meta.endedAt,
-    }));
+    const multi = redisClient.multi();
+    multi.hSet(
+      key,
+      "status",
+      JSON.stringify({
+        status: meta.status,
+        endedAt: meta.endedAt,
+      }),
+    );
     multi.hSet(key, "display", JSON.stringify(meta.display));
     multi.hSet(key, "poolSeed", meta.poolSeed);
     multi.expire(key, ROOM_TTL_SECONDS);
@@ -146,7 +144,7 @@ export const createGameMeta = async (meta: GameMetaRecord) => {
 export const getGameMetaOrThrow = async (gameCode: string) => {
   await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
-  const [metaRaw, statusRaw, displayRaw, poolSeed] = await redis.hmGet(
+  const [metaRaw, statusRaw, displayRaw, poolSeed] = await redisClient.hmGet(
     roomKey(normalized),
     ["meta", "status", "display", "poolSeed"],
   );
@@ -186,30 +184,35 @@ export const getGameMetaOrThrow = async (gameCode: string) => {
 export const setGameMeta = async (gameCode: string, meta: GameMetaRecord) => {
   await ensureRedis();
   const key = roomKey(gameCode);
-  const multi = redis.multi();
-  multi.hSet(key, "meta", JSON.stringify({
-    id: meta.id,
-    code: normalizeGameCode(meta.code),
-    roomName: meta.roomName,
-    createdAt: meta.createdAt,
-  }));
-  multi.hSet(key, "status", JSON.stringify({
-    status: meta.status,
-    endedAt: meta.endedAt,
-  }));
+  const multi = redisClient.multi();
+  multi.hSet(
+    key,
+    "meta",
+    JSON.stringify({
+      id: meta.id,
+      code: normalizeGameCode(meta.code),
+      roomName: meta.roomName,
+      createdAt: meta.createdAt,
+    }),
+  );
+  multi.hSet(
+    key,
+    "status",
+    JSON.stringify({
+      status: meta.status,
+      endedAt: meta.endedAt,
+    }),
+  );
   multi.hSet(key, "display", JSON.stringify(meta.display));
   multi.hSet(key, "poolSeed", meta.poolSeed);
   multi.expire(key, ROOM_TTL_SECONDS);
   await multi.exec();
 };
 
-export const getPlayerRecord = async (
-  gameCode: string,
-  playerId: string,
-) => {
+export const getPlayerRecord = async (gameCode: string, playerId: string) => {
   await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
-  const raw = await redis.hGet(playersKey(normalized), playerId);
+  const raw = await redisClient.hGet(playersKey(normalized), playerId);
   if (!raw) {
     return null;
   }
@@ -224,14 +227,14 @@ export const setPlayerRecord = async (
 ) => {
   await ensureRedis();
   const key = playersKey(gameCode);
-  await redis.hSet(key, playerId, JSON.stringify(record));
-  await redis.expire(key, ROOM_TTL_SECONDS);
+  await redisClient.hSet(key, playerId, JSON.stringify(record));
+  await redisClient.expire(key, ROOM_TTL_SECONDS);
 };
 
 export const listPlayers = async (gameCode: string) => {
   await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
-  const raws = Object.values(await redis.hGetAll(playersKey(normalized)));
+  const raws = Object.values(await redisClient.hGetAll(playersKey(normalized)));
   return raws
     .map((raw) =>
       raw
@@ -247,7 +250,7 @@ export const listPlayerIds = async (gameCode: string) =>
 
 export const countPlayers = async (gameCode: string) => {
   await ensureRedis();
-  return redis.hLen(playersKey(gameCode));
+  return redisClient.hLen(playersKey(gameCode));
 };
 
 export const deletePlayerRecord = async (
@@ -255,7 +258,7 @@ export const deletePlayerRecord = async (
   playerId: string,
 ) => {
   await ensureRedis();
-  await redis.hDel(playersKey(gameCode), playerId);
+  await redisClient.hDel(playersKey(gameCode), playerId);
 };
 
 const getRoleConflictMessage = (role: RoomSession["role"]) =>
@@ -317,7 +320,9 @@ export const verifyRoomSession = async (session: RoomSession) => {
   return session;
 };
 
-export const assertRoomSessionAvailable = async (session: RoomSession | null) => {
+export const assertRoomSessionAvailable = async (
+  session: RoomSession | null,
+) => {
   if (!session) {
     return;
   }
@@ -348,7 +353,7 @@ export const getActiveRoomClient = async (
     const verified = await verifyRoomSession(session);
     const [meta] = await Promise.all([
       getGameMetaOrThrow(verified.gameCode),
-      GameSettingsService.getGameSettingsOrThrow(verified.gameCode),
+      RoomSettingsService.getGameSettingsOrThrow(verified.gameCode),
     ]);
     return activeRoomClientSchema.parse({
       role: verified.role,
@@ -384,69 +389,19 @@ export const getRoomClient = async (input: {
   }
 };
 
-const publishRoomStarted = (
-  server: RealtimeServer,
-  gameCode: string,
-) => {
-  publishDisplayMessage(server, gameCode, {
-    type: "room.started",
-  });
-};
-
-const publishRoomStatusChanged = (
-  server: RealtimeServer,
-  gameCode: string,
-  playerIds: string[],
-  previousStatus: GameStatus,
-  nextStatus: GameStatus,
-) => {
-  const message = {
-    type: "room.status_changed" as const,
-    payload: {
-      previousStatus,
-      nextStatus,
-    },
-  };
-
-  publishDisplayMessage(server, gameCode, message);
-  for (const playerId of playerIds) {
-    publishPlayerMessage(server, gameCode, playerId, message);
-  }
-};
-
-const publishRoomDeleted = (
-  server: RealtimeServer,
-  gameCode: string,
-  playerIds: string[],
-) => {
-  publishDisplayMessage(server, gameCode, {
-    type: "room.deleted",
-  });
-
-  for (const playerId of playerIds) {
-    publishPlayerMessage(server, gameCode, playerId, {
-      type: "room.deleted",
-    });
-  }
-};
-
-const generateGameCode = () => {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 4; i += 1) {
-    code += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return code;
-};
-
-const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
-  const playerIds = await listPlayerIds(gameCode);
-  const GameStateService = await import("../state/game-state.service");
-  await GameStateService.publishGameState(server, gameCode, playerIds);
+export const updateSettings = async (input: {
+  gameCode: string;
+  settings: GameSettingsInput;
+}) => {
+  const current = await RoomSettingsService.getGameSettingsOrThrow(
+    input.gameCode,
+  );
+  const next = RoomSettingsService.mergeGameSettings(current, input.settings);
+  await RoomSettingsService.setGameSettings(input.gameCode, next);
+  return next;
 };
 
 const removePlayerState = async (gameCode: string, playerId: string) => {
-  const DeckService = await import("../gameplay/deck.service");
   await Promise.all([
     DeckService.clearPlayerDeck(gameCode, playerId),
     deletePlayerRecord(gameCode, playerId),
@@ -456,38 +411,22 @@ const removePlayerState = async (gameCode: string, playerId: string) => {
 export const removePlayer = async (input: {
   gameCode: string;
   playerId: string;
-  server: RealtimeServer;
 }) => {
   await withRoomLock(input.gameCode, async () => {
     await removePlayerState(input.gameCode, input.playerId);
   });
 
   const gameCode = normalizeGameCode(input.gameCode);
-  const PresenceService = await import("../presence/presence.service");
-  PresenceService.publishPlayerLeft(input.server, gameCode, input.playerId);
-  await publishStateForGame(input.server, gameCode);
   return {
     gameCode,
     playerId: input.playerId,
+    playerIds: await listPlayerIds(gameCode),
   };
-};
-
-export const leavePlayer = async (input: {
-  player: PlayerSession;
-  server: RealtimeServer;
-}) => {
-  await verifyPlayerSession(input.player);
-  return removePlayer({
-    gameCode: input.player.gameCode,
-    playerId: input.player.playerId,
-    server: input.server,
-  });
 };
 
 export const join = async (input: {
   gameCode: string;
   displayName: string;
-  server: RealtimeServer;
 }) => {
   const playerId = randomUUID();
   const sessionToken = randomUUID();
@@ -521,22 +460,22 @@ export const join = async (input: {
       connectedAsPlayer: false,
     } satisfies GamePlayerPresence,
   };
-  const PresenceService = await import("../presence/presence.service");
-  PresenceService.publishPlayerJoined(input.server, result.gameCode, result.player);
-  await publishStateForGame(input.server, result.gameCode);
-  return result;
+  return {
+    ...result,
+    playerIds: await listPlayerIds(result.gameCode),
+  };
 };
 
 export const create = async (input: {
   roomName?: string;
-  settings?: import("@deckflix/shared").GameSettingsInput;
+  settings?: GameSettingsInput;
 }) => {
   const createdAt = new Date().toISOString();
-  const settings = GameSettingsService.resolveGameSettings(input.settings);
+  const settings = RoomSettingsService.resolveGameSettings(input.settings);
   const roomName = input.roomName?.trim() || null;
   const displayId = randomUUID();
   const sessionToken = randomUUID();
-  const RecommendationsService = await import("../recommendations/recommendations.service");
+
   const poolSeed = RecommendationsService.createPoolSeed();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -556,7 +495,10 @@ export const create = async (input: {
     });
 
     if (created) {
-      await GameSettingsService.setGameSettings(gameCode, settings);
+      await Promise.all([
+        RoomSettingsService.setGameSettings(gameCode, settings),
+        PreferencesService.createGamePreferences(gameCode),
+      ]);
       return {
         gameCode,
         displaySession: {
@@ -571,26 +513,8 @@ export const create = async (input: {
   throw new BadRequestException("Unable to generate game code");
 };
 
-export const updateSettings = async (input: {
-  gameCode: string;
-  settings: import("@deckflix/shared").GameSettingsInput;
-}) =>
-  withRoomLock(input.gameCode, async () => {
-    const currentSettings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const nextSettings = GameSettingsService.mergeGameSettings(
-      currentSettings,
-      input.settings,
-    );
-
-    await GameSettingsService.setGameSettings(input.gameCode, nextSettings);
-
-    const GameStateService = await import("../state/game-state.service");
-    return GameStateService.getGameMeta(input.gameCode);
-  });
-
 export const start = async (input: {
   gameCode: string;
-  server: RealtimeServer;
 }) =>
   withRoomLock(input.gameCode, async () => {
     const playerIds = await listPlayerIds(input.gameCode);
@@ -598,19 +522,20 @@ export const start = async (input: {
       throw new BadRequestException("Need at least 2 players to start");
     }
 
-    const settings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const RecommendationsService = await import("../recommendations/recommendations.service");
+    const [settings, preferences] = await Promise.all([
+      RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
+      PreferencesService.getGamePreferencesOrThrow(input.gameCode),
+    ]);
+
     const movies = await RecommendationsService.generatePool({
       gameCode: input.gameCode,
       settings,
+      preferences,
     });
-    await RecommendationsService.savePool(input.gameCode, movies);
-
-    const DeckService = await import("../gameplay/deck.service");
-    await DeckService.initializePlayerDecks(
+    await PoolService.replacePool(input.gameCode, movies);
+    await MovieStateService.initializeMovieStates(
       input.gameCode,
-      playerIds,
-      movies.length,
+      movies.map((movie) => movie.id),
     );
 
     const meta = await getGameMetaOrThrow(input.gameCode);
@@ -627,32 +552,12 @@ export const start = async (input: {
       nextStatus: "swiping" as const,
       playerIds,
     };
-  }).then(async (result) => {
-    publishRoomStatusChanged(
-      input.server,
-      result.gameCode,
-      result.playerIds,
-      result.previousStatus,
-      result.nextStatus,
-    );
-    publishRoomStarted(input.server, result.gameCode);
-    await publishStateForGame(input.server, result.gameCode);
-    return result;
   });
 
 export const end = (input: {
   gameCode: string;
-  displayId: string;
-  sessionToken: string;
-  server: RealtimeServer;
 }) =>
   withRoomLock(input.gameCode, async () => {
-    await verifyDisplaySession({
-      gameCode: input.gameCode,
-      displayId: input.displayId,
-      sessionToken: input.sessionToken,
-    });
-
     const playerIds = await listPlayerIds(input.gameCode);
     const meta = await getGameMetaOrThrow(input.gameCode);
     const endedAt = new Date().toISOString();
@@ -664,16 +569,13 @@ export const end = (input: {
       endedAt,
     });
 
-    publishRoomStatusChanged(
-      input.server,
-      input.gameCode,
-      playerIds,
-      previousStatus,
-      "completed",
-    );
-    publishRoomDeleted(input.server, input.gameCode, playerIds);
-
     await deleteRoomKeys(input.gameCode);
-    const PresenceService = await import("../presence/presence.service");
     PresenceService.clearPresenceState(input.gameCode);
+
+    return {
+      gameCode: normalizeGameCode(input.gameCode),
+      previousStatus,
+      nextStatus: "completed" as const,
+      playerIds,
+    };
   });

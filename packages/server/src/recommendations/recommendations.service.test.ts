@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {DEFAULT_GAME_SETTINGS} from "../settings/game-settings.service";
+import {DEFAULT_GAME_SETTINGS} from "../rooms/room-settings.service";
 import * as RecommendationsService from "./recommendations.service";
 
 describe("recommendations.service", () => {

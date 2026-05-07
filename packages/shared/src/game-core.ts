@@ -1,6 +1,6 @@
 import {z} from "zod";
 
-const swipeChoices = [
+export const SWIPE_CHOICES = [
   "like",
   "dislike",
   "maybe",
@@ -8,14 +8,17 @@ const swipeChoices = [
   "skip",
 ] as const;
 
-const gameStatuses = ["lobby", "swiping", "completed"] as const;
-const moviePopularityPresets = ["any", "balanced", "popular", "niche"] as const;
+export const gameStatuses = ["lobby", "swiping", "completed"] as const;
+export const MOVIE_POPULARITY_PRESETS = [
+  "any",
+  "balanced",
+  "popular",
+  "niche",
+] as const;
 
-export const swipeChoiceSchema = z.enum(swipeChoices);
+export const swipeChoiceSchema = z.enum(SWIPE_CHOICES);
 export const gameStatusSchema = z.enum(gameStatuses);
-export const moviePopularityPresetSchema = z.enum(moviePopularityPresets);
-
-const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+export const moviePopularityPresetSchema = z.enum(MOVIE_POPULARITY_PRESETS);
 
 const gameplaySettingsSchema = z.object({
   maxMovies: z.number().int().min(1).max(500),
@@ -23,17 +26,28 @@ const gameplaySettingsSchema = z.object({
   allowSuperLike: z.boolean(),
 });
 
-const movieFilterSettingsShape = {
+export const gameSettingsSchema = z.object({
+  gameplay: gameplaySettingsSchema,
+});
+
+const gameplaySettingsInputSchema = gameplaySettingsSchema.partial();
+export const gameSettingsInputSchema = z.object({
+  gameplay: gameplaySettingsInputSchema.optional(),
+});
+
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const gamePreferencesBaseSchema = z.object({
   popularityPreset: moviePopularityPresetSchema,
   includedGenreIds: z.array(z.number().int().positive()).max(10),
   excludedGenreIds: z.array(z.number().int().positive()).max(10),
-  primaryReleaseDateGte: z.string().regex(isoDatePattern).nullable(),
-  primaryReleaseDateLte: z.string().regex(isoDatePattern).nullable(),
+  primaryReleaseDateGte: isoDateSchema.nullable(),
+  primaryReleaseDateLte: isoDateSchema.nullable(),
   voteAverageGte: z.number().min(0).max(10).nullable(),
   voteAverageLte: z.number().min(0).max(10).nullable(),
-} as const;
+});
 
-const addMovieFilterIssues = (
+const addPreferenceIssues = (
   value: {
     includedGenreIds?: number[];
     excludedGenreIds?: number[];
@@ -44,63 +58,49 @@ const addMovieFilterIssues = (
   },
   ctx: z.RefinementCtx,
 ) => {
-    if (
-      value.primaryReleaseDateGte &&
-      value.primaryReleaseDateLte &&
-      value.primaryReleaseDateGte > value.primaryReleaseDateLte
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Minimum release date must be earlier than maximum release date",
-        path: ["primaryReleaseDateGte"],
-      });
-    }
+  if (
+    value.primaryReleaseDateGte &&
+    value.primaryReleaseDateLte &&
+    value.primaryReleaseDateGte > value.primaryReleaseDateLte
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Minimum release date must be earlier than maximum release date",
+      path: ["primaryReleaseDateGte"],
+    });
+  }
 
-    if (
-      value.voteAverageGte != null &&
-      value.voteAverageLte != null &&
-      value.voteAverageGte > value.voteAverageLte
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Minimum rating must be less than or equal to maximum rating",
-        path: ["voteAverageGte"],
-      });
-    }
+  if (
+    value.voteAverageGte != null &&
+    value.voteAverageLte != null &&
+    value.voteAverageGte > value.voteAverageLte
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Minimum rating must be less than or equal to maximum rating",
+      path: ["voteAverageGte"],
+    });
+  }
 
-    const overlappingGenreIds =
-      value.includedGenreIds?.filter((genreId) =>
-        value.excludedGenreIds?.includes(genreId),
-      ) ?? [];
+  const overlappingGenreIds =
+    value.includedGenreIds?.filter((genreId) =>
+      value.excludedGenreIds?.includes(genreId),
+    ) ?? [];
 
-    if (overlappingGenreIds.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Included and excluded genres cannot overlap",
-        path: ["includedGenreIds"],
-      });
-    }
-  };
+  if (overlappingGenreIds.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Included and excluded genres cannot overlap",
+      path: ["includedGenreIds"],
+    });
+  }
+};
 
-const movieFilterSettingsBaseSchema = z.object(movieFilterSettingsShape);
+export const gamePreferencesSchema =
+  gamePreferencesBaseSchema.superRefine(addPreferenceIssues);
 
-const movieFilterSettingsSchema = movieFilterSettingsBaseSchema.superRefine(
-  addMovieFilterIssues,
-);
-
-export const gameSettingsSchema = z.object({
-  gameplay: gameplaySettingsSchema,
-  movieFilters: movieFilterSettingsSchema,
-});
-
-const gameplaySettingsInputSchema = gameplaySettingsSchema.partial();
-const movieFilterSettingsInputSchema = movieFilterSettingsBaseSchema
-  .partial()
-  .superRefine(addMovieFilterIssues);
-export const gameSettingsInputSchema = z.object({
-  gameplay: gameplaySettingsInputSchema.optional(),
-  movieFilters: movieFilterSettingsInputSchema.optional(),
-});
+export const gamePreferencesPatchSchema =
+  gamePreferencesBaseSchema.partial().superRefine(addPreferenceIssues);
 
 export const movieCandidateSchema = z.object({
   id: z.string().min(1),
@@ -141,5 +141,7 @@ export type GameStatus = z.infer<typeof gameStatusSchema>;
 export type MoviePopularityPreset = z.infer<typeof moviePopularityPresetSchema>;
 export type GameSettings = z.infer<typeof gameSettingsSchema>;
 export type GameSettingsInput = z.infer<typeof gameSettingsInputSchema>;
+export type GamePreferences = z.infer<typeof gamePreferencesSchema>;
+export type GamePreferencesPatch = z.infer<typeof gamePreferencesPatchSchema>;
 export type MovieCandidate = z.infer<typeof movieCandidateSchema>;
 export type GameVoteSummary = z.infer<typeof gameVoteSummarySchema>;

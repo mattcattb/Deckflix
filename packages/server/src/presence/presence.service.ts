@@ -1,25 +1,8 @@
-import type {DisplaySession, GamePlayerPresence, PlayerSession} from "@deckflix/shared";
-import {
-  publishDisplayMessage,
-  subscribeDisplaySocket as subscribeToDisplay,
-  subscribePlayerSocket as subscribeToPlayer,
-  type RealtimeServer,
-  unsubscribeDisplaySocket as unsubscribeFromDisplay,
-  unsubscribePlayerSocket as unsubscribeFromPlayer,
-} from "../realtime/realtime.service";
-import * as RoomsService from "../rooms/rooms.service";
-
 export type SocketLike = {
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
 };
 
-type TopicSocket = {
-  raw?: {
-    subscribe: (topic: string) => void;
-    unsubscribe: (topic: string) => void;
-  };
-};
 const displaySocketsByGameCode = new Map<string, Set<SocketLike>>();
 const playerSocketsByGameCode = new Map<string, Map<string, Set<SocketLike>>>();
 
@@ -39,8 +22,7 @@ export const clearPresenceState = (gameCode: string) => {
   playerSocketsByGameCode.delete(key);
 };
 
-export const connectDisplay = async (input: DisplaySession & {socket: SocketLike}) => {
-  await RoomsService.verifyDisplaySession(input);
+export const connectDisplay = (input: {gameCode: string; socket: SocketLike}) => {
   const key = normalizeGameCode(input.gameCode);
   const sockets = displaySocketsByGameCode.get(key) ?? new Set<SocketLike>();
   sockets.add(input.socket);
@@ -60,8 +42,11 @@ export const disconnectDisplay = (input: {gameCode: string; socket: SocketLike})
   }
 };
 
-export const connectPlayer = async (input: PlayerSession & {socket: SocketLike}) => {
-  await RoomsService.verifyPlayerSession(input);
+export const connectPlayer = (input: {
+  gameCode: string;
+  playerId: string;
+  socket: SocketLike;
+}) => {
   const key = normalizeGameCode(input.gameCode);
   const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
   const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();
@@ -94,52 +79,4 @@ export const disconnectPlayer = (input: {
   if (gameSockets.size === 0) {
     playerSocketsByGameCode.delete(key);
   }
-};
-
-export const subscribeDisplaySocket = (ws: TopicSocket, gameCode: string) => {
-  subscribeToDisplay(ws as never, gameCode);
-};
-
-export const unsubscribeDisplaySocket = (ws: TopicSocket, gameCode: string) => {
-  unsubscribeFromDisplay(ws as never, gameCode);
-};
-
-export const subscribePlayerSocket = (
-  ws: TopicSocket,
-  gameCode: string,
-  playerId: string,
-) => {
-  subscribeToPlayer(ws as never, gameCode, playerId);
-};
-
-export const unsubscribePlayerSocket = (
-  ws: TopicSocket,
-  gameCode: string,
-  playerId: string,
-) => {
-  unsubscribeFromPlayer(ws as never, gameCode, playerId);
-};
-
-export const publishPlayerJoined = (
-  server: RealtimeServer,
-  gameCode: string,
-  player: GamePlayerPresence,
-) => {
-  publishDisplayMessage(server, gameCode, {
-    type: "presence.player_joined",
-    payload: player,
-  });
-};
-
-export const publishPlayerLeft = (
-  server: RealtimeServer,
-  gameCode: string,
-  playerId: string,
-) => {
-  publishDisplayMessage(server, gameCode, {
-    type: "presence.player_left",
-    payload: {
-      playerId,
-    },
-  });
 };

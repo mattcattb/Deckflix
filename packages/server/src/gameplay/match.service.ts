@@ -1,38 +1,33 @@
 import type {SwipeChoice} from "@deckflix/shared";
-import type {MovieState} from "../recommendations/recommendations.service";
+import type {MovieState} from "./movie-state.service";
 
-export const applyVoteToMovieState = (input: {
+export const getVoteCountField = (choice: SwipeChoice) => {
+  switch (choice) {
+    case "like":
+      return "likeCount";
+    case "dislike":
+      return "dislikeCount";
+    case "maybe":
+      return "maybeCount";
+    case "super_like":
+      return "superLikeCount";
+    case "skip":
+      return "skipCount";
+  }
+};
+
+export const resolveMovieState = (input: {
   state: MovieState;
-  choice: SwipeChoice;
   totalPlayers: number;
   votedAt: string;
 }) => {
   const previousStatus = input.state.status;
   const state: MovieState = {
     ...input.state,
-    totalVotes: input.state.totalVotes + 1,
     lastActivityAt: input.votedAt,
     resolvedAt: input.state.resolvedAt ?? null,
     matchedAt: input.state.matchedAt ?? null,
   };
-
-  switch (input.choice) {
-    case "like":
-      state.likeCount += 1;
-      break;
-    case "dislike":
-      state.dislikeCount += 1;
-      break;
-    case "maybe":
-      state.maybeCount += 1;
-      break;
-    case "super_like":
-      state.superLikeCount += 1;
-      break;
-    case "skip":
-      state.skipCount += 1;
-      break;
-  }
 
   const positiveVotes = state.likeCount + state.superLikeCount;
   const hasBlockingVote =

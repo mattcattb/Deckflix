@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {BadRequestException} from "../common/errors";
-import {ensureRedis, redis} from "./redis";
+import {ensureRedis, redisClient} from "./redis";
 
 const sleep = (ms: number) =>
   new Promise((resolve) => {
@@ -8,7 +8,7 @@ const sleep = (ms: number) =>
   });
 
 const releaseRedisLock = async (key: string, token: string) => {
-  await redis.eval(
+  await redisClient.eval(
     `
       if redis.call("GET", KEYS[1]) == ARGV[1] then
         return redis.call("DEL", KEYS[1])
@@ -36,7 +36,7 @@ export const withRedisLock = async <T>(
   const token = randomUUID();
 
   for (let attempt = 0; attempt < input.retryCount; attempt += 1) {
-    const locked = await redis.set(input.key, token, {
+    const locked = await redisClient.set(input.key, token, {
       NX: true,
       PX: input.ttlMs,
     });

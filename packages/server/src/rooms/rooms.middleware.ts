@@ -7,7 +7,6 @@ import {
   UnauthorizedException,
 } from "../common/errors";
 import {appEnv} from "../common/env";
-import * as GameSettingsService from "../settings/game-settings.service";
 import * as RoomsService from "./rooms.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
@@ -101,11 +100,7 @@ const getRequiredActiveRoomMeta = async (
   gameCode: string,
 ) => {
   try {
-    const [meta] = await Promise.all([
-      RoomsService.getGameMetaOrThrow(gameCode),
-      GameSettingsService.getGameSettingsOrThrow(gameCode),
-    ]);
-    return meta;
+    return await RoomsService.getGameMetaOrThrow(gameCode);
   } catch (error) {
     if (error instanceof NotFoundException) {
       clearRoomSessionCookie(c);
@@ -127,39 +122,29 @@ export const activeRoomMiddleware = createMiddleware(async (c, next) => {
   await next();
 });
 
-export const activePlayerMiddleware = createMiddleware(async (c, next) => {
-  const session = await getRequiredRoomSession(c);
-  if (session.role !== "player") {
+export const requirePlayerActor = createMiddleware(async (c, next) => {
+  const room = c.get("room");
+  if (room.session?.role !== "player") {
     throw new NotFoundException("Room not found");
   }
 
-  c.set("room", {
-    gameCode: session.gameCode,
-    session,
-    meta: await getRequiredActiveRoomMeta(c, session.gameCode),
-  });
   c.set("playerActor", {
-    playerId: session.roleId,
-    sessionToken: session.sessionToken,
+    playerId: room.session.roleId,
+    sessionToken: room.session.sessionToken,
   });
 
   await next();
 });
 
-export const activeDisplayMiddleware = createMiddleware(async (c, next) => {
-  const session = await getRequiredRoomSession(c);
-  if (session.role !== "display") {
+export const requireDisplayActor = createMiddleware(async (c, next) => {
+  const room = c.get("room");
+  if (room.session?.role !== "display") {
     throw new NotFoundException("Room not found");
   }
 
-  c.set("room", {
-    gameCode: session.gameCode,
-    session,
-    meta: await getRequiredActiveRoomMeta(c, session.gameCode),
-  });
   c.set("displayActor", {
-    displayId: session.roleId,
-    sessionToken: session.sessionToken,
+    displayId: room.session.roleId,
+    sessionToken: room.session.sessionToken,
   });
 
   await next();

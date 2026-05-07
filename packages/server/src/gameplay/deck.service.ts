@@ -1,26 +1,26 @@
 import {createHash} from "node:crypto";
-import {BadRequestException} from "../common/errors";
-import {ensureRedis, redis} from "../lib/redis";
-import * as RecommendationsService from "../recommendations/recommendations.service";
+import {ensureRedis, redisClient} from "../redis/redis";
+import * as PoolService from "../recommendations/pool.service";
 import * as RoomsService from "../rooms/rooms.service";
 
-export const PLAYER_DECK_TARGET = 3;
-export const PLAYER_DECK_REFILL_THRESHOLD = 1;
+const PLAYER_DECK_TARGET = 3;
 const PLAYER_DECK_RANDOMIZATION_WINDOW = PLAYER_DECK_TARGET * 2;
 const PLAYER_DECK_TOP_UP_SCAN_LIMIT = 250;
 
-type PopDeckResult =
-  | {status: "popped"; movieId: string}
-  | {status: "empty"}
-  | {status: "mismatch"; actualMovieId: string};
+const KEYS = {
+  DECK: (gameCode: string, playerId: string) =>
+    `game:${RoomsService.normalizeGameCode(gameCode)}:deck:${playerId}`,
+  ASSIGNED: (gameCode: string, playerId: string) =>
+    `game:${RoomsService.normalizeGameCode(gameCode)}:deck_assigned:${playerId}`,
+  CURSOR: (gameCode: string, playerId: string) =>
+    `game:${RoomsService.normalizeGameCode(gameCode)}:deck_cursor:${playerId}`,
+};
 
-const roomPrefix = (gameCode: string) => `game:${RoomsService.normalizeGameCode(gameCode)}:`;
-const deckKey = (gameCode: string, playerId: string) =>
-  `${roomPrefix(gameCode)}deck:${playerId}`;
+const deckKey = KEYS.DECK;
 const assignedKey = (gameCode: string, playerId: string) =>
-  `${roomPrefix(gameCode)}deck_assigned:${playerId}`;
+  KEYS.ASSIGNED(gameCode, playerId);
 const cursorKey = (gameCode: string, playerId: string) =>
-  `${roomPrefix(gameCode)}deck_cursor:${playerId}`;
+  KEYS.CURSOR(gameCode, playerId);
 
 const queueSeedValue = (value: string) =>
   Number.parseInt(
@@ -32,7 +32,7 @@ const getQueueWindowIndex = (order: number) =>
   Math.floor(order / PLAYER_DECK_RANDOMIZATION_WINDOW);
 
 export const orderPoolEntriesForPlayer = (
-  entries: RecommendationsService.PoolEntry[],
+  entries: PoolService.PoolEntry[],
   seed: string,
   playerId: string,
 ) =>
@@ -63,41 +63,38 @@ const parseNumber = (raw: string | null) => {
 
 export const clearPlayerDeck = async (gameCode: string, playerId: string) => {
   await ensureRedis();
-  await redis.del([
-    deckKey(gameCode, playerId),
-    assignedKey(gameCode, playerId),
-    cursorKey(gameCode, playerId),
-  ]);
+  const playerKeys = [
+    KEYS.DECK(gameCode, playerId),
+    KEYS.ASSIGNED(gameCode, playerId),
+    KEYS.CURSOR(gameCode, playerId),
+  ];
+
+  await redisClient.del(playerKeys);
 };
 
 export const getDeckLength = async (gameCode: string, playerId: string) => {
   await ensureRedis();
-  return redis.lLen(deckKey(gameCode, playerId));
+  const deckKey = KEYS.DECK(gameCode, playerId);
+  return redisClient.lLen(deckKey);
 };
 
-export const getCursor = async (gameCode: string, playerId: string) => {
+const getCursor = async (gameCode: string, playerId: string) => {
   await ensureRedis();
-  return parseNumber(await redis.get(cursorKey(gameCode, playerId)));
+  const cursorKey = KEYS.CURSOR(gameCode, playerId);
+  return parseNumber(await redisClient.get(cursorKey));
 };
 
-export const peekCurrentMovieId = async (
-  gameCode: string,
-  playerId: string,
-) => {
-  await ensureRedis();
-  return redis.lIndex(deckKey(gameCode, playerId), 0);
-};
-
-export const topUpPlayerDeck = async (
+const topUpPlayerDeck = async (
   gameCode: string,
   playerId: string,
   targetSize = PLAYER_DECK_TARGET,
 ) => {
+  await ensureRedis();
   const [currentLength, cursor, meta, poolEntries] = await Promise.all([
     getDeckLength(gameCode, playerId),
     getCursor(gameCode, playerId),
     RoomsService.getGameMetaOrThrow(gameCode),
-    RecommendationsService.listPoolEntries(gameCode),
+    PoolService.listPoolEntries(gameCode),
   ]);
   if (currentLength >= targetSize || cursor >= poolEntries.length) {
     return;
@@ -119,17 +116,22 @@ export const topUpPlayerDeck = async (
   ) {
     const movieId = orderedEntries[nextCursor].movieId;
     nextCursor += 1;
-    if (!(await redis.sIsMember(assignedKey(gameCode, playerId), movieId))) {
+    if (
+      !(await redisClient.sIsMember(assignedKey(gameCode, playerId), movieId))
+    ) {
       acceptedMovieIds.push(movieId);
     }
   }
 
-  const multi = redis.multi();
+  const multi = redisClient.multi();
   if (acceptedMovieIds.length > 0) {
     multi.rPush(deckKey(gameCode, playerId), acceptedMovieIds);
     multi.sAdd(assignedKey(gameCode, playerId), acceptedMovieIds);
     multi.expire(deckKey(gameCode, playerId), RoomsService.ROOM_TTL_SECONDS);
-    multi.expire(assignedKey(gameCode, playerId), RoomsService.ROOM_TTL_SECONDS);
+    multi.expire(
+      assignedKey(gameCode, playerId),
+      RoomsService.ROOM_TTL_SECONDS,
+    );
   }
   multi.set(cursorKey(gameCode, playerId), String(nextCursor), {
     EX: RoomsService.ROOM_TTL_SECONDS,
@@ -137,81 +139,74 @@ export const topUpPlayerDeck = async (
   await multi.exec();
 };
 
-export const initializePlayerDecks = async (
+const peekDeck = async (
   gameCode: string,
-  playerIds: string[],
-  targetSize: number,
-) => {
-  await Promise.all(
-    playerIds.map(async (playerId) => {
-      await clearPlayerDeck(gameCode, playerId);
-      await topUpPlayerDeck(gameCode, playerId, targetSize);
-    }),
-  );
+  playerId: string,
+): Promise<string | null> => {
+  await ensureRedis();
+  const deckKey = KEYS.DECK(gameCode, playerId);
+
+  return redisClient.lIndex(deckKey, 0);
+};
+
+const popDeck = async (
+  gameCode: string,
+  playerId: string,
+): Promise<string | null> => {
+  await ensureRedis();
+  const deckKey = KEYS.DECK(gameCode, playerId);
+
+  const top = await redisClient.lPop(deckKey);
+
+  return top;
+};
+
+export const getCurrentIndex = async (gameCode: string, playerId: string) => {
+  const [poolSize, cursor, deckLength] = await Promise.all([
+    PoolService.getPoolSize(gameCode),
+    getCursor(gameCode, playerId),
+    getDeckLength(gameCode, playerId),
+  ]);
+  return Math.min(poolSize, Math.max(0, cursor - deckLength));
 };
 
 export const peekOrTopUpCurrentMovieId = async (
   gameCode: string,
   playerId: string,
 ) => {
-  let movieId = await peekCurrentMovieId(gameCode, playerId);
-  if (movieId) {
-    const deckLength = await getDeckLength(gameCode, playerId);
-    if (deckLength <= PLAYER_DECK_REFILL_THRESHOLD) {
-      await topUpPlayerDeck(gameCode, playerId);
-    }
-    return movieId;
+  const current = await peekDeck(gameCode, playerId);
+  if (current) {
+    return current;
   }
 
   await topUpPlayerDeck(gameCode, playerId);
-  movieId = await peekCurrentMovieId(gameCode, playerId);
-  return movieId;
+  return peekDeck(gameCode, playerId);
 };
 
 export const popCurrentMovieId = async (
   gameCode: string,
   playerId: string,
   expectedMovieId?: string,
-): Promise<PopDeckResult> => {
-  await ensureRedis();
-  const result = await redis.eval(
-    `
-      local current = redis.call("LINDEX", KEYS[1], 0)
-      if not current then
-        return {"empty"}
-      end
-      if ARGV[1] ~= "" and current ~= ARGV[1] then
-        return {"mismatch", current}
-      end
-      return {"popped", redis.call("LPOP", KEYS[1])}
-    `,
-    {
-      keys: [deckKey(gameCode, playerId)],
-      arguments: [expectedMovieId ?? ""],
-    },
-  );
-  const [status, movieId] = result as [string, string | undefined];
-  if (status === "empty") {
-    return {status};
+) => {
+  const current = await peekOrTopUpCurrentMovieId(gameCode, playerId);
+  if (!current) {
+    return {status: "empty" as const};
   }
-  if (status === "mismatch") {
-    return {status, actualMovieId: movieId ?? ""};
+  if (expectedMovieId && current !== expectedMovieId) {
+    return {status: "mismatch" as const, movieId: current};
   }
-  if (!movieId) {
-    throw new BadRequestException("No active movie");
-  }
-  return {status: "popped", movieId};
+
+  await popDeck(gameCode, playerId);
+  void topUpPlayerDeck(gameCode, playerId);
+  return {status: "ok" as const, movieId: current};
 };
 
-export const getCurrentIndex = async (gameCode: string, playerId: string) => {
-  const [poolSize, deckLength] = await Promise.all([
-    RecommendationsService.getPoolSize(gameCode),
+export const isPlayerCompleted = async (gameCode: string, playerId: string) => {
+  const [poolSize, cursor, deckLength] = await Promise.all([
+    PoolService.getPoolSize(gameCode),
+    getCursor(gameCode, playerId),
     getDeckLength(gameCode, playerId),
   ]);
-  return Math.max(0, poolSize - deckLength);
+
+  return poolSize > 0 && cursor >= poolSize && deckLength === 0;
 };
-
-export const getRemainingCount = getDeckLength;
-
-export const isPlayerCompleted = async (gameCode: string, playerId: string) =>
-  (await getDeckLength(gameCode, playerId)) === 0;
