@@ -41,35 +41,3 @@ export const clearActiveRoomSession = async (
   queryClient.removeQueries({queryKey: ["room", normalized]});
   queryClient.removeQueries({queryKey: ["preferences", normalized]});
 };
-
-const ACTIVE_ROOM_CLIENT_SETTLE_TIMEOUT_MS = 1_500;
-const ACTIVE_ROOM_CLIENT_SETTLE_INTERVAL_MS = 75;
-
-const sleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-
-export const waitForActiveRoomClient = async (queryClient: QueryClient) => {
-  const deadline = Date.now() + ACTIVE_ROOM_CLIENT_SETTLE_TIMEOUT_MS;
-  let activeClient = await queryClient.fetchQuery(activeRoomClientQueryOptions);
-
-  while (activeClient.role === "none" && Date.now() < deadline) {
-    await sleep(ACTIVE_ROOM_CLIENT_SETTLE_INTERVAL_MS);
-    activeClient = await queryClient.fetchQuery(activeRoomClientQueryOptions);
-  }
-
-  return activeClient;
-};
-
-export const getActiveRoomPath = (client: ActiveRoomClient) => {
-  if (client.role === "display") {
-    return "/room" as const;
-  }
-
-  if (client.role === "player") {
-    return "/play" as const;
-  }
-
-  return "/" as const;
-};

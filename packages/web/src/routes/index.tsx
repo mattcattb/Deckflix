@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
+import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
 import {GAME_CODE_LENGTH} from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
@@ -7,25 +7,13 @@ import {BrandMark} from "../components/common";
 import {CenteredPanel} from "../components/layout";
 import {Button, Input, Label, useToast} from "../components/ui";
 import {
-  activeRoomClientQueryOptions,
   activeRoomSessionKeys,
-  getActiveRoomPath,
   normalizeGameCode,
 } from "../features/room/room-session";
+import {requireNoActiveRoom} from "./room-route-guards";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: async ({context}) => {
-    const activeClient = await context.queryClient.ensureQueryData(
-      activeRoomClientQueryOptions,
-    );
-
-    if (activeClient.role !== "none") {
-      throw redirect({
-        to: getActiveRoomPath(activeClient),
-        replace: true,
-      });
-    }
-  },
+  beforeLoad: ({context}) => requireNoActiveRoom(context.activeClient),
   component: HomePage,
 });
 

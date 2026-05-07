@@ -1,7 +1,7 @@
 import {useMemo, useRef, useState} from "react";
 import type {PointerEvent as ReactPointerEvent} from "react";
 import type {ActiveGameQueueItem, SwipeChoice} from "@deckflix/shared";
-import {MovieCard} from "../../movie-catalog/components/movie-card";
+import {MovieCard} from "../movie-catalog/components/movie-card";
 
 type SwipeDeckProps = {
   item: ActiveGameQueueItem | null;

@@ -23,16 +23,16 @@ import {
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   roomKeys,
-} from "./room.queries";
+} from "../room/room.queries";
 import {
   clearActiveRoomSession,
   activeRoomSessionKeys,
   isMissingRoomSessionError,
-} from "./room-session";
+} from "../room/room-session";
 import {
   createActiveRoomWebSocketUrl,
   parseDisplayServerMessage,
-} from "./room.ws";
+} from "../room/room.ws";
 import {
   activeGamePreferencesQueryOptions,
   activeRoomSettingsQueryOptions,
@@ -40,26 +40,22 @@ import {
 } from "../preferences/preferences.queries";
 import {movieGenresQueryOptions} from "../movie-catalog/movie-catalog.queries";
 import {Eyebrow, ProfileAvatar} from "../../components/common";
-import {
-  Button,
-} from "../../components/ui";
-import {GamePreferencesSection} from "../preferences/game-preferences-section";
-import {RoomUnavailable} from "./room-unavailable";
+import {Button} from "../../components/ui";
+import {RoomUnavailable} from "../room/room-unavailable";
 import {
   getDisplayRoomPath,
   getDisplayRoomViewMode,
-} from "./room-view-modes";
+} from "../room/room-view-modes";
 import {
-  DisplayBrowseView,
   MatchFoundOverlay,
   type DisplayBoard,
   type DisplayBoardItem,
-} from "./display-browse-view";
+} from "./DisplayBrowseView";
 import {
   RoomHeader,
   RoomScreenShell,
   RoomSidebarSection,
-} from "./room-screen-shell";
+} from "../../components/layout";
 
 type PlayerVoteFlashTone = "positive" | "negative";
 
@@ -161,7 +157,7 @@ const getBoardSections = (state: DisplayGameState | null): DisplayBoard => {
   };
 };
 
-const useDisplayRoom = () => {
+export const useDisplayRoom = () => {
   const context = useContext(DisplayRoomContext);
   if (!context) {
     throw new Error("Display room context is not available");
@@ -628,80 +624,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       </>
     </DisplayRoomContext.Provider>
   );
-}
-
-export function DisplayRoomLobbyView() {
-  const {
-    draftSettings,
-    draftPreferences,
-    meta,
-    movieGenres,
-    movieGenresError,
-    players,
-    saveSettings,
-    saveSettingsPending,
-    setDraftPreferences,
-    setDraftSettings,
-    startGame,
-    startGamePending,
-  } = useDisplayRoom();
-
-  return (
-    <section className="max-w-5xl">
-      <div className="border-b border-white/10 pb-4">
-        <Eyebrow className="text-white/45">
-          Room code
-        </Eyebrow>
-        <button
-          type="button"
-          className="mt-2 font-mono text-3xl font-bold tracking-[0.24em] text-primary transition hover:text-[hsl(357_92%_55%)]"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(meta.summary.code);
-            } catch {
-              // noop
-            }
-          }}>
-          {meta.summary.code}
-        </button>
-      </div>
-      <div className="py-6">
-        <GamePreferencesSection
-          settings={draftSettings}
-          preferences={draftPreferences}
-          onChange={setDraftSettings}
-          onPreferencesChange={setDraftPreferences}
-          movieGenres={movieGenres}
-          movieGenresError={movieGenresError}
-        />
-      </div>
-      <div className="flex justify-end gap-3 border-t border-white/10 pt-5">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={saveSettings}
-          disabled={saveSettingsPending}>
-          {saveSettingsPending ? "Saving..." : "Save"}
-        </Button>
-        <Button
-          effect="glow"
-          onClick={startGame}
-          disabled={startGamePending || players.length < 2}>
-          {startGamePending ? "Starting..." : "Start game"}
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-export function DisplayRoomLiveView() {
-  const {board} = useDisplayRoom();
-  return <DisplayBrowseView board={board} mode="live" />;
-}
-
-export function DisplayRoomResultsView() {
-  const {board} = useDisplayRoom();
-  return <DisplayBrowseView board={board} mode="results" />;
 }
 
 function PlayerSidebarRow({

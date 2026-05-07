@@ -1,6 +1,5 @@
-import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect} from "@tanstack/react-router";
-import {DisplayRoomShell} from "../features/room";
+import {DisplayRoomShell} from "../features/display/DisplayRoomView";
 import {
   activeDisplayStateQueryOptions,
   activeRoomMetaQueryOptions,
@@ -13,27 +12,13 @@ import {
 import {
   clearActiveRoomSession,
   isMissingRoomSessionError,
-  waitForActiveRoomClient,
 } from "../features/room/room-session";
-
-const getDisplayClient = async (queryClient: QueryClient) => {
-  const activeClient = await waitForActiveRoomClient(queryClient);
-
-  if (activeClient.role === "none") {
-    throw redirect({to: "/", replace: true});
-  }
-
-  if (activeClient.role === "player") {
-    throw redirect({to: "/play", replace: true});
-  }
-
-  return activeClient;
-};
+import {requireDisplayRoom} from "./room-route-guards";
 
 export const Route = createFileRoute("/room")({
-  beforeLoad: ({context}) => getDisplayClient(context.queryClient),
+  beforeLoad: ({context}) => requireDisplayRoom(context.activeClient),
   loader: async ({context}) => {
-    const activeClient = await getDisplayClient(context.queryClient);
+    const activeClient = requireDisplayRoom(context.activeClient);
 
     try {
       await Promise.all([
@@ -55,7 +40,10 @@ export const Route = createFileRoute("/room")({
       ]);
     } catch (error) {
       if (isMissingRoomSessionError(error)) {
-        await clearActiveRoomSession(context.queryClient, activeClient.gameCode);
+        await clearActiveRoomSession(
+          context.queryClient,
+          activeClient.gameCode,
+        );
         throw redirect({to: "/", replace: true});
       }
 

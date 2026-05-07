@@ -5,7 +5,7 @@ import type {
 } from "@deckflix/shared";
 import {Eyebrow, StatusMessage} from "../../components/common";
 import {Input, Label, RangeSlider, Select} from "../../components/ui";
-import {GenrePicker} from "./genre-picker";
+import {GenrePicker} from "./GenrePicker";
 
 type MovieGenre = {
   id: number;

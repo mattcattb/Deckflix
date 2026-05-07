@@ -1,5 +1,5 @@
 import type {ComponentProps, ReactNode} from "react";
-import {BrandMark, Eyebrow, StatusMessage} from "../../components/common";
+import {BrandMark, Eyebrow, StatusMessage} from "../common";
 
 type RoomHeaderProps = {
   actions?: ReactNode;
