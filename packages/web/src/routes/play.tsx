@@ -22,6 +22,7 @@ import {
 import {
   activeRoomSessionKeys,
   clearActiveRoomSession,
+  clearStoredRoomSessionToken,
   isMissingRoomSessionError,
 } from "../features/room/room-session";
 import {
@@ -122,7 +123,19 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }),
       ),
     onSuccess: (result) => {
-      setState(result.state);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              me: {
+                ...current.me,
+                ...result.statePatch.me,
+              },
+              currentItem: result.statePatch.currentItem,
+              remainingCount: result.statePatch.remainingCount,
+            }
+          : current,
+      );
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -137,8 +150,9 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   });
 
   const leaveMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.room.leave.$post()),
+    mutationFn: async () => parseRpc(api.api.player.leave.$post()),
     onSuccess: () => {
+      clearStoredRoomSessionToken();
       queryClient.setQueryData<ActiveRoomClient>(
         activeRoomSessionKeys.activeClient,
         {role: "none"},
@@ -204,11 +218,11 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "swipe.vote_recorded") {
+      if (message.type === "game.vote_recorded") {
         return;
       }
 
-      if (message.type === "swipe.match_found") {
+      if (message.type === "game.match_found") {
         return;
       }
 

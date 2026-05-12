@@ -9,6 +9,8 @@ import {Button, Input, Label, useToast} from "../components/ui";
 import {
   activeRoomSessionKeys,
   normalizeGameCode,
+  storeDisplaySessionToken,
+  storePlayerSessionToken,
 } from "../features/room/room-session";
 import {requireNoActiveRoom} from "./room-route-guards";
 
@@ -37,7 +39,8 @@ function HomePage() {
           },
         }),
       ),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      storeDisplaySessionToken(result.displaySession);
       queryClient.removeQueries({
         queryKey: activeRoomSessionKeys.activeClient,
         exact: true,
@@ -63,7 +66,8 @@ function HomePage() {
           },
         }),
       ),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      storePlayerSessionToken(result.playerSession);
       queryClient.removeQueries({
         queryKey: activeRoomSessionKeys.activeClient,
         exact: true,

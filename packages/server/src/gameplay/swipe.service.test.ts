@@ -21,7 +21,6 @@ describe("swipe.service", () => {
         playerId: "player-1",
         movieId: "movie-1",
         choice: "like",
-        server: {publish: mock()},
       }),
     ).rejects.toThrow("Vote does not match the deck head");
   });

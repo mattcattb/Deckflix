@@ -24,8 +24,8 @@ function DisplayRoomResultsView() {
     }
 
     if (
-      lastDisplayMessage.type !== "swipe.vote_recorded" &&
-      lastDisplayMessage.type !== "swipe.match_found"
+      lastDisplayMessage.type !== "game.vote_recorded" &&
+      lastDisplayMessage.type !== "game.match_found"
     ) {
       return;
     }

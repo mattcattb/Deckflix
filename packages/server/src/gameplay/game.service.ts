@@ -1,7 +1,7 @@
 import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
-import type {RealtimeServer} from "../realtime/realtime.service";
-import {getProjectedPlayerState} from "../rooms/game-state.service";
+import {emitEvent} from "../common/app-events";
+import * as PoolService from "../recommendations/pool.service";
 import * as DeckService from "./deck.service";
 import * as VoteService from "./vote.service";
 
@@ -10,7 +10,6 @@ export const recordSwipe = async (input: {
   playerId: string;
   movieId: string;
   choice: SwipeChoice;
-  server: RealtimeServer;
 }) => {
   const popped = await DeckService.popCurrentMovieId(
     input.gameCode,
@@ -31,28 +30,38 @@ export const recordSwipe = async (input: {
     choice: input.choice,
   });
 
-  VoteService.publishVoteRecorded({
-    server: input.server,
+  emitEvent("game.vote_recorded", {
     gameCode: input.gameCode,
     playerId: input.playerId,
     movieId: popped.movieId,
     choice: input.choice,
+    votedAt: vote.votedAt,
   });
-
-  if (vote.justMatched) {
-    VoteService.publishMatchFound(
-      input.server,
-      input.gameCode,
-      popped.movieId,
-    );
-  }
 
   return {
     movieId: popped.movieId,
     choice: input.choice,
-    state: await getProjectedPlayerState({
-      gameCode: input.gameCode,
-      playerId: input.playerId,
-    }),
+    statePatch: await getPlayerSwipeStatePatch(input.gameCode, input.playerId),
+  };
+};
+
+const getPlayerSwipeStatePatch = async (gameCode: string, playerId: string) => {
+  const currentMovieId = await DeckService.peekOrTopUpCurrentMovieId(
+    gameCode,
+    playerId,
+  );
+  const deckStatus = await DeckService.getPlayerDeckStatus(gameCode, playerId);
+
+  return {
+    me: {
+      currentIndex: deckStatus.currentIndex,
+      completed: deckStatus.completed,
+    },
+    currentItem: currentMovieId
+      ? {
+          movie: await PoolService.getMovieMetaOrThrow(gameCode, currentMovieId),
+        }
+      : null,
+    remainingCount: deckStatus.remainingCount,
   };
 };

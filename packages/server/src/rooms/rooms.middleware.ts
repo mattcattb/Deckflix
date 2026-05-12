@@ -1,4 +1,7 @@
-import {roomSessionSchema, type RoomSession} from "@deckflix/shared";
+import {
+  encodeRoomSessionToken,
+  type RoomSession,
+} from "@deckflix/shared";
 import {deleteCookie, getCookie, setCookie} from "hono/cookie";
 import {createMiddleware} from "hono/factory";
 import {
@@ -8,6 +11,7 @@ import {
 } from "../common/errors";
 import {appEnv} from "../common/env";
 import * as RoomsService from "./rooms.service";
+import * as SessionService from "../sessions/room-session.service";
 
 const ACTIVE_GAME_COOKIE_NAME = "deckflix_active_game";
 const isProduction =
@@ -23,25 +27,6 @@ const roomSessionCookieOptions = {
 
 type CookieContext = Parameters<typeof getCookie>[0];
 
-const encodeRoomSessionCookieValue = (value: RoomSession) =>
-  `${value.gameCode}.${value.role}.${value.roleId}.${value.sessionToken}`;
-
-const decodeRoomSessionCookieValue = (value?: string | null) => {
-  if (!value) {
-    return null;
-  }
-
-  const [gameCode, role, roleId, sessionToken] = value.split(".", 4);
-  const parsed = roomSessionSchema.safeParse({
-    gameCode,
-    role,
-    roleId,
-    sessionToken,
-  });
-
-  return parsed.success ? parsed.data : null;
-};
-
 export const setRoomSessionCookie = (
   c: Parameters<typeof setCookie>[0],
   session: RoomSession,
@@ -49,7 +34,7 @@ export const setRoomSessionCookie = (
   setCookie(
     c,
     ACTIVE_GAME_COOKIE_NAME,
-    encodeRoomSessionCookieValue(session),
+    encodeRoomSessionToken(session),
     roomSessionCookieOptions,
   );
 };
@@ -58,8 +43,12 @@ export const clearRoomSessionCookie = (c: Parameters<typeof deleteCookie>[0]) =>
   deleteCookie(c, ACTIVE_GAME_COOKIE_NAME, roomSessionCookieOptions);
 };
 
-export const readRoomSessionCookie = (c: CookieContext) =>
-  decodeRoomSessionCookieValue(getCookie(c, ACTIVE_GAME_COOKIE_NAME));
+export const readRequestRoomSession = (c: CookieContext) =>
+  SessionService.readRoomSession({
+    authorization: c.req.header("Authorization"),
+    roomSessionToken: c.req.query("roomSessionToken"),
+    cookieSessionToken: getCookie(c, ACTIVE_GAME_COOKIE_NAME),
+  });
 
 export const gameParamMiddleware = createMiddleware(async (c, next) => {
   const gameCode = c.req.param("gameCode");
@@ -78,13 +67,13 @@ export const gameParamMiddleware = createMiddleware(async (c, next) => {
 });
 
 const getRequiredRoomSession = async (c: CookieContext) => {
-  const session = readRoomSessionCookie(c);
+  const session = readRequestRoomSession(c);
   if (!session) {
     throw new NotFoundException("Room not found");
   }
 
   try {
-    return await RoomsService.verifyRoomSession(session);
+    return await SessionService.verifyRoomSession(session);
   } catch (error) {
     if (error instanceof UnauthorizedException) {
       clearRoomSessionCookie(c);
@@ -156,12 +145,7 @@ const requireRoomStatus = (
 ) =>
   createMiddleware(async (c, next) => {
     const room = c.get("room");
-    const meta = await RoomsService.getGameMetaOrThrow(room.gameCode);
-    c.set("room", {
-      ...room,
-      meta,
-    });
-    if (!statuses.includes(meta.status)) {
+    if (!statuses.includes(room.meta.status)) {
       throw new ConflictException(message);
     }
 

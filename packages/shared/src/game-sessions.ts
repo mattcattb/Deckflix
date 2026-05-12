@@ -31,6 +31,25 @@ export const roomSessionSchema = z.object({
   sessionToken: z.string().min(1),
 });
 
+export const encodeRoomSessionToken = (value: RoomSession) =>
+  `${value.gameCode}.${value.role}.${value.roleId}.${value.sessionToken}`;
+
+export const decodeRoomSessionToken = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const [gameCode, role, roleId, sessionToken] = value.split(".", 4);
+  const parsed = roomSessionSchema.safeParse({
+    gameCode,
+    role,
+    roleId,
+    sessionToken,
+  });
+
+  return parsed.success ? parsed.data : null;
+};
+
 export const roomClientSchema = z.discriminatedUnion("role", [
   z.object({
     role: z.literal("display"),

@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {ensureRedis, redisClient} from "../redis/redis";
 import * as PoolService from "../recommendations/pool.service";
 import * as RoomsService from "../rooms/rooms.service";
+import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
 const PLAYER_DECK_TARGET = 3;
 const PLAYER_DECK_RANDOMIZATION_WINDOW = PLAYER_DECK_TARGET * 2;
@@ -9,11 +10,11 @@ const PLAYER_DECK_TOP_UP_SCAN_LIMIT = 250;
 
 const KEYS = {
   DECK: (gameCode: string, playerId: string) =>
-    `game:${RoomsService.normalizeGameCode(gameCode)}:deck:${playerId}`,
+    `game:${normalizeGameCode(gameCode)}:deck:${playerId}`,
   ASSIGNED: (gameCode: string, playerId: string) =>
-    `game:${RoomsService.normalizeGameCode(gameCode)}:deck_assigned:${playerId}`,
+    `game:${normalizeGameCode(gameCode)}:deck_assigned:${playerId}`,
   CURSOR: (gameCode: string, playerId: string) =>
-    `game:${RoomsService.normalizeGameCode(gameCode)}:deck_cursor:${playerId}`,
+    `game:${normalizeGameCode(gameCode)}:deck_cursor:${playerId}`,
 };
 
 const deckKey = KEYS.DECK;
@@ -61,18 +62,7 @@ const parseNumber = (raw: string | null) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export const clearPlayerDeck = async (gameCode: string, playerId: string) => {
-  await ensureRedis();
-  const playerKeys = [
-    KEYS.DECK(gameCode, playerId),
-    KEYS.ASSIGNED(gameCode, playerId),
-    KEYS.CURSOR(gameCode, playerId),
-  ];
-
-  await redisClient.del(playerKeys);
-};
-
-export const getDeckLength = async (gameCode: string, playerId: string) => {
+const getDeckLength = async (gameCode: string, playerId: string) => {
   await ensureRedis();
   const deckKey = KEYS.DECK(gameCode, playerId);
   return redisClient.lLen(deckKey);
@@ -127,14 +117,11 @@ const topUpPlayerDeck = async (
   if (acceptedMovieIds.length > 0) {
     multi.rPush(deckKey(gameCode, playerId), acceptedMovieIds);
     multi.sAdd(assignedKey(gameCode, playerId), acceptedMovieIds);
-    multi.expire(deckKey(gameCode, playerId), RoomsService.ROOM_TTL_SECONDS);
-    multi.expire(
-      assignedKey(gameCode, playerId),
-      RoomsService.ROOM_TTL_SECONDS,
-    );
+    multi.expire(deckKey(gameCode, playerId), ROOM_TTL_SECONDS);
+    multi.expire(assignedKey(gameCode, playerId), ROOM_TTL_SECONDS);
   }
   multi.set(cursorKey(gameCode, playerId), String(nextCursor), {
-    EX: RoomsService.ROOM_TTL_SECONDS,
+    EX: ROOM_TTL_SECONDS,
   });
   await multi.exec();
 };
@@ -159,15 +146,6 @@ const popDeck = async (
   const top = await redisClient.lPop(deckKey);
 
   return top;
-};
-
-export const getCurrentIndex = async (gameCode: string, playerId: string) => {
-  const [poolSize, cursor, deckLength] = await Promise.all([
-    PoolService.getPoolSize(gameCode),
-    getCursor(gameCode, playerId),
-    getDeckLength(gameCode, playerId),
-  ]);
-  return Math.min(poolSize, Math.max(0, cursor - deckLength));
 };
 
 export const peekOrTopUpCurrentMovieId = async (
@@ -201,12 +179,19 @@ export const popCurrentMovieId = async (
   return {status: "ok" as const, movieId: current};
 };
 
-export const isPlayerCompleted = async (gameCode: string, playerId: string) => {
+export const getPlayerDeckStatus = async (
+  gameCode: string,
+  playerId: string,
+) => {
   const [poolSize, cursor, deckLength] = await Promise.all([
     PoolService.getPoolSize(gameCode),
     getCursor(gameCode, playerId),
     getDeckLength(gameCode, playerId),
   ]);
 
-  return poolSize > 0 && cursor >= poolSize && deckLength === 0;
+  return {
+    currentIndex: Math.min(poolSize, Math.max(0, cursor - deckLength)),
+    completed: poolSize > 0 && cursor >= poolSize && deckLength === 0,
+    remainingCount: deckLength,
+  };
 };

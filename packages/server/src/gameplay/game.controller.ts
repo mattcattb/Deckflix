@@ -1,9 +1,7 @@
 import {zValidator} from "@hono/zod-validator";
-import {getBunServer} from "hono/bun";
 import {voteGamePayloadSchema} from "@deckflix/shared";
 import {createRouter} from "../common/hono";
 import * as PreferencesService from "../movies/preferences.service";
-import {ensureSocketPubSub} from "../realtime/socket-pubsub.service";
 import {
   activeRoomMiddleware,
   requireDisplayActor,
@@ -79,8 +77,6 @@ export const gameController = createRouter()
     zValidator("json", voteGamePayloadSchema),
     async (c) => {
       const input = c.req.valid("json");
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
       const {gameCode} = c.get("room");
       const {playerId} = c.get("playerActor");
       const result = await GameService.recordSwipe({
@@ -88,9 +84,8 @@ export const gameController = createRouter()
         playerId,
         movieId: input.movieId,
         choice: input.choice,
-        server,
       });
 
-      return c.json({state: result.state}, 201);
+      return c.json({statePatch: result.statePatch}, 201);
     },
   );

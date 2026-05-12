@@ -11,44 +11,44 @@ describe("shared event messages", () => {
   test("parses and encodes new domain events", () => {
     const displayRaw = encodeDisplayServerMessage({
       type: "room.status_changed",
-      payload: {
-        previousStatus: "lobby",
-        nextStatus: "swiping",
-      },
+      gameCode: "ABCD",
+      previousStatus: "lobby",
+      nextStatus: "swiping",
     });
     const playerRaw = encodePlayerServerMessage({
-      type: "swipe.vote_recorded",
-      payload: {
-        playerId: "player-1",
-        movieId: "movie-1",
-        choice: "like",
-      },
+      type: "game.vote_recorded",
+      gameCode: "ABCD",
+      playerId: "player-1",
+      movieId: "movie-1",
+      choice: "like",
+      votedAt: "2026-05-12T00:00:00.000Z",
     });
 
     expect(parseDisplayServerMessage(displayRaw)).toEqual({
       type: "room.status_changed",
-      payload: {
-        previousStatus: "lobby",
-        nextStatus: "swiping",
-      },
+      gameCode: "ABCD",
+      previousStatus: "lobby",
+      nextStatus: "swiping",
     });
     expect(parsePlayerServerMessage(playerRaw)).toEqual({
-      type: "swipe.vote_recorded",
-      payload: {
-        playerId: "player-1",
-        movieId: "movie-1",
-        choice: "like",
-      },
+      type: "game.vote_recorded",
+      gameCode: "ABCD",
+      playerId: "player-1",
+      movieId: "movie-1",
+      choice: "like",
+      votedAt: "2026-05-12T00:00:00.000Z",
     });
   });
 
   test("keeps the compatibility re-export working", () => {
     const raw = compatibility.encodeDisplayServerMessage({
       type: "room.deleted",
+      gameCode: "ABCD",
     });
 
     expect(compatibility.parseDisplayServerMessage(raw)).toEqual({
       type: "room.deleted",
+      gameCode: "ABCD",
     });
     expect(typeof compatibility.decodeDisplayClientMessage).toBe("function");
   });

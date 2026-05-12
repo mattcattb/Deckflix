@@ -8,6 +8,7 @@ import {api, parseRpc} from "../lib/api";
 import {
   activeRoomSessionKeys,
   normalizeGameCode,
+  storePlayerSessionToken,
 } from "../features/room/room-session";
 import {requireNoActiveRoom} from "./room-route-guards";
 
@@ -41,7 +42,8 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
           },
         }),
       ),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      storePlayerSessionToken(result.playerSession);
       setDisplayName("");
       queryClient.removeQueries({
         queryKey: activeRoomSessionKeys.activeClient,

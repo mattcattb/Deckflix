@@ -4,7 +4,7 @@ import {z} from "zod";
 import {NotFoundException} from "../common/errors";
 import {parseJson} from "../lib/json";
 import {ensureRedis, redisClient} from "../redis/redis";
-import * as RoomsService from "../rooms/rooms.service";
+import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
 export type PoolEntry = {
   movieId: string;
@@ -14,7 +14,7 @@ export type PoolEntry = {
 export type MovieMeta = z.infer<typeof movieCandidateSchema>;
 
 const roomPrefix = (gameCode: string) =>
-  `game:${RoomsService.normalizeGameCode(gameCode)}:`;
+  `game:${normalizeGameCode(gameCode)}:`;
 const poolKey = (gameCode: string) => `${roomPrefix(gameCode)}pool`;
 const moviesKey = (gameCode: string) => `${roomPrefix(gameCode)}movies`;
 
@@ -37,8 +37,8 @@ export const replacePool = async (
       multi.hSet(movieHash, movie.id, JSON.stringify(movie));
     }
   }
-  multi.expire(pool, RoomsService.ROOM_TTL_SECONDS);
-  multi.expire(movieHash, RoomsService.ROOM_TTL_SECONDS);
+  multi.expire(pool, ROOM_TTL_SECONDS);
+  multi.expire(movieHash, ROOM_TTL_SECONDS);
   await multi.exec();
 };
 
@@ -67,8 +67,8 @@ export const appendPoolMovies = async (
   for (const movie of nextMovies) {
     multi.hSet(movieHash, movie.id, JSON.stringify(movie));
   }
-  multi.expire(pool, RoomsService.ROOM_TTL_SECONDS);
-  multi.expire(movieHash, RoomsService.ROOM_TTL_SECONDS);
+  multi.expire(pool, ROOM_TTL_SECONDS);
+  multi.expire(movieHash, ROOM_TTL_SECONDS);
   await multi.exec();
   return nextMovies;
 };
@@ -96,7 +96,7 @@ export const getMovieMetaOrThrow = async (
   movieId: string,
 ): Promise<MovieMeta> => {
   await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
+  const normalized = normalizeGameCode(gameCode);
   const raw = await redisClient.hGet(moviesKey(normalized), movieId);
   if (!raw) {
     throw new NotFoundException(
@@ -113,7 +113,7 @@ export const getMovieMetaOrThrow = async (
 
 export const getMovieMetas = async (gameCode: string, movieIds: string[]) => {
   await ensureRedis();
-  const normalized = RoomsService.normalizeGameCode(gameCode);
+  const normalized = normalizeGameCode(gameCode);
   if (movieIds.length === 0) {
     return new Map<string, MovieMeta>();
   }

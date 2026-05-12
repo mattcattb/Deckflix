@@ -24,6 +24,7 @@ import {
 } from "../room/room.queries";
 import {
   clearActiveRoomSession,
+  clearStoredRoomSessionToken,
   activeRoomSessionKeys,
   isMissingRoomSessionError,
 } from "../room/room-session";
@@ -220,6 +221,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const deleteRoomMutation = useMutation({
     mutationFn: async () => parseRpc(api.api.room.end.$post()),
     onSuccess: () => {
+      clearStoredRoomSessionToken();
       queryClient.setQueryData<ActiveRoomClient>(
         activeRoomSessionKeys.activeClient,
         {role: "none"},
@@ -284,39 +286,47 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "presence.player_joined") {
+      if (message.type === "player.joined") {
         void refetchMeta();
         void refetchPlayers();
         return;
       }
 
-      if (message.type === "presence.player_left") {
+      if (message.type === "player.left") {
         void refetchMeta();
         void refetchPlayers();
         return;
       }
 
-      if (message.type === "swipe.match_found") {
+      if (
+        message.type === "player.connected" ||
+        message.type === "player.disconnected"
+      ) {
+        void refetchPlayers();
         return;
       }
 
-      if (message.type === "swipe.vote_recorded") {
+      if (message.type === "game.match_found") {
+        return;
+      }
+
+      if (message.type === "game.vote_recorded") {
         const tone =
-          message.payload.choice === "like" || message.payload.choice === "super_like"
+          message.choice === "like" || message.choice === "super_like"
             ? "positive"
             : "negative";
         setPlayerVoteFlashById((current) => ({
           ...current,
-          [message.payload.playerId]: tone,
+          [message.playerId]: tone,
         }));
         window.setTimeout(() => {
           setPlayerVoteFlashById((current) => {
-            if (current[message.payload.playerId] !== tone) {
+            if (current[message.playerId] !== tone) {
               return current;
             }
 
             const next = {...current};
-            delete next[message.payload.playerId];
+            delete next[message.playerId];
             return next;
           });
         }, 650);

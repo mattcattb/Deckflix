@@ -21,7 +21,6 @@ import {
 } from "../movies/tmdb.service";
 import {ensureRedis, redisClient} from "../redis/redis";
 import * as PreferencesService from "../movies/preferences.service";
-import * as RoomsService from "../rooms/rooms.service";
 import type {
   PoolCandidateRecord,
   PoolPlan,
@@ -910,9 +909,6 @@ const updateRecentPoolHistory = async (movies: MovieCandidate[]) => {
 
 export const createPoolSeed = () => randomUUID();
 
-const getPoolSeedOrThrow = async (gameCode: string) =>
-  (await RoomsService.getGameMetaOrThrow(gameCode)).poolSeed;
-
 export const planPoolQueries = (
   settings: GameSettings,
   preferencesOrSeed: PreferencesService.GamePreferences | string,
@@ -1282,14 +1278,14 @@ export const selectFinalPool = (
 
 export const generatePool = async (input: {
   gameCode: string;
+  poolSeed: string;
   settings: GameSettings;
   preferences?: PreferencesService.GamePreferences;
 }): Promise<MovieCandidate[]> => {
-  const seed = await getPoolSeedOrThrow(input.gameCode);
   const preferences =
     input.preferences ??
     (await PreferencesService.getGamePreferencesOrThrow(input.gameCode));
-  const plan = planPoolQueries(input.settings, preferences, seed);
+  const plan = planPoolQueries(input.settings, preferences, input.poolSeed);
   const fetchedCandidates = await fetchPoolCandidates(
     plan,
     input.settings,

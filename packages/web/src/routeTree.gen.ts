@@ -113,9 +113,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  JoinGameCodeRoute: typeof JoinGameCodeRoute
   PlayRoute: typeof PlayRoute
   RoomRoute: typeof RoomRouteWithChildren
+  JoinGameCodeRoute: typeof JoinGameCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -188,9 +188,9 @@ const RoomRouteWithChildren = RoomRoute._addFileChildren(RoomRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  JoinGameCodeRoute: JoinGameCodeRoute,
   PlayRoute: PlayRoute,
   RoomRoute: RoomRouteWithChildren,
+  JoinGameCodeRoute: JoinGameCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

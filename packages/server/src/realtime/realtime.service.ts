@@ -114,3 +114,15 @@ export const publishPlayerMessage = (
     encodePlayerServerMessage(message),
   );
 };
+
+export const publishRoomMessage = (
+  server: RealtimeServer,
+  gameCode: string,
+  message: DisplayServerMessage & PlayerServerMessage,
+) => {
+  publishSocketPayload(
+    server,
+    TOPICS.overall(gameCode),
+    encodeDisplayServerMessage(message),
+  );
+};

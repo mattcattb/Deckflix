@@ -28,8 +28,8 @@ function DisplayRoomLiveView() {
     }
 
     if (
-      lastDisplayMessage.type !== "swipe.vote_recorded" &&
-      lastDisplayMessage.type !== "swipe.match_found"
+      lastDisplayMessage.type !== "game.vote_recorded" &&
+      lastDisplayMessage.type !== "game.match_found"
     ) {
       return;
     }
@@ -41,7 +41,7 @@ function DisplayRoomLiveView() {
       queryKey: activeGameStinkersQueryOptions(gameCode).queryKey,
     });
 
-    if (lastDisplayMessage.type === "swipe.vote_recorded") {
+    if (lastDisplayMessage.type === "game.vote_recorded") {
       void queryClient.invalidateQueries({
         queryKey: activeGameMatchesQueryOptions(gameCode).queryKey,
       });
@@ -53,7 +53,7 @@ function DisplayRoomLiveView() {
         activeGameMatchesQueryOptions(gameCode),
       );
       const match = matches.items.find(
-        (item) => item.movie.id === lastDisplayMessage.payload.movieId,
+        (item) => item.movie.id === lastDisplayMessage.movieId,
       );
       if (match) {
         setActiveMatch(match.movie);

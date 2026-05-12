@@ -4,6 +4,7 @@ import type {
   GameMeta,
   GamePlayers,
   GameResults,
+  GameSettings,
   GameSummary,
   GameVoteSummary,
   PlayerGameState,
@@ -16,22 +17,23 @@ import {
 } from "../presence/presence.service";
 import * as MovieStateService from "../gameplay/movie-state.service";
 import * as PoolService from "../recommendations/pool.service";
-import {
-  publishPlayerMessage,
-  type RealtimeServer,
-} from "../realtime/realtime.service";
+import * as PlayerService from "../players/player.service";
 import * as RoomsService from "./rooms.service";
 import * as RoomSettingsService from "./room-settings.service";
 
 export const getGameSummary = async (
   gameCode: string,
+  settings?: GameSettings,
 ): Promise<GameSummary> => {
-  const [meta, players, queueSize, settings] = await Promise.all([
+  const [meta, playerCount, queueSize] = await Promise.all([
     RoomsService.getGameMetaOrThrow(gameCode),
-    RoomsService.listPlayers(gameCode),
+    PlayerService.countPlayers(gameCode),
     PoolService.getPoolSize(gameCode),
-    RoomSettingsService.getGameSettingsOrThrow(gameCode),
   ]);
+  const resolvedSettings =
+    meta.status === "lobby" && queueSize === 0
+      ? settings ?? (await RoomSettingsService.getGameSettingsOrThrow(gameCode))
+      : settings;
 
   return {
     id: meta.id,
@@ -39,10 +41,10 @@ export const getGameSummary = async (
     roomName: meta.roomName,
     status: meta.status,
     createdAt: meta.createdAt,
-    playerCount: players.length,
+    playerCount,
     queueSize:
       meta.status === "lobby" && queueSize === 0
-        ? settings.gameplay.maxMovies
+        ? resolvedSettings!.gameplay.maxMovies
         : queueSize,
     displayConnected: isDisplayConnected(gameCode),
   };
@@ -51,7 +53,7 @@ export const getGameSummary = async (
 export const getGamePlayers = async (
   gameCode: string,
 ): Promise<GamePlayers> => {
-  const players = await RoomsService.listPlayers(gameCode);
+  const players = await PlayerService.listPlayers(gameCode);
   return {
     players: players.map((player) => ({
       id: player.id,
@@ -209,23 +211,27 @@ export const getGameQueue = async (gameCode: string) => {
 };
 
 export const getPlayerProgress = async (gameCode: string) => {
-  const players = await RoomsService.listPlayers(gameCode);
+  const players = await PlayerService.listPlayers(gameCode);
   return {
     playerProgress: await Promise.all(
-      players.map(async (player) => ({
-        playerId: player.id,
-        currentIndex: await DeckService.getCurrentIndex(gameCode, player.id),
-        completed: await DeckService.isPlayerCompleted(gameCode, player.id),
-      })),
+      players.map(async (player) => {
+        const deckStatus = await DeckService.getPlayerDeckStatus(
+          gameCode,
+          player.id,
+        );
+        return {
+          playerId: player.id,
+          currentIndex: deckStatus.currentIndex,
+          completed: deckStatus.completed,
+        };
+      }),
     ),
   };
 };
 
 export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
-  const [summary, settings] = await Promise.all([
-    getGameSummary(gameCode),
-    RoomSettingsService.getGameSettingsOrThrow(gameCode),
-  ]);
+  const settings = await RoomSettingsService.getGameSettingsOrThrow(gameCode);
+  const summary = await getGameSummary(gameCode, settings);
 
   return {
     summary,
@@ -237,7 +243,7 @@ const getPlayerGameState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => {
-  const player = await RoomsService.getPlayerRecord(
+  const player = await PlayerService.getPlayerRecord(
     input.gameCode,
     input.playerId,
   );
@@ -245,18 +251,15 @@ const getPlayerGameState = async (input: {
     throw new UnauthorizedException("Player not found");
   }
 
-  const [summary, settings, currentIndex, completed, currentMovieId] =
-    await Promise.all([
-      getGameSummary(input.gameCode),
-      RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
-      DeckService.getCurrentIndex(input.gameCode, input.playerId),
-      DeckService.isPlayerCompleted(input.gameCode, input.playerId),
-      DeckService.peekOrTopUpCurrentMovieId(input.gameCode, input.playerId),
-    ]);
-  const remainingCount = await DeckService.getDeckLength(
+  const [settings, currentMovieId] = await Promise.all([
+    RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
+    DeckService.peekOrTopUpCurrentMovieId(input.gameCode, input.playerId),
+  ]);
+  const deckStatus = await DeckService.getPlayerDeckStatus(
     input.gameCode,
     input.playerId,
   );
+  const summary = await getGameSummary(input.gameCode, settings);
   const currentItem = currentMovieId
     ? {
         movie: await PoolService.getMovieMetaOrThrow(
@@ -272,11 +275,11 @@ const getPlayerGameState = async (input: {
     me: {
       playerId: player.id,
       displayName: player.displayName,
-      currentIndex,
-      completed,
+      currentIndex: deckStatus.currentIndex,
+      completed: deckStatus.completed,
     },
     currentItem,
-    remainingCount,
+    remainingCount: deckStatus.remainingCount,
   };
 };
 
@@ -284,36 +287,3 @@ export const getProjectedPlayerState = async (input: {
   gameCode: string;
   playerId: string;
 }): Promise<PlayerGameState> => getPlayerGameState(input);
-
-const materializePlayerStates = async (
-  gameCode: string,
-  playerIds: string[],
-) => {
-  const playerEntries = await Promise.all(
-    playerIds.map(
-      async (playerId) =>
-        [playerId, await getPlayerGameState({gameCode, playerId})] as const,
-    ),
-  );
-
-  return {
-    playerStates: new Map(playerEntries),
-  };
-};
-
-export const publishPlayerSnapshots = async (
-  server: RealtimeServer,
-  gameCode: string,
-  playerIds: string[],
-) => {
-  const materialized = await materializePlayerStates(gameCode, playerIds);
-
-  for (const [playerId, state] of materialized.playerStates) {
-    publishPlayerMessage(server, gameCode, playerId, {
-      type: "player.snapshot",
-      payload: state,
-    });
-  }
-
-  return materialized;
-};

@@ -8,6 +8,7 @@ import type {GlobalErrorResponses} from "./common/errors";
 import {authController} from "./auth/auth.controller";
 import {authMiddleware} from "./auth/auth.middleware";
 import {moviesController} from "./movies/movies.controller";
+import {playerController} from "./players/player.controller";
 import {roomController} from "./rooms/room.controller";
 import {gameController} from "./gameplay/game.controller";
 import {wsController} from "./ws/ws.controller";
@@ -21,6 +22,7 @@ addGlobalErrorHandling(baseApp);
 export const app = baseApp
   .route("/api/auth", authController)
   .route("/api/movies", moviesController)
+  .route("/api/player", playerController)
   .route("/api/room", roomController)
   .route("/api/game", gameController)
   .route("/api/ws", wsController);

@@ -1,31 +1,29 @@
 import {zValidator} from "@hono/zod-validator";
-import {getBunServer} from "hono/bun";
 import {
   createGamePayloadSchema,
   gameSettingsInputSchema,
   joinGamePayloadSchema,
 } from "@deckflix/shared";
 import {createRouter} from "../common/hono";
-import * as GameEventsService from "../realtime/game-events.service";
-import {ensureSocketPubSub} from "../realtime/socket-pubsub.service";
 import {
   activeRoomMiddleware,
   clearRoomSessionCookie,
   gameParamMiddleware,
-  readRoomSessionCookie,
+  readRequestRoomSession,
   requireDisplayActor,
   requireGameLobby,
-  requirePlayerActor,
   setRoomSessionCookie,
 } from "./rooms.middleware";
 import * as GameStateService from "./game-state.service";
+import * as PlayerService from "../players/player.service";
 import * as RoomsService from "./rooms.service";
 import * as RoomSettingsService from "./room-settings.service";
+import * as SessionService from "../sessions/room-session.service";
 
 export const roomController = createRouter()
   .post("/", zValidator("json", createGamePayloadSchema), async (c) => {
-    const session = readRoomSessionCookie(c);
-    await RoomsService.assertRoomSessionAvailable(session);
+    const session = readRequestRoomSession(c);
+    await SessionService.assertRoomSessionAvailable(session);
     if (session) {
       clearRoomSessionCookie(c);
     }
@@ -46,8 +44,8 @@ export const roomController = createRouter()
     return c.json(result, 201);
   })
   .get("/current", async (c) => {
-    const session = readRoomSessionCookie(c);
-    const activeClient = await RoomsService.getActiveRoomClient(session);
+    const session = readRequestRoomSession(c);
+    const activeClient = await SessionService.getActiveRoomClient(session);
     if (session && activeClient.role === "none") {
       clearRoomSessionCookie(c);
     }
@@ -96,24 +94,9 @@ export const roomController = createRouter()
     requireDisplayActor,
     requireGameLobby,
     async (c) => {
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const result = await RoomsService.start({
+      await RoomsService.start({
         gameCode: c.get("room").gameCode,
       });
-      GameEventsService.publishRoomStatusChanged(
-        server,
-        result.gameCode,
-        result.playerIds,
-        result.previousStatus,
-        result.nextStatus,
-      );
-      GameEventsService.publishRoomStarted(server, result.gameCode);
-      await GameEventsService.publishPlayerRoomSnapshots(
-        server,
-        result.gameCode,
-        result.playerIds,
-      );
       return c.body(null, 204);
     },
   )
@@ -122,46 +105,9 @@ export const roomController = createRouter()
     activeRoomMiddleware,
     requireDisplayActor,
     async (c) => {
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const result = await RoomsService.end({
+      await RoomsService.end({
         gameCode: c.get("room").gameCode,
       });
-      GameEventsService.publishRoomStatusChanged(
-        server,
-        result.gameCode,
-        result.playerIds,
-        result.previousStatus,
-        result.nextStatus,
-      );
-      GameEventsService.publishRoomDeleted(
-        server,
-        result.gameCode,
-        result.playerIds,
-      );
-      clearRoomSessionCookie(c);
-      return c.body(null, 204);
-    },
-  )
-  .post(
-    "/leave",
-    activeRoomMiddleware,
-    requirePlayerActor,
-    async (c) => {
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const {gameCode} = c.get("room");
-      const {playerId} = c.get("playerActor");
-      const result = await RoomsService.removePlayer({
-        gameCode,
-        playerId,
-      });
-      GameEventsService.publishPlayerLeft(server, result.gameCode, playerId);
-      await GameEventsService.publishPlayerRoomSnapshots(
-        server,
-        result.gameCode,
-        result.playerIds,
-      );
       clearRoomSessionCookie(c);
       return c.body(null, 204);
     },
@@ -172,28 +118,16 @@ export const roomController = createRouter()
     requireGameLobby,
     zValidator("json", joinGamePayloadSchema),
     async (c) => {
-      const session = readRoomSessionCookie(c);
-      await RoomsService.assertRoomSessionAvailable(session);
+      const session = readRequestRoomSession(c);
+      await SessionService.assertRoomSessionAvailable(session);
       if (session) {
         clearRoomSessionCookie(c);
       }
 
-      const server = getBunServer<Parameters<typeof ensureSocketPubSub>[0]>(c)!;
-      void ensureSocketPubSub(server);
-      const result = await RoomsService.join({
+      const result = await PlayerService.join({
         gameCode: c.get("room").gameCode,
         displayName: c.req.valid("json").displayName,
       });
-      GameEventsService.publishPlayerJoined(
-        server,
-        result.gameCode,
-        result.player,
-      );
-      await GameEventsService.publishPlayerRoomSnapshots(
-        server,
-        result.gameCode,
-        result.playerIds,
-      );
 
       setRoomSessionCookie(c, {
         gameCode: result.gameCode,

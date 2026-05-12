@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {NotFoundException} from "../common/errors";
 import {ensureRedis, redisClient} from "../redis/redis";
-import * as RoomsService from "../rooms/rooms.service";
+import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
 const movieStatusSchema = z.enum(["pending", "matched", "rejected"]);
 const movieStateSchema = z.object({
@@ -20,7 +20,7 @@ const movieStateSchema = z.object({
 export type MovieState = z.infer<typeof movieStateSchema>;
 
 const roomPrefix = (gameCode: string) =>
-  `game:${RoomsService.normalizeGameCode(gameCode)}:`;
+  `game:${normalizeGameCode(gameCode)}:`;
 const movieStateKey = (gameCode: string, movieId: string) =>
   `${roomPrefix(gameCode)}movie_state:${movieId}`;
 
@@ -59,7 +59,7 @@ const parseMovieState = (
 ): MovieState => {
   if (!raw.status) {
     throw new NotFoundException(
-      `Movie ${movieId} not found in game ${RoomsService.normalizeGameCode(gameCode)}`,
+      `Movie ${movieId} not found in game ${normalizeGameCode(gameCode)}`,
     );
   }
 
@@ -96,7 +96,7 @@ const queueSetMovieState = (
     lastActivityAt: state.lastActivityAt ?? "",
     matchedAt: state.matchedAt ?? "",
   });
-  multi.expire(key, RoomsService.ROOM_TTL_SECONDS);
+  multi.expire(key, ROOM_TTL_SECONDS);
 };
 
 export const initializeMovieStates = async (
@@ -157,7 +157,7 @@ export const incrementMovieVoteState = async (input: {
   multi.hIncrBy(key, input.countField, 1);
   multi.hIncrBy(key, "totalVotes", 1);
   multi.hSet(key, "lastActivityAt", input.votedAt);
-  multi.expire(key, RoomsService.ROOM_TTL_SECONDS);
+  multi.expire(key, ROOM_TTL_SECONDS);
   await multi.exec();
 };
 
@@ -175,6 +175,6 @@ export const setMovieResolution = async (
       resolvedAt: state.resolvedAt ?? "",
       matchedAt: state.matchedAt ?? "",
     })
-    .expire(key, RoomsService.ROOM_TTL_SECONDS)
+    .expire(key, ROOM_TTL_SECONDS)
     .exec();
 };

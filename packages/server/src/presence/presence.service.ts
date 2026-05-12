@@ -1,3 +1,5 @@
+import {emitEvent} from "../common/app-events";
+
 export type SocketLike = {
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
@@ -20,6 +22,19 @@ export const clearPresenceState = (gameCode: string) => {
   const key = normalizeGameCode(gameCode);
   displaySocketsByGameCode.delete(key);
   playerSocketsByGameCode.delete(key);
+};
+
+export const clearPlayerPresence = (gameCode: string, playerId: string) => {
+  const key = normalizeGameCode(gameCode);
+  const gameSockets = playerSocketsByGameCode.get(key);
+  if (!gameSockets) {
+    return;
+  }
+
+  gameSockets.delete(playerId);
+  if (gameSockets.size === 0) {
+    playerSocketsByGameCode.delete(key);
+  }
 };
 
 export const connectDisplay = (input: {gameCode: string; socket: SocketLike}) => {
@@ -50,9 +65,17 @@ export const connectPlayer = (input: {
   const key = normalizeGameCode(input.gameCode);
   const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
   const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();
+  const wasDisconnected = playerSockets.size === 0;
   playerSockets.add(input.socket);
   gameSockets.set(input.playerId, playerSockets);
   playerSocketsByGameCode.set(key, gameSockets);
+
+  if (wasDisconnected) {
+    emitEvent("player.connected", {
+      gameCode: key,
+      playerId: input.playerId,
+    });
+  }
 };
 
 export const disconnectPlayer = (input: {
@@ -74,6 +97,10 @@ export const disconnectPlayer = (input: {
   playerSockets.delete(input.socket);
   if (playerSockets.size === 0) {
     gameSockets.delete(input.playerId);
+    emitEvent("player.disconnected", {
+      gameCode: key,
+      playerId: input.playerId,
+    });
   }
 
   if (gameSockets.size === 0) {

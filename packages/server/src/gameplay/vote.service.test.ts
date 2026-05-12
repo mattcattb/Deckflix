@@ -1,54 +1,57 @@
 import {beforeEach, describe, expect, mock, test} from "bun:test";
-import * as VoteService from "./vote.service";
+import {emitEvent} from "../common/app-events";
+import {ensureRealtimeDomainEventListener} from "../realtime/domain-event-listener";
 
 const publish = mock();
+const server = {publish};
 
 beforeEach(() => {
   publish.mockReset();
+  ensureRealtimeDomainEventListener(server);
 });
 
 describe("vote.service", () => {
-  test("publishes vote and match events without changing payloads", () => {
-    const server = {publish};
-
-    VoteService.publishVoteRecorded({
-      server,
+  test("publishes vote and match app events to websocket topics", () => {
+    emitEvent("game.vote_recorded", {
       gameCode: "ABCD",
       playerId: "player-1",
       movieId: "movie-1",
       choice: "like",
+      votedAt: "2026-05-12T00:00:00.000Z",
     });
-    VoteService.publishMatchFound(server, "ABCD", "movie-1");
+    emitEvent("game.match_found", {
+      gameCode: "ABCD",
+      movieId: "movie-1",
+    });
 
     expect(publish).toHaveBeenCalledWith(
       "ws:display:ABCD",
       JSON.stringify({
-        type: "swipe.vote_recorded",
-        payload: {
-          playerId: "player-1",
-          movieId: "movie-1",
-          choice: "like",
-        },
+        type: "game.vote_recorded",
+        gameCode: "ABCD",
+        playerId: "player-1",
+        movieId: "movie-1",
+        choice: "like",
+        votedAt: "2026-05-12T00:00:00.000Z",
       }),
     );
     expect(publish).toHaveBeenCalledWith(
       "ws:player:ABCD:player-1",
       JSON.stringify({
-        type: "swipe.vote_recorded",
-        payload: {
-          playerId: "player-1",
-          movieId: "movie-1",
-          choice: "like",
-        },
+        type: "game.vote_recorded",
+        gameCode: "ABCD",
+        playerId: "player-1",
+        movieId: "movie-1",
+        choice: "like",
+        votedAt: "2026-05-12T00:00:00.000Z",
       }),
     );
     expect(publish).toHaveBeenCalledWith(
       "ws:display:ABCD",
       JSON.stringify({
-        type: "swipe.match_found",
-        payload: {
-          movieId: "movie-1",
-        },
+        type: "game.match_found",
+        gameCode: "ABCD",
+        movieId: "movie-1",
       }),
     );
   });
