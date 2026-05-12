@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import * as PoolService from "../recommendations/pool.service";
 import * as RoomsService from "../rooms/rooms.service";
 import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
@@ -63,13 +63,11 @@ const parseNumber = (raw: string | null) => {
 };
 
 const getDeckLength = async (gameCode: string, playerId: string) => {
-  await ensureRedis();
   const deckKey = KEYS.DECK(gameCode, playerId);
   return redisClient.lLen(deckKey);
 };
 
 const getCursor = async (gameCode: string, playerId: string) => {
-  await ensureRedis();
   const cursorKey = KEYS.CURSOR(gameCode, playerId);
   return parseNumber(await redisClient.get(cursorKey));
 };
@@ -79,7 +77,6 @@ const topUpPlayerDeck = async (
   playerId: string,
   targetSize = PLAYER_DECK_TARGET,
 ) => {
-  await ensureRedis();
   const [currentLength, cursor, meta, poolEntries] = await Promise.all([
     getDeckLength(gameCode, playerId),
     getCursor(gameCode, playerId),
@@ -130,7 +127,6 @@ const peekDeck = async (
   gameCode: string,
   playerId: string,
 ): Promise<string | null> => {
-  await ensureRedis();
   const deckKey = KEYS.DECK(gameCode, playerId);
 
   return redisClient.lIndex(deckKey, 0);
@@ -140,7 +136,6 @@ const popDeck = async (
   gameCode: string,
   playerId: string,
 ): Promise<string | null> => {
-  await ensureRedis();
   const deckKey = KEYS.DECK(gameCode, playerId);
 
   const top = await redisClient.lPop(deckKey);

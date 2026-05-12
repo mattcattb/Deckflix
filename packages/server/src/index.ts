@@ -3,12 +3,14 @@ import {appEnv} from "./common/env";
 import {logger} from "./common/logger";
 import {app} from "./app";
 import {ensureGameEventListener} from "./gameplay/game-event-listener";
+import {connectRedis} from "./redis/redis";
 import {ensureRealtimeDomainEventListener} from "./realtime/domain-event-listener";
 import {ensureSocketPubSub} from "./realtime/socket-pubsub.service";
 export {app, protectedProjectsRoutes} from "./app";
 export type {AppType, ApiRoutesType} from "./app";
 
 const port = appEnv.PORT;
+await connectRedis();
 logger.info(`Server running on http://localhost:${port}`);
 
 const ensureServerListeners = (

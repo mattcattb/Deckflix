@@ -1,7 +1,7 @@
 import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
 import {emitEvent} from "../common/app-events";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import * as MovieStateService from "./movie-state.service";
 import * as PlayerService from "../players/player.service";
 import {
@@ -21,7 +21,6 @@ export const recordVote = async (input: {
   playerId: string;
   choice: SwipeChoice;
 }) => {
-  await ensureRedis();
   const votedAt = new Date().toISOString();
 
   const voteSet = await redisClient.hSetNX(

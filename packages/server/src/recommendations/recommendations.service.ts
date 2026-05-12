@@ -19,7 +19,7 @@ import {
   getTmdbTrendingMovies,
   toTmdbLanguage,
 } from "../movies/tmdb.service";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import * as PreferencesService from "../movies/preferences.service";
 import type {
   PoolCandidateRecord,
@@ -707,7 +707,6 @@ const selectExpansionAnchors = (
 };
 
 const getRecentHistoryTimestamps = async (movieIds: string[]) => {
-  await ensureRedis();
   await redisClient.zRemRangeByScore(
     recentPoolHistoryKey(),
     0,
@@ -890,8 +889,6 @@ const updateRecentPoolHistory = async (movies: MovieCandidate[]) => {
   if (movies.length === 0) {
     return;
   }
-
-  await ensureRedis();
   const now = Date.now();
   await redisClient.zAdd(
     recentPoolHistoryKey(),

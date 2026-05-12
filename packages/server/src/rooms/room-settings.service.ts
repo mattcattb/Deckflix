@@ -1,7 +1,7 @@
 import type {GameSettings, GameSettingsInput} from "@deckflix/shared";
 import {gameSettingsSchema} from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 
 const ROOM_TTL_SECONDS = 60 * 60 * 24;
 
@@ -65,7 +65,6 @@ export const mergeGameSettings = (
   });
 
 export const getGameSettingsOrThrow = async (gameCode: string) => {
-  await ensureRedis();
   const raw = await redisClient.hGet(roomKey(gameCode), "settings");
   if (!raw) {
     throw new NotFoundException(
@@ -80,7 +79,6 @@ export const setGameSettings = async (
   gameCode: string,
   settings: GameSettings,
 ) => {
-  await ensureRedis();
   const key = roomKey(gameCode);
   await redisClient.hSet(key, "settings", JSON.stringify(settings));
   await redisClient.expire(key, ROOM_TTL_SECONDS);

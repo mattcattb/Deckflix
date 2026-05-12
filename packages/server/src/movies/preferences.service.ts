@@ -5,7 +5,7 @@ import {
   type GamePreferencesPatch,
 } from "@deckflix/shared";
 import {NotFoundException} from "../common/errors";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 
 export {gamePreferencesPatchSchema} from "@deckflix/shared";
 export type {GamePreferences, GamePreferencesPatch} from "@deckflix/shared";
@@ -68,7 +68,6 @@ export const createGamePreferences = async (
   gameCode: string,
   preferences?: GamePreferencesPatch,
 ) => {
-  await ensureRedis();
   const resolved = resolveGamePreferences(preferences);
   const key = preferencesKey(gameCode);
   const multi = redisClient.multi();
@@ -79,7 +78,6 @@ export const createGamePreferences = async (
 };
 
 export const getGamePreferencesOrThrow = async (gameCode: string) => {
-  await ensureRedis();
   const raw = await redisClient.hGetAll(preferencesKey(gameCode));
   return decodePreferencesHash(raw, gameCode);
 };
@@ -88,7 +86,6 @@ export const patchGamePreferences = async (
   gameCode: string,
   patch: GamePreferencesPatch,
 ) => {
-  await ensureRedis();
   const parsedPatch = gamePreferencesPatchSchema.parse(patch);
   const current = await getGamePreferencesOrThrow(gameCode);
   const next = gamePreferencesSchema.parse({

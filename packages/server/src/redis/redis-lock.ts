@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {BadRequestException} from "../common/errors";
-import {ensureRedis, redisClient} from "./redis";
+import {redisClient} from "./redis";
 
 const sleep = (ms: number) =>
   new Promise((resolve) => {
@@ -32,7 +32,6 @@ export const withRedisLock = async <T>(
   },
   callback: () => Promise<T>,
 ) => {
-  await ensureRedis();
   const token = randomUUID();
 
   for (let attempt = 0; attempt < input.retryCount; attempt += 1) {

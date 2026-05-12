@@ -1,6 +1,6 @@
 import {z} from "zod";
 import {NotFoundException} from "../common/errors";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
 const movieStatusSchema = z.enum(["pending", "matched", "rejected"]);
@@ -103,7 +103,6 @@ export const initializeMovieStates = async (
   gameCode: string,
   movieIds: string[],
 ) => {
-  await ensureRedis();
   const initialState = createInitialMovieState();
   const multi = redisClient.multi();
 
@@ -118,7 +117,6 @@ export const getMovieStateOrThrow = async (
   gameCode: string,
   movieId: string,
 ) => {
-  await ensureRedis();
   return parseMovieState(
     await redisClient.hGetAll(movieStateKey(gameCode, movieId)),
     gameCode,
@@ -127,7 +125,6 @@ export const getMovieStateOrThrow = async (
 };
 
 export const getMovieStates = async (gameCode: string, movieIds: string[]) => {
-  await ensureRedis();
   const entries = await Promise.all(
     movieIds.map(
       async (movieId) =>
@@ -151,7 +148,6 @@ export const incrementMovieVoteState = async (input: {
   countField: (typeof voteCountFields)[number];
   votedAt: string;
 }) => {
-  await ensureRedis();
   const key = movieStateKey(input.gameCode, input.movieId);
   const multi = redisClient.multi();
   multi.hIncrBy(key, input.countField, 1);
@@ -166,7 +162,6 @@ export const setMovieResolution = async (
   movieId: string,
   state: Pick<MovieState, "status" | "resolvedAt" | "matchedAt">,
 ) => {
-  await ensureRedis();
   const key = movieStateKey(gameCode, movieId);
   await redisClient
     .multi()

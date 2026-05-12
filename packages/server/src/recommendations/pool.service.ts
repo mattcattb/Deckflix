@@ -3,7 +3,7 @@ import {movieCandidateSchema} from "@deckflix/shared";
 import {z} from "zod";
 import {NotFoundException} from "../common/errors";
 import {parseJson} from "../lib/json";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
 export type PoolEntry = {
@@ -22,7 +22,6 @@ export const replacePool = async (
   gameCode: string,
   movies: MovieCandidate[],
 ) => {
-  await ensureRedis();
   const pool = poolKey(gameCode);
   const movieHash = moviesKey(gameCode);
   const multi = redisClient.multi();
@@ -46,7 +45,6 @@ export const appendPoolMovies = async (
   gameCode: string,
   movies: MovieCandidate[],
 ) => {
-  await ensureRedis();
   if (movies.length === 0) {
     return [];
   }
@@ -76,18 +74,15 @@ export const appendPoolMovies = async (
 export const listPoolEntries = async (
   gameCode: string,
 ): Promise<PoolEntry[]> => {
-  await ensureRedis();
   const movieIds = await redisClient.lRange(poolKey(gameCode), 0, -1);
   return movieIds.map((movieId, order) => ({movieId, order}));
 };
 
 export const listPoolMovieIds = async (gameCode: string) => {
-  await ensureRedis();
   return redisClient.lRange(poolKey(gameCode), 0, -1);
 };
 
 export const getPoolSize = async (gameCode: string) => {
-  await ensureRedis();
   return redisClient.lLen(poolKey(gameCode));
 };
 
@@ -95,7 +90,6 @@ export const getMovieMetaOrThrow = async (
   gameCode: string,
   movieId: string,
 ): Promise<MovieMeta> => {
-  await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
   const raw = await redisClient.hGet(moviesKey(normalized), movieId);
   if (!raw) {
@@ -112,7 +106,6 @@ export const getMovieMetaOrThrow = async (
 };
 
 export const getMovieMetas = async (gameCode: string, movieIds: string[]) => {
-  await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
   if (movieIds.length === 0) {
     return new Map<string, MovieMeta>();

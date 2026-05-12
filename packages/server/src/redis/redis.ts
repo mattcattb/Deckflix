@@ -15,10 +15,23 @@ const onRedisError = (error: unknown) => {
 redisClient.on("error", onRedisError);
 redisSubscriber.on("error", onRedisError);
 
-export const connectRedisClient = async (client: typeof redisClient) => {
+const connectRedisClient = async (client: typeof redisClient) => {
   if (!client.isOpen) {
     await client.connect();
   }
 };
 
-export const ensureRedis = () => connectRedisClient(redisClient);
+export const connectRedis = async () => {
+  await connectRedisClient(redisClient);
+  await connectRedisClient(redisSubscriber);
+};
+
+export const disconnectRedis = async () => {
+  if (redisSubscriber.isOpen) {
+    await redisSubscriber.destroy();
+  }
+
+  if (redisClient.isOpen) {
+    await redisClient.destroy();
+  }
+};

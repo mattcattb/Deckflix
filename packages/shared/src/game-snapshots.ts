@@ -9,9 +9,21 @@ import {
 } from "./game-core";
 import {gameCodeSchema} from "./game-sessions";
 
+export const playerIconIds = [
+  "popcorn",
+  "ticket",
+  "camera",
+  "star",
+  "heart",
+  "bolt",
+] as const;
+
+export const playerIconIdSchema = z.enum(playerIconIds);
+
 export const gamePlayerPresenceSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().min(1).max(40),
+  iconId: playerIconIdSchema,
   joinedAt: z.string().datetime(),
   connectedAsPlayer: z.boolean(),
 });
@@ -19,6 +31,7 @@ export const gamePlayerPresenceSchema = z.object({
 const gamePlayerSelfSchema = z.object({
   playerId: z.string().min(1),
   displayName: z.string().min(1).max(40),
+  iconId: playerIconIdSchema,
   currentIndex: z.number().int().min(0),
   completed: z.boolean(),
 });
@@ -35,7 +48,6 @@ const gameSummarySchema = z.object({
   createdAt: z.string().datetime(),
   playerCount: z.number().int().min(0),
   queueSize: z.number().int().min(0),
-  displayConnected: z.boolean(),
 });
 
 const gameMetaSchema = z.object({
@@ -80,6 +92,11 @@ export const joinGamePayloadSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
 });
 
+export const playerProfileInputSchema = z.object({
+  displayName: z.string().trim().min(1).max(40).optional(),
+  iconId: playerIconIdSchema.optional(),
+});
+
 export const voteGamePayloadSchema = z.object({
   movieId: z.string().min(1),
   choice: swipeChoiceSchema,
@@ -94,3 +111,5 @@ export type GameResults = z.infer<typeof gameResultsSchema>;
 export type GameActivityItem = z.infer<typeof gameActivityItemSchema>;
 export type GameActivitySlice = z.infer<typeof gameActivitySliceSchema>;
 export type PlayerGameState = z.infer<typeof playerGameStateSchema>;
+export type PlayerIconId = z.infer<typeof playerIconIdSchema>;
+export type PlayerProfileInput = z.infer<typeof playerProfileInputSchema>;

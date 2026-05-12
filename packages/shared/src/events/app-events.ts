@@ -7,7 +7,9 @@ import {
   playerConnectedEventSchema,
   playerDisconnectedEventSchema,
   playerJoinedEventSchema,
+  playerKickedEventSchema,
   playerLeftEventSchema,
+  playerUpdatedEventSchema,
 } from "./player-events";
 import {
   roomDeletedEventSchema,
@@ -18,6 +20,8 @@ import {
 export const appEventSchema = z.discriminatedUnion("type", [
   playerJoinedEventSchema,
   playerLeftEventSchema,
+  playerKickedEventSchema,
+  playerUpdatedEventSchema,
   playerConnectedEventSchema,
   playerDisconnectedEventSchema,
   roomStatusChangedEventSchema,

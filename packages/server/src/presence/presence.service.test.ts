@@ -1,21 +1,27 @@
-import {describe, expect, mock, test} from "bun:test";
+import {describe, expect, test} from "bun:test";
 
 describe("presence.service", () => {
-  test("tracks display presence in memory", async () => {
+  test("tracks player presence in Redis", async () => {
     const PresenceService = await import("./presence.service");
+    const gameCode = "PTST";
+    const playerId = "player-1";
 
-    const socket = {
-      send: mock(),
-      close: mock(),
-    };
-
-    PresenceService.connectDisplay({
-      gameCode: "abcd",
-      socket,
+    await PresenceService.clearPresenceState(gameCode);
+    await PresenceService.connectPlayer({
+      gameCode,
+      playerId,
     });
 
-    expect(PresenceService.isDisplayConnected("ABCD")).toBe(true);
-    PresenceService.disconnectDisplay({gameCode: "abcd", socket});
-    expect(PresenceService.isDisplayConnected("ABCD")).toBe(false);
+    expect(await PresenceService.isPlayerConnected(gameCode, playerId)).toBe(
+      true,
+    );
+    expect(await PresenceService.listConnectedPlayerIds(gameCode)).toContain(
+      playerId,
+    );
+
+    await PresenceService.disconnectPlayer({gameCode, playerId});
+    expect(await PresenceService.isPlayerConnected(gameCode, playerId)).toBe(
+      false,
+    );
   });
 });

@@ -20,10 +20,6 @@ const createSocketHandler = () =>
         onOpen: (_, ws) => {
           void (async () => {
             try {
-              PresenceService.connectDisplay({
-                gameCode,
-                socket: ws,
-              });
               RealtimeService.subscribeDisplaySocket(ws, gameCode);
             } catch {
               ws.close(4001, "Invalid display session");
@@ -32,10 +28,6 @@ const createSocketHandler = () =>
         },
         onClose: (_, ws) => {
           RealtimeService.unsubscribeDisplaySocket(ws, gameCode);
-          PresenceService.disconnectDisplay({
-            gameCode,
-            socket: ws,
-          });
         },
         onMessage: (event, ws) => {
           try {
@@ -65,10 +57,9 @@ const createSocketHandler = () =>
       onOpen: (_, ws) => {
         void (async () => {
           try {
-            PresenceService.connectPlayer({
+            await PresenceService.connectPlayer({
               gameCode,
               playerId,
-              socket: ws,
             });
             ws.send(
               encodePlayerServerMessage({
@@ -84,11 +75,9 @@ const createSocketHandler = () =>
       },
       onClose: (_, ws) => {
         RealtimeService.unsubscribePlayerSocket(ws, gameCode, playerId);
-        PresenceService.disconnectPlayer({
-          gameCode,
-          playerId,
-          socket: ws,
-        });
+        void PresenceService.disconnectPlayer({gameCode, playerId}).catch(
+          () => undefined,
+        );
       },
       onMessage: (event, ws) => {
         try {

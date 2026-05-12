@@ -24,6 +24,28 @@ const publishRealtimeEvent = (event: AppEvent) => {
     return;
   }
 
+  if (event.type === "player.kicked") {
+    publishDisplayMessage(realtimeServer, event.gameCode, event);
+    publishPlayerMessage(
+      realtimeServer,
+      event.gameCode,
+      event.playerId,
+      event,
+    );
+    return;
+  }
+
+  if (event.type === "player.updated") {
+    publishDisplayMessage(realtimeServer, event.gameCode, event);
+    publishPlayerMessage(
+      realtimeServer,
+      event.gameCode,
+      event.player.id,
+      event,
+    );
+    return;
+  }
+
   if (event.type === "player.connected") {
     publishDisplayMessage(realtimeServer, event.gameCode, event);
     return;

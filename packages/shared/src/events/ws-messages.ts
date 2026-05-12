@@ -4,7 +4,9 @@ import {
   playerConnectedEventSchema,
   playerDisconnectedEventSchema,
   playerJoinedEventSchema,
+  playerKickedEventSchema,
   playerLeftEventSchema,
+  playerUpdatedEventSchema,
 } from "./player-events";
 import {
   roomDeletedEventSchema,
@@ -40,6 +42,8 @@ export const displayServerMessageSchema = z.discriminatedUnion("type", [
   roomDeletedEventSchema,
   playerJoinedEventSchema,
   playerLeftEventSchema,
+  playerKickedEventSchema,
+  playerUpdatedEventSchema,
   playerConnectedEventSchema,
   playerDisconnectedEventSchema,
   gameVoteRecordedEventSchema,
@@ -52,6 +56,8 @@ export const playerServerMessageSchema = z.discriminatedUnion("type", [
   playerSnapshotEventSchema,
   roomStatusChangedEventSchema,
   roomDeletedEventSchema,
+  playerKickedEventSchema,
+  playerUpdatedEventSchema,
   gameVoteRecordedEventSchema,
   gameMatchFoundEventSchema,
   socketErrorEventSchema,

@@ -14,6 +14,18 @@ export const playerLeftEventSchema = z.object({
   playerId: z.string().min(1),
 });
 
+export const playerKickedEventSchema = z.object({
+  type: z.literal("player.kicked"),
+  gameCode: gameCodeSchema,
+  playerId: z.string().min(1),
+});
+
+export const playerUpdatedEventSchema = z.object({
+  type: z.literal("player.updated"),
+  gameCode: gameCodeSchema,
+  player: gamePlayerPresenceSchema,
+});
+
 export const playerConnectedEventSchema = z.object({
   type: z.literal("player.connected"),
   gameCode: gameCodeSchema,
@@ -28,5 +40,7 @@ export const playerDisconnectedEventSchema = z.object({
 
 export type PlayerJoinedEvent = z.infer<typeof playerJoinedEventSchema>;
 export type PlayerLeftEvent = z.infer<typeof playerLeftEventSchema>;
+export type PlayerKickedEvent = z.infer<typeof playerKickedEventSchema>;
+export type PlayerUpdatedEvent = z.infer<typeof playerUpdatedEventSchema>;
 export type PlayerConnectedEvent = z.infer<typeof playerConnectedEventSchema>;
 export type PlayerDisconnectedEvent = z.infer<typeof playerDisconnectedEventSchema>;

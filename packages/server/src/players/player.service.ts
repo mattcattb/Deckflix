@@ -1,10 +1,16 @@
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
-import {type GamePlayerPresence} from "@deckflix/shared";
+import {
+  playerIconIdSchema,
+  type GamePlayerPresence,
+  type PlayerIconId,
+  type PlayerProfileInput,
+} from "@deckflix/shared";
 import {emitEvent} from "../common/app-events";
+import {NotFoundException} from "../common/errors";
 import {parseJson} from "../lib/json";
 import * as PresenceService from "../presence/presence.service";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import {
   normalizeGameCode,
   playersKey,
@@ -12,20 +18,48 @@ import {
   withRoomLock,
 } from "../rooms/room-keys";
 
-const playerRecordSchema = z.object({
+const storedPlayerRecordSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().min(1).max(40),
+  iconId: playerIconIdSchema.optional(),
   joinedAt: z.string().datetime(),
   sessionToken: z.string().min(1),
 });
 
-export type PlayerRecord = z.infer<typeof playerRecordSchema>;
+type PlayerRecord = Omit<
+  z.infer<typeof storedPlayerRecordSchema>,
+  "iconId"
+> & {
+  iconId: PlayerIconId;
+};
 
-const parsePlayer = (raw: string, label: string) =>
-  parseJson(raw, playerRecordSchema, label);
+const parsePlayer = (raw: string, label: string) => {
+  const player = parseJson(raw, storedPlayerRecordSchema, label);
+  return {
+    ...player,
+    iconId: player.iconId ?? "popcorn",
+  } satisfies PlayerRecord;
+};
+
+const toPlayerPresence = async (
+  player: PlayerRecord,
+  gameCode: string,
+): Promise<GamePlayerPresence> => {
+  const connectedAsPlayer = await PresenceService.isPlayerConnected(
+    gameCode,
+    player.id,
+  );
+
+  return {
+    id: player.id,
+    displayName: player.displayName,
+    iconId: player.iconId,
+    joinedAt: player.joinedAt,
+    connectedAsPlayer,
+  };
+};
 
 export const getPlayerRecord = async (gameCode: string, playerId: string) => {
-  await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
   const raw = await redisClient.hGet(playersKey(normalized), playerId);
   if (!raw) {
@@ -40,14 +74,12 @@ const setPlayerRecord = async (
   playerId: string,
   record: PlayerRecord,
 ) => {
-  await ensureRedis();
   const key = playersKey(gameCode);
   await redisClient.hSet(key, playerId, JSON.stringify(record));
   await redisClient.expire(key, ROOM_TTL_SECONDS);
 };
 
 export const listPlayers = async (gameCode: string) => {
-  await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
   const raws = Object.values(await redisClient.hGetAll(playersKey(normalized)));
   return raws
@@ -64,7 +96,6 @@ export const listPlayerIds = async (gameCode: string) =>
   (await listPlayers(gameCode)).map((player) => player.id);
 
 export const countPlayers = async (gameCode: string) => {
-  await ensureRedis();
   return redisClient.hLen(playersKey(gameCode));
 };
 
@@ -72,12 +103,10 @@ const deletePlayerRecord = async (
   gameCode: string,
   playerId: string,
 ) => {
-  await ensureRedis();
   await redisClient.hDel(playersKey(gameCode), playerId);
 };
 
 export const deleteRoomPlayers = async (gameCode: string) => {
-  await ensureRedis();
   await redisClient.del(playersKey(gameCode));
 };
 
@@ -90,7 +119,7 @@ export const removePlayer = async (input: {
   });
 
   const gameCode = normalizeGameCode(input.gameCode);
-  PresenceService.clearPlayerPresence(gameCode, input.playerId);
+  await PresenceService.clearPlayerPresence(gameCode, input.playerId);
   emitEvent("player.left", {
     gameCode,
     playerId: input.playerId,
@@ -102,6 +131,68 @@ export const removePlayer = async (input: {
   };
 };
 
+export const kickPlayer = async (input: {
+  gameCode: string;
+  playerId: string;
+}) => {
+  await withRoomLock(input.gameCode, async () => {
+    const player = await getPlayerRecord(input.gameCode, input.playerId);
+    if (!player) {
+      throw new NotFoundException("Player not found");
+    }
+
+    await deletePlayerRecord(input.gameCode, input.playerId);
+  });
+
+  const gameCode = normalizeGameCode(input.gameCode);
+  await PresenceService.clearPlayerPresence(gameCode, input.playerId);
+  emitEvent("player.kicked", {
+    gameCode,
+    playerId: input.playerId,
+  });
+
+  return {
+    gameCode,
+    playerId: input.playerId,
+  };
+};
+
+export const updatePlayerProfile = async (input: {
+  gameCode: string;
+  playerId: string;
+  profile: PlayerProfileInput;
+}) => {
+  let updatedPlayer: PlayerRecord | null = null;
+
+  await withRoomLock(input.gameCode, async () => {
+    const player = await getPlayerRecord(input.gameCode, input.playerId);
+    if (!player) {
+      throw new NotFoundException("Player not found");
+    }
+
+    updatedPlayer = {
+      ...player,
+      displayName: input.profile.displayName ?? player.displayName,
+      iconId: input.profile.iconId ?? player.iconId,
+    };
+
+    await setPlayerRecord(input.gameCode, input.playerId, updatedPlayer);
+  });
+
+  const gameCode = normalizeGameCode(input.gameCode);
+  if (!updatedPlayer) {
+    throw new NotFoundException("Player not found");
+  }
+
+  const player = await toPlayerPresence(updatedPlayer, gameCode);
+  emitEvent("player.updated", {
+    gameCode,
+    player,
+  });
+
+  return player;
+};
+
 export const join = async (input: {
   gameCode: string;
   displayName: string;
@@ -109,11 +200,13 @@ export const join = async (input: {
   const playerId = randomUUID();
   const sessionToken = randomUUID();
   const joinedAt = new Date().toISOString();
+  const iconId: PlayerIconId = "popcorn";
 
   await withRoomLock(input.gameCode, async () => {
     await setPlayerRecord(input.gameCode, playerId, {
       id: playerId,
       displayName: input.displayName,
+      iconId,
       joinedAt,
       sessionToken,
     });
@@ -123,6 +216,7 @@ export const join = async (input: {
   const player = {
     id: playerId,
     displayName: input.displayName,
+    iconId,
     joinedAt,
     connectedAsPlayer: false,
   } satisfies GamePlayerPresence;

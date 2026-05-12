@@ -88,6 +88,19 @@ export const roomController = createRouter()
       return c.json(await GameStateService.getGameMeta(gameCode));
     },
   )
+  .delete(
+    "/players/:playerId",
+    activeRoomMiddleware,
+    requireDisplayActor,
+    requireGameLobby,
+    async (c) => {
+      await PlayerService.kickPlayer({
+        gameCode: c.get("room").gameCode,
+        playerId: c.req.param("playerId"),
+      });
+      return c.body(null, 204);
+    },
+  )
   .post(
     "/start",
     activeRoomMiddleware,

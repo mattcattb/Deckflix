@@ -1,76 +1,42 @@
 import {emitEvent} from "../common/app-events";
+import {redisClient} from "../redis/redis";
+import {
+  normalizeGameCode,
+  ROOM_TTL_SECONDS,
+  roomPrefix,
+} from "../rooms/room-keys";
 
-export type SocketLike = {
-  send: (data: string) => void;
-  close: (code?: number, reason?: string) => void;
-};
+const playerPresenceKey = (gameCode: string) =>
+  `${roomPrefix(gameCode)}presence:players`;
 
-const displaySocketsByGameCode = new Map<string, Set<SocketLike>>();
-const playerSocketsByGameCode = new Map<string, Map<string, Set<SocketLike>>>();
-
-const normalizeGameCode = (gameCode: string) => gameCode.trim().toUpperCase();
-
-export const isDisplayConnected = (gameCode: string) =>
-  Boolean(displaySocketsByGameCode.get(normalizeGameCode(gameCode))?.size);
-
-export const isPlayerConnected = (gameCode: string, playerId: string) =>
-  Boolean(
-    playerSocketsByGameCode.get(normalizeGameCode(gameCode))?.get(playerId)?.size,
+export const isPlayerConnected = async (gameCode: string, playerId: string) => {
+  return Boolean(
+    await redisClient.sIsMember(playerPresenceKey(gameCode), playerId),
   );
-
-export const clearPresenceState = (gameCode: string) => {
-  const key = normalizeGameCode(gameCode);
-  displaySocketsByGameCode.delete(key);
-  playerSocketsByGameCode.delete(key);
 };
 
-export const clearPlayerPresence = (gameCode: string, playerId: string) => {
-  const key = normalizeGameCode(gameCode);
-  const gameSockets = playerSocketsByGameCode.get(key);
-  if (!gameSockets) {
-    return;
-  }
-
-  gameSockets.delete(playerId);
-  if (gameSockets.size === 0) {
-    playerSocketsByGameCode.delete(key);
-  }
+export const listConnectedPlayerIds = async (gameCode: string) => {
+  return redisClient.sMembers(playerPresenceKey(gameCode));
 };
 
-export const connectDisplay = (input: {gameCode: string; socket: SocketLike}) => {
-  const key = normalizeGameCode(input.gameCode);
-  const sockets = displaySocketsByGameCode.get(key) ?? new Set<SocketLike>();
-  sockets.add(input.socket);
-  displaySocketsByGameCode.set(key, sockets);
+export const clearPresenceState = async (gameCode: string) => {
+  await redisClient.del(playerPresenceKey(gameCode));
 };
 
-export const disconnectDisplay = (input: {gameCode: string; socket: SocketLike}) => {
-  const key = normalizeGameCode(input.gameCode);
-  const sockets = displaySocketsByGameCode.get(key);
-  if (!sockets) {
-    return;
-  }
-
-  sockets.delete(input.socket);
-  if (sockets.size === 0) {
-    displaySocketsByGameCode.delete(key);
-  }
+export const clearPlayerPresence = async (gameCode: string, playerId: string) => {
+  await redisClient.sRem(playerPresenceKey(gameCode), playerId);
 };
 
-export const connectPlayer = (input: {
+export const connectPlayer = async (input: {
   gameCode: string;
   playerId: string;
-  socket: SocketLike;
 }) => {
   const key = normalizeGameCode(input.gameCode);
-  const gameSockets = playerSocketsByGameCode.get(key) ?? new Map<string, Set<SocketLike>>();
-  const playerSockets = gameSockets.get(input.playerId) ?? new Set<SocketLike>();
-  const wasDisconnected = playerSockets.size === 0;
-  playerSockets.add(input.socket);
-  gameSockets.set(input.playerId, playerSockets);
-  playerSocketsByGameCode.set(key, gameSockets);
+  const presenceKey = playerPresenceKey(key);
+  const added = await redisClient.sAdd(presenceKey, input.playerId);
+  await redisClient.expire(presenceKey, ROOM_TTL_SECONDS);
 
-  if (wasDisconnected) {
+  if (added > 0) {
     emitEvent("player.connected", {
       gameCode: key,
       playerId: input.playerId,
@@ -78,32 +44,18 @@ export const connectPlayer = (input: {
   }
 };
 
-export const disconnectPlayer = (input: {
+export const disconnectPlayer = async (input: {
   gameCode: string;
   playerId: string;
-  socket: SocketLike;
 }) => {
   const key = normalizeGameCode(input.gameCode);
-  const gameSockets = playerSocketsByGameCode.get(key);
-  if (!gameSockets) {
+  const removed = await redisClient.sRem(playerPresenceKey(key), input.playerId);
+  if (removed === 0) {
     return;
   }
 
-  const playerSockets = gameSockets.get(input.playerId);
-  if (!playerSockets) {
-    return;
-  }
-
-  playerSockets.delete(input.socket);
-  if (playerSockets.size === 0) {
-    gameSockets.delete(input.playerId);
-    emitEvent("player.disconnected", {
-      gameCode: key,
-      playerId: input.playerId,
-    });
-  }
-
-  if (gameSockets.size === 0) {
-    playerSocketsByGameCode.delete(key);
-  }
+  emitEvent("player.disconnected", {
+    gameCode: key,
+    playerId: input.playerId,
+  });
 };

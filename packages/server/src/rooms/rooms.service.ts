@@ -16,7 +16,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from "../common/errors";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import * as RoomSettingsService from "./room-settings.service";
 import {parseJson} from "../lib/json";
 import {generateGameCode} from "../lib/gen";
@@ -92,7 +92,6 @@ const createGameMeta = async (meta: GameMetaRecord) => {
 };
 
 export const getGameMetaOrThrow = async (gameCode: string) => {
-  await ensureRedis();
   const normalized = normalizeGameCode(gameCode);
   const [metaRaw, statusRaw, displayRaw, poolSeed] = await redisClient.hmGet(
     roomKey(normalized),
@@ -132,7 +131,6 @@ export const getGameMetaOrThrow = async (gameCode: string) => {
 };
 
 const setGameMeta = async (gameCode: string, meta: GameMetaRecord) => {
-  await ensureRedis();
   const key = roomKey(gameCode);
   const multi = redisClient.multi();
   multi.hSet(
@@ -288,8 +286,8 @@ export const end = (input: {
     await Promise.all([
       redisClient.del(roomKey(input.gameCode)),
       PlayerService.deleteRoomPlayers(input.gameCode),
+      PresenceService.clearPresenceState(input.gameCode),
     ]);
-    PresenceService.clearPresenceState(input.gameCode);
 
     const gameCode = normalizeGameCode(input.gameCode);
     emitEvent("room.status_changed", {

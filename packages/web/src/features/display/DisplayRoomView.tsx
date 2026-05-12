@@ -58,7 +58,10 @@ type MovieGenre = {
   name: string;
 };
 
-type PlayerRailPlayer = Pick<GamePlayerPresence, "id" | "displayName">;
+type PlayerRailPlayer = Pick<
+  GamePlayerPresence,
+  "id" | "displayName" | "iconId"
+>;
 
 type DisplayRoomContextValue = {
   deleteRoom: () => void;
@@ -240,6 +243,30 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     },
   });
 
+  const kickPlayerMutation = useMutation({
+    mutationFn: async (playerId: string) =>
+      parseRpc(
+        api.api.room.players[":playerId"].$delete({
+          param: {playerId},
+        }),
+      ),
+    onSuccess: () => {
+      setGameError(null);
+      void refetchMeta();
+      void refetchPlayers();
+    },
+    onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
+      setGameError(
+        error instanceof Error ? error.message : "Unable to remove player",
+      );
+    },
+  });
+
   useEffect(() => {
     const socket = new WebSocket(createActiveRoomWebSocketUrl());
     socketRef.current = socket;
@@ -292,7 +319,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      if (message.type === "player.left") {
+      if (
+        message.type === "player.left" ||
+        message.type === "player.kicked" ||
+        message.type === "player.updated"
+      ) {
         void refetchMeta();
         void refetchPlayers();
         return;
@@ -461,7 +492,13 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
                   <PlayerSidebarRow
                     key={player.id}
                     player={player}
+                    canKick={viewMode === "lobby"}
                     flashTone={playerVoteFlashById[player.id]}
+                    kickPending={
+                      kickPlayerMutation.isPending &&
+                      kickPlayerMutation.variables === player.id
+                    }
+                    onKick={(playerId) => kickPlayerMutation.mutate(playerId)}
                   />
                 );
               })}
@@ -476,7 +513,13 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
                     <div key={player.id} className="w-56 shrink-0">
                       <PlayerSidebarRow
                         player={player}
+                        canKick={viewMode === "lobby"}
                         flashTone={playerVoteFlashById[player.id]}
+                        kickPending={
+                          kickPlayerMutation.isPending &&
+                          kickPlayerMutation.variables === player.id
+                        }
+                        onKick={(playerId) => kickPlayerMutation.mutate(playerId)}
                       />
                     </div>
                   );
@@ -492,11 +535,17 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 }
 
 function PlayerSidebarRow({
+  canKick,
   player,
   flashTone,
+  kickPending,
+  onKick,
 }: {
+  canKick?: boolean;
   player: PlayerRailPlayer;
   flashTone?: PlayerVoteFlashTone;
+  kickPending?: boolean;
+  onKick?: (playerId: string) => void;
 }) {
   return (
     <div className="flex items-center gap-3 border-b border-white/10 py-3 transition">
@@ -510,12 +559,25 @@ function PlayerSidebarRow({
         }
         colorKey={player.displayName}
         displayName={player.displayName}
+        iconKey={player.iconId}
       />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-white">
           {player.displayName}
         </div>
       </div>
+      {canKick ? (
+        <Button
+          aria-label={`Remove ${player.displayName}`}
+          className="h-8 w-8 px-0 text-base"
+          disabled={kickPending}
+          onClick={() => onKick?.(player.id)}
+          size="sm"
+          title="Remove player"
+          variant="ghost">
+          x
+        </Button>
+      ) : null}
     </div>
   );
 }

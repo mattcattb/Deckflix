@@ -1,14 +1,23 @@
-import {useCallback, useEffect, useRef, useState, type ReactNode} from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
 import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import type {
   ActiveRoomClient,
+  PlayerIconId,
   PlayerGameState,
   SwipeChoice,
 } from "@deckflix/shared";
+import {playerIconIds} from "@deckflix/shared";
 import {Eyebrow, ProfileIdentity} from "../components/common";
-import {Button} from "../components/ui";
+import {Button, Input, Label, useToast} from "../components/ui";
 import {api, parseRpc} from "../lib/api";
 import {RoomUnavailable} from "../features/room/room-unavailable";
 import {PlayerStatusPanel} from "../features/player/PlayerStatusPanel";
@@ -78,6 +87,7 @@ function ActivePlayPage() {
 function PlayerRoomView({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const {notify} = useToast();
   const socketRef = useRef<WebSocket | null>(null);
   const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
@@ -171,6 +181,45 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     },
   });
 
+  const profileMutation = useMutation({
+    mutationFn: async (payload: {displayName: string; iconId: PlayerIconId}) =>
+      parseRpc(
+        api.api.player.me.$patch({
+          json: payload,
+        }),
+      ),
+    onSuccess: (player) => {
+      setGameError(null);
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              me: {
+                ...current.me,
+                displayName: player.displayName,
+                iconId: player.iconId,
+              },
+            }
+          : current,
+      );
+      void refetchPlayers();
+      notify({
+        title: "Profile updated",
+        type: "success",
+      });
+    },
+    onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
+      setGameError(
+        error instanceof Error ? error.message : "Unable to update profile",
+      );
+    },
+  });
+
   useEffect(() => {
     const socket = new WebSocket(createActiveRoomWebSocketUrl());
     socketRef.current = socket;
@@ -218,6 +267,36 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
+      if (message.type === "player.kicked") {
+        notify({
+          title: "Removed from room",
+          description: "You can rejoin from the room code screen.",
+          type: "info",
+        });
+        resetRoomSession();
+        return;
+      }
+
+      if (message.type === "player.updated") {
+        setState((current) =>
+          current
+            ? {
+                ...current,
+                me:
+                  message.player.id === current.me.playerId
+                    ? {
+                        ...current.me,
+                        displayName: message.player.displayName,
+                        iconId: message.player.iconId,
+                      }
+                    : current.me,
+              }
+            : current,
+        );
+        void refetchPlayers();
+        return;
+      }
+
       if (message.type === "game.vote_recorded") {
         return;
       }
@@ -241,7 +320,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
 
       socketRef.current = null;
     };
-  }, [refetchMeta, refetchPlayers, resetRoomSession]);
+  }, [notify, refetchMeta, refetchPlayers, resetRoomSession]);
 
   if (
     metaQuery.isLoading ||
@@ -305,6 +384,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
               avatarSize="sm"
               colorKey={state.me.displayName}
               displayName={state.me.displayName}
+              iconKey={state.me.iconId}
             />
           }
           center={
@@ -342,7 +422,9 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       widthClassName="flex max-w-5xl flex-1 flex-col">
       <PlayerRoomBody
         isVoting={voteMutation.isPending}
+        profilePending={profileMutation.isPending}
         state={state}
+        onProfileSubmit={(payload) => profileMutation.mutate(payload)}
         onVote={vote}
       />
     </RoomScreenShell>
@@ -351,11 +433,15 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
 
 function PlayerRoomBody({
   isVoting,
+  onProfileSubmit,
   onVote,
+  profilePending,
   state,
 }: {
   isVoting: boolean;
+  onProfileSubmit: (payload: {displayName: string; iconId: PlayerIconId}) => void;
   onVote: (choice: SwipeChoice, movieId?: string) => void;
+  profilePending: boolean;
   state: PlayerGameState;
 }) {
   const viewMode = getPlayerRoomViewMode(state.summary.status);
@@ -363,18 +449,26 @@ function PlayerRoomBody({
   if (viewMode === "waiting") {
     return (
       <PlayerRoomBodyFrame>
-        <PlayerStatusPanel
-          title={
-            state.summary.playerCount < 2
-              ? "Waiting for another player"
-              : "Waiting for the display to start"
-          }
-          body={
-            state.summary.playerCount < 2
-              ? "Voting starts once at least two players are in the room."
-              : "The room is ready. The display can start the round any time."
-          }
-        />
+        <div className="w-full max-w-md space-y-5">
+          <PlayerStatusPanel
+            title={
+              state.summary.playerCount < 2
+                ? "Waiting for another player"
+                : "Waiting for the display to start"
+            }
+            body={
+              state.summary.playerCount < 2
+                ? "Voting starts once at least two players are in the room."
+                : "The room is ready. The display can start the round any time."
+            }
+          />
+          <PlayerProfileEditor
+            displayName={state.me.displayName}
+            iconId={state.me.iconId}
+            pending={profilePending}
+            onSubmit={onProfileSubmit}
+          />
+        </div>
       </PlayerRoomBodyFrame>
     );
   }
@@ -415,6 +509,75 @@ function PlayerRoomBody({
         />
       </div>
     </PlayerRoomBodyFrame>
+  );
+}
+
+function PlayerProfileEditor({
+  displayName,
+  iconId,
+  onSubmit,
+  pending,
+}: {
+  displayName: string;
+  iconId: PlayerIconId;
+  onSubmit: (payload: {displayName: string; iconId: PlayerIconId}) => void;
+  pending: boolean;
+}) {
+  const [draftName, setDraftName] = useState(displayName);
+  const [draftIconId, setDraftIconId] = useState<PlayerIconId>(iconId);
+
+  useEffect(() => {
+    setDraftName(displayName);
+    setDraftIconId(iconId);
+  }, [displayName, iconId]);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSubmit({
+      displayName: draftName,
+      iconId: draftIconId,
+    });
+  };
+
+  return (
+    <form
+      className="space-y-4 border-t border-white/10 pt-5"
+      onSubmit={submit}>
+      <div className="space-y-2">
+        <Label htmlFor="player-display-name">Display name</Label>
+        <Input
+          id="player-display-name"
+          maxLength={40}
+          value={draftName}
+          onChange={(event) => setDraftName(event.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Icon</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {playerIconIds.map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={
+                item === draftIconId
+                  ? "rounded border border-primary bg-primary/15 px-3 py-2 text-sm font-semibold text-white"
+                  : "rounded border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white/70 hover:bg-white/[0.08]"
+              }
+              onClick={() => setDraftIconId(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Button
+        className="w-full"
+        disabled={pending || draftName.trim().length === 0}
+        type="submit"
+        variant="secondary">
+        Save profile
+      </Button>
+    </form>
   );
 }
 

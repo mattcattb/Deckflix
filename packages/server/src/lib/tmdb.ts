@@ -1,7 +1,7 @@
 import {TMDB, type AvailableLanguage} from "tmdb-ts";
 import {appEnv} from "../common/env";
 import {ServiceException} from "../common/errors";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 
 export type TmdbImageConfiguration = {
   secureBaseUrl: string;
@@ -85,7 +85,6 @@ export const buildTmdbImageUrl = (
 
 export const getTmdbImageConfiguration =
   async (): Promise<TmdbImageConfiguration> => {
-    await ensureRedis();
     const cached = await redisClient.get(configurationCacheKey());
     if (cached) {
       return JSON.parse(cached.toString()) as TmdbImageConfiguration;

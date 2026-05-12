@@ -11,10 +11,7 @@ import type {
 } from "@deckflix/shared";
 import {UnauthorizedException} from "../common/errors";
 import * as DeckService from "../gameplay/deck.service";
-import {
-  isDisplayConnected,
-  isPlayerConnected,
-} from "../presence/presence.service";
+import {listConnectedPlayerIds} from "../presence/presence.service";
 import * as MovieStateService from "../gameplay/movie-state.service";
 import * as PoolService from "../recommendations/pool.service";
 import * as PlayerService from "../players/player.service";
@@ -46,20 +43,25 @@ export const getGameSummary = async (
       meta.status === "lobby" && queueSize === 0
         ? resolvedSettings!.gameplay.maxMovies
         : queueSize,
-    displayConnected: isDisplayConnected(gameCode),
   };
 };
 
 export const getGamePlayers = async (
   gameCode: string,
 ): Promise<GamePlayers> => {
-  const players = await PlayerService.listPlayers(gameCode);
+  const [players, connectedPlayerIds] = await Promise.all([
+    PlayerService.listPlayers(gameCode),
+    listConnectedPlayerIds(gameCode),
+  ]);
+  const connectedPlayerIdSet = new Set(connectedPlayerIds);
+
   return {
     players: players.map((player) => ({
       id: player.id,
       displayName: player.displayName,
+      iconId: player.iconId,
       joinedAt: player.joinedAt,
-      connectedAsPlayer: isPlayerConnected(gameCode, player.id),
+      connectedAsPlayer: connectedPlayerIdSet.has(player.id),
     })),
   };
 };
@@ -275,6 +277,7 @@ const getPlayerGameState = async (input: {
     me: {
       playerId: player.id,
       displayName: player.displayName,
+      iconId: player.iconId,
       currentIndex: deckStatus.currentIndex,
       completed: deckStatus.completed,
     },

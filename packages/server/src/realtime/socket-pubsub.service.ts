@@ -3,11 +3,7 @@ import type {Server} from "bun";
 import type {BunWebSocketData} from "hono/bun";
 import {z} from "zod";
 import {logger} from "../common/logger";
-import {
-  connectRedisClient,
-  redisClient,
-  redisSubscriber,
-} from "../redis/redis";
+import {redisClient, redisSubscriber} from "../redis/redis";
 
 const SOCKET_PUBSUB_CHANNEL = "deckflix:ws:fanout";
 const socketPubSubSourceId = randomUUID();
@@ -57,8 +53,6 @@ export const ensureSocketPubSub = (server: Server<BunWebSocketData>) => {
   }
 
   socketPubSubPromise = (async () => {
-    await connectRedisClient(redisClient);
-    await connectRedisClient(redisSubscriber);
     await redisSubscriber.subscribe(
       SOCKET_PUBSUB_CHANNEL,
       forwardRedisSocketMessage,
@@ -73,7 +67,6 @@ export const ensureSocketPubSub = (server: Server<BunWebSocketData>) => {
 };
 
 export const publishSocketTopic = async (topic: string, payload: string) => {
-  await connectRedisClient(redisClient);
   await redisClient.publish(
     SOCKET_PUBSUB_CHANNEL,
     JSON.stringify({

@@ -15,7 +15,7 @@ import type {
 } from "tmdb-ts";
 import {ServiceException} from "../common/errors";
 import {getTmdbClient} from "../lib/tmdb";
-import {ensureRedis, redisClient} from "../redis/redis";
+import {redisClient} from "../redis/redis";
 import type {MovieSearchOptions} from "tmdb-ts/dist/endpoints";
 
 type TmdbClient = ReturnType<typeof getTmdbClient>;
@@ -88,7 +88,6 @@ const getCached = async <T>(
   ttlSeconds: number,
   load: () => Promise<T>,
 ): Promise<T> => {
-  await ensureRedis();
   const cached = await redisClient.get(key);
   if (cached) {
     return JSON.parse(cached.toString()) as T;
