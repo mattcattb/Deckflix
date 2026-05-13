@@ -15,6 +15,10 @@ function DisplayRoomLobbyView() {
     meta,
     movieGenres,
     movieGenresError,
+    movieGenresLoading,
+    movieProvidersLoading,
+    movieProviders,
+    movieProvidersError,
     players,
     saveSettings,
     saveSettingsPending,
@@ -48,7 +52,11 @@ function DisplayRoomLobbyView() {
           onChange={setDraftSettings}
           onPreferencesChange={setDraftPreferences}
           movieGenres={movieGenres}
+          movieGenresLoading={movieGenresLoading}
           movieGenresError={movieGenresError}
+          movieProviders={movieProviders}
+          movieProvidersLoading={movieProvidersLoading}
+          movieProvidersError={movieProvidersError}
         />
       </div>
       <div className="flex justify-end gap-3 border-t border-white/10 pt-5">

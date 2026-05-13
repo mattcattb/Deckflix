@@ -14,6 +14,7 @@ import type {
   GamePlayerPresence,
   GamePreferences,
   GameSettings,
+  MovieWatchProvider,
   DisplayServerMessage,
 } from "@deckflix/shared";
 import {api, parseRpc} from "../../lib/api";
@@ -34,8 +35,11 @@ import {
   activeRoomSettingsQueryOptions,
   preferenceKeys,
 } from "../preferences/preferences.queries";
-import {movieGenresQueryOptions} from "../movie-catalog/movie-catalog.queries";
-import {Eyebrow, ProfileTile} from "../../components/common";
+import {
+  movieGenresQueryOptions,
+  movieWatchProvidersQueryOptions,
+} from "../movie-catalog/movie-catalog.queries";
+import {Eyebrow, ProfileAvatar} from "../../components/common";
 import {Button} from "../../components/ui";
 import {RoomUnavailable} from "../room/room-unavailable";
 import {
@@ -72,7 +76,11 @@ type DisplayRoomContextValue = {
   lastDisplayMessage: DisplayServerMessage | null;
   meta: GameMeta;
   movieGenres: MovieGenre[];
+  movieGenresLoading: boolean;
   movieGenresError: string | null;
+  movieProviders: MovieWatchProvider[];
+  movieProvidersLoading: boolean;
+  movieProvidersError: string | null;
   players: GamePlayerPresence[];
   saveSettings: () => void;
   saveSettingsPending: boolean;
@@ -117,6 +125,17 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     ? movieGenresQuery.error instanceof Error
       ? movieGenresQuery.error.message
       : "Unable to load genres"
+    : null;
+  const movieWatchProvidersQuery = useQuery(
+    movieWatchProvidersQueryOptions(
+      draftPreferences?.watchRegion ?? "US",
+      "en-US",
+    ),
+  );
+  const movieWatchProvidersError = movieWatchProvidersQuery.error
+    ? movieWatchProvidersQuery.error instanceof Error
+      ? movieWatchProvidersQuery.error.message
+      : "Unable to load watch providers"
     : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
@@ -287,6 +306,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
           return;
         }
 
+        if (message.type === "room.completed") {
+          void refetchMeta();
+          return;
+        }
+
         if (message.type === "room.status_changed") {
           void refetchMeta();
           return;
@@ -423,7 +447,11 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     lastDisplayMessage,
     meta: metaQuery.data,
     movieGenres: movieGenresQuery.data?.items ?? [],
+    movieGenresLoading: movieGenresQuery.isLoading,
     movieGenresError,
+    movieProviders: movieWatchProvidersQuery.data?.items ?? [],
+    movieProvidersLoading: movieWatchProvidersQuery.isLoading,
+    movieProvidersError: movieWatchProvidersError,
     players: playersQuery.data.players,
     saveSettings: () => settingsMutation.mutate(),
     saveSettingsPending: settingsMutation.isPending,
@@ -526,31 +554,36 @@ function PlayerSidebarRow({
   onKick?: (playerId: string) => void;
 }) {
   return (
-    <div className="relative flex flex-col items-center gap-2 border-b border-white/10 py-4 text-center transition">
-      <ProfileTile
-        avatarKey={player.iconId}
-        className={
-          flashTone === "positive"
-            ? "player-vote-flash-positive"
-            : flashTone === "negative"
-              ? "player-vote-flash-negative"
-              : ""
-        }
-        displayName={player.displayName}
-        nameClassName="text-sm text-white/70"
-      />
-      {canKick ? (
-        <Button
-          aria-label={`Remove ${player.displayName}`}
-          className="absolute right-0 top-2 h-8 w-8 px-0 text-base"
-          disabled={kickPending}
-          onClick={() => onKick?.(player.id)}
-          size="sm"
-          title="Remove player"
-          variant="ghost">
-          x
-        </Button>
-      ) : null}
+    <div className="flex min-w-0 flex-col items-center gap-2 text-center transition">
+      <div className="relative">
+        <ProfileAvatar
+          avatarKey={player.iconId}
+          className={
+            flashTone === "positive"
+              ? "player-vote-flash-positive"
+              : flashTone === "negative"
+                ? "player-vote-flash-negative"
+                : ""
+          }
+          displayName={player.displayName}
+          size="lg"
+        />
+        {canKick ? (
+          <Button
+            aria-label={`Remove ${player.displayName}`}
+            className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-black/75 px-0 text-xs"
+            disabled={kickPending}
+            onClick={() => onKick?.(player.id)}
+            size="sm"
+            title="Remove player"
+            variant="ghost">
+            x
+          </Button>
+        ) : null}
+      </div>
+      <div className="max-w-full truncate text-center text-sm font-medium text-white/70">
+        {player.displayName}
+      </div>
     </div>
   );
 }

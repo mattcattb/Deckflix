@@ -7,6 +7,7 @@ type DisplayRailProps = {
   items: GameActivityItem[];
   tone: "match" | "mixed" | "stinker";
   interactive?: boolean;
+  watchRegion?: string;
 };
 
 export function DisplayRail({
@@ -14,6 +15,7 @@ export function DisplayRail({
   items,
   tone,
   interactive = true,
+  watchRegion = "US",
 }: DisplayRailProps) {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const [newCardIds, setNewCardIds] = useState<string[]>([]);
@@ -53,6 +55,7 @@ export function DisplayRail({
       <MovieDetailsOverlay
         movie={selectedMovie}
         movieId={selectedMovieId}
+        watchRegion={watchRegion}
         onClose={() => setSelectedMovieId(null)}
       />
 

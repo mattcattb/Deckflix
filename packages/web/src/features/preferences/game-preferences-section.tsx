@@ -2,10 +2,11 @@ import type {
   GamePreferences,
   GameSettings,
   MoviePopularityPreset,
+  MovieWatchProvider,
 } from "@deckflix/shared";
 import {Eyebrow, StatusMessage} from "../../components/common";
 import {Input, Label, RangeSlider, Select} from "../../components/ui";
-import {GenrePicker} from "./GenrePicker";
+import {GenrePicker, ProviderPicker} from "./GenrePicker";
 
 type MovieGenre = {
   id: number;
@@ -13,6 +14,7 @@ type MovieGenre = {
 };
 
 type GenreListKey = "includedGenreIds" | "excludedGenreIds";
+type ProviderListKey = "preferredProviderIds" | "excludedProviderIds";
 
 type GamePreferencesSectionProps = {
   settings: GameSettings;
@@ -22,6 +24,9 @@ type GamePreferencesSectionProps = {
   movieGenres: MovieGenre[];
   movieGenresLoading?: boolean;
   movieGenresError?: string | null;
+  movieProviders: MovieWatchProvider[];
+  movieProvidersLoading?: boolean;
+  movieProvidersError?: string | null;
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -47,6 +52,9 @@ export function GamePreferencesSection({
   movieGenres,
   movieGenresLoading = false,
   movieGenresError,
+  movieProviders,
+  movieProvidersLoading = false,
+  movieProvidersError,
 }: GamePreferencesSectionProps) {
   const updateGameplaySetting = <Key extends keyof GameSettings["gameplay"]>(
     key: Key,
@@ -84,6 +92,24 @@ export function GamePreferencesSection({
     });
   };
 
+  const toggleProviderId = (
+    listKey: ProviderListKey,
+    otherListKey: ProviderListKey,
+    providerId: number,
+    checked: boolean,
+  ) => {
+    const selectedProviderIds = preferences[listKey];
+    const otherSelectedProviderIds = preferences[otherListKey];
+
+    onPreferencesChange({
+      ...preferences,
+      [listKey]: checked
+        ? [...new Set([...selectedProviderIds, providerId])]
+        : selectedProviderIds.filter((id) => id !== providerId),
+      [otherListKey]: otherSelectedProviderIds.filter((id) => id !== providerId),
+    });
+  };
+
   return (
     <div className="space-y-5">
       <GameplaySettingsPanel
@@ -100,9 +126,13 @@ export function GamePreferencesSection({
         movieGenres={movieGenres}
         movieGenresLoading={movieGenresLoading}
         movieGenresError={movieGenresError}
+        movieProviders={movieProviders}
+        movieProvidersLoading={movieProvidersLoading}
+        movieProvidersError={movieProvidersError}
         onPreferencesChange={onPreferencesChange}
         onMoviePreferenceChange={updateMoviePreference}
         onToggleGenreId={toggleGenreId}
+        onToggleProviderId={toggleProviderId}
       />
     </div>
   );
@@ -186,14 +216,21 @@ function MovieFiltersPanel({
   movieGenres,
   movieGenresLoading,
   movieGenresError,
+  movieProviders,
+  movieProvidersLoading,
+  movieProvidersError,
   onPreferencesChange,
   onMoviePreferenceChange,
   onToggleGenreId,
+  onToggleProviderId,
 }: {
   preferences: GamePreferences;
   movieGenres: MovieGenre[];
   movieGenresLoading: boolean;
   movieGenresError?: string | null;
+  movieProviders: MovieWatchProvider[];
+  movieProvidersLoading: boolean;
+  movieProvidersError?: string | null;
   onPreferencesChange: (preferences: GamePreferences) => void;
   onMoviePreferenceChange: <Key extends keyof GamePreferences>(
     key: Key,
@@ -203,6 +240,12 @@ function MovieFiltersPanel({
     listKey: GenreListKey,
     otherListKey: GenreListKey,
     genreId: number,
+    checked: boolean,
+  ) => void;
+  onToggleProviderId: (
+    listKey: ProviderListKey,
+    otherListKey: ProviderListKey,
+    providerId: number,
     checked: boolean,
   ) => void;
 }) {
@@ -227,113 +270,193 @@ function MovieFiltersPanel({
     ? [yearGteYear ?? MIN_YEAR, yearLteYear ?? CURRENT_YEAR]
     : null;
 
+  const updateWatchRegion = (nextRaw: string) => {
+    const next = nextRaw.trim().toUpperCase().slice(0, 2);
+    onMoviePreferenceChange(
+      "watchRegion",
+      (next.length === 2 ? next : preferences.watchRegion),
+    );
+  };
+
   return (
     <section className="space-y-3">
-        <Eyebrow as="h3" className="text-xs tracking-[0.18em]">
-          Movie filters
-        </Eyebrow>
+      <Eyebrow as="h3" className="text-xs tracking-[0.18em]">
+        Movie filters
+      </Eyebrow>
 
-        <div className="grid gap-2">
-          <RangeSlider
-            label="TMDB rating"
-            min={0}
-            max={10}
-            step={0.1}
-            value={ratingValue}
-            defaultRange={[6, 10]}
-            formatValue={(v) => v.toFixed(1)}
-            onChange={(next) => {
-              if (next === null) {
-                onPreferencesChange({
-                  ...preferences,
-                  voteAverageGte: null,
-                  voteAverageLte: null,
-                });
-              } else {
-                onPreferencesChange({
-                  ...preferences,
-                  voteAverageGte: Number(next[0].toFixed(1)),
-                  voteAverageLte: Number(next[1].toFixed(1)),
-                });
-              }
-            }}
+      <div className="grid gap-2">
+        <RangeSlider
+          label="TMDB rating"
+          min={0}
+          max={10}
+          step={0.1}
+          value={ratingValue}
+          defaultRange={[6, 10]}
+          formatValue={(v) => v.toFixed(1)}
+          onChange={(next) => {
+            if (next === null) {
+              onPreferencesChange({
+                ...preferences,
+                voteAverageGte: null,
+                voteAverageLte: null,
+              });
+            } else {
+              onPreferencesChange({
+                ...preferences,
+                voteAverageGte: Number(next[0].toFixed(1)),
+                voteAverageLte: Number(next[1].toFixed(1)),
+              });
+            }
+          }}
+        />
+
+        <RangeSlider
+          label="Release year"
+          min={MIN_YEAR}
+          max={CURRENT_YEAR}
+          step={1}
+          value={yearValue}
+          defaultRange={[2000, CURRENT_YEAR]}
+          onChange={(next) => {
+            if (next === null) {
+              onPreferencesChange({
+                ...preferences,
+                primaryReleaseDateGte: null,
+                primaryReleaseDateLte: null,
+              });
+            } else {
+              onPreferencesChange({
+                ...preferences,
+                primaryReleaseDateGte: `${next[0]}-01-01`,
+                primaryReleaseDateLte: `${next[1]}-12-31`,
+              });
+            }
+          }}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Label htmlFor="watchRegion" className="text-xs">
+          Watch region
+        </Label>
+        <Input
+          id="watchRegion"
+          className="w-20 text-center"
+          maxLength={2}
+          value={preferences.watchRegion}
+          onChange={(event) =>
+            updateWatchRegion(event.currentTarget.value.toUpperCase())
+          }
+          onBlur={(event) => updateWatchRegion(event.currentTarget.value)}
+        />
+      </div>
+
+      {movieGenresLoading ? (
+        <p className="text-xs text-muted-foreground">Loading genres...</p>
+      ) : movieGenresError ? (
+        <StatusMessage tone="danger" className="rounded-lg px-3 py-2 text-xs">
+          {movieGenresError}
+        </StatusMessage>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <GenrePicker
+            label="Include"
+            tone="include"
+            genres={movieGenres.filter(
+              (genre) =>
+                !preferences.excludedGenreIds.includes(genre.id) ||
+                preferences.includedGenreIds.includes(genre.id),
+            )}
+            selectedGenreIds={preferences.includedGenreIds}
+            emptyLabel="All genres"
+            onToggle={(genreId, checked) =>
+              onToggleGenreId(
+                "includedGenreIds",
+                "excludedGenreIds",
+                genreId,
+                checked,
+              )
+            }
+            onClear={() => onMoviePreferenceChange("includedGenreIds", [])}
           />
-
-          <RangeSlider
-            label="Release year"
-            min={MIN_YEAR}
-            max={CURRENT_YEAR}
-            step={1}
-            value={yearValue}
-            defaultRange={[2000, CURRENT_YEAR]}
-            onChange={(next) => {
-              if (next === null) {
-                onPreferencesChange({
-                  ...preferences,
-                  primaryReleaseDateGte: null,
-                  primaryReleaseDateLte: null,
-                });
-              } else {
-                onPreferencesChange({
-                  ...preferences,
-                  primaryReleaseDateGte: `${next[0]}-01-01`,
-                  primaryReleaseDateLte: `${next[1]}-12-31`,
-                });
-              }
-            }}
+          <GenrePicker
+            label="Exclude"
+            tone="exclude"
+            genres={movieGenres.filter(
+              (genre) =>
+                !preferences.includedGenreIds.includes(genre.id) ||
+                preferences.excludedGenreIds.includes(genre.id),
+            )}
+            selectedGenreIds={preferences.excludedGenreIds}
+            emptyLabel="None"
+            onToggle={(genreId, checked) =>
+              onToggleGenreId(
+                "excludedGenreIds",
+                "includedGenreIds",
+                genreId,
+                checked,
+              )
+            }
+            onClear={() => onMoviePreferenceChange("excludedGenreIds", [])}
           />
         </div>
+      )}
 
-        {movieGenresLoading ? (
-          <p className="text-xs text-muted-foreground">Loading genres...</p>
-        ) : movieGenresError ? (
-          <StatusMessage tone="danger" className="rounded-lg px-3 py-2 text-xs">
-            {movieGenresError}
-          </StatusMessage>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <GenrePicker
-              label="Include"
-              tone="include"
-              genres={movieGenres.filter(
-                (genre) =>
-                  !preferences.excludedGenreIds.includes(genre.id) ||
-                  preferences.includedGenreIds.includes(genre.id),
-              )}
-              selectedGenreIds={preferences.includedGenreIds}
-              emptyLabel="All genres"
-              onToggle={(genreId, checked) =>
-                onToggleGenreId(
-                  "includedGenreIds",
-                  "excludedGenreIds",
-                  genreId,
-                  checked,
-                )
-              }
-              onClear={() => onMoviePreferenceChange("includedGenreIds", [])}
-            />
-            <GenrePicker
-              label="Exclude"
-              tone="exclude"
-              genres={movieGenres.filter(
-                (genre) =>
-                  !preferences.includedGenreIds.includes(genre.id) ||
-                  preferences.excludedGenreIds.includes(genre.id),
-              )}
-              selectedGenreIds={preferences.excludedGenreIds}
-              emptyLabel="None"
-              onToggle={(genreId, checked) =>
-                onToggleGenreId(
-                  "excludedGenreIds",
-                  "includedGenreIds",
-                  genreId,
-                  checked,
-                )
-              }
-              onClear={() => onMoviePreferenceChange("excludedGenreIds", [])}
-            />
-          </div>
-        )}
-      </section>
+      {movieProvidersLoading ? (
+        <p className="text-xs text-muted-foreground">Loading providers...</p>
+      ) : movieProvidersError ? (
+        <StatusMessage tone="danger" className="rounded-lg px-3 py-2 text-xs">
+          {movieProvidersError}
+        </StatusMessage>
+      ) : movieProviders.length === 0 ? (
+        <StatusMessage tone="info" className="rounded-lg px-3 py-2 text-xs">
+          No providers are available for this region.
+        </StatusMessage>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ProviderPicker
+            label="Preferred"
+            tone="include"
+            providers={movieProviders.filter(
+              (provider) =>
+                !preferences.excludedProviderIds.includes(provider.id) ||
+                preferences.preferredProviderIds.includes(provider.id),
+            )}
+            selectedProviderIds={preferences.preferredProviderIds}
+            emptyLabel="Any provider"
+            onToggle={(providerId, checked) =>
+              onToggleProviderId(
+                "preferredProviderIds",
+                "excludedProviderIds",
+                providerId,
+                checked,
+              )
+            }
+            onClear={() => onMoviePreferenceChange("preferredProviderIds", [])}
+          />
+          <ProviderPicker
+            label="Excluded"
+            tone="exclude"
+            providers={movieProviders.filter(
+              (provider) =>
+                !preferences.preferredProviderIds.includes(provider.id) ||
+                preferences.excludedProviderIds.includes(provider.id),
+            )}
+            selectedProviderIds={preferences.excludedProviderIds}
+            emptyLabel="None"
+            onToggle={(providerId, checked) =>
+              onToggleProviderId(
+                "excludedProviderIds",
+                "preferredProviderIds",
+                providerId,
+                checked,
+              )
+            }
+            onClear={() => onMoviePreferenceChange("excludedProviderIds", [])}
+          />
+        </div>
+      )}
+    </section>
   );
 }
+

@@ -15,7 +15,7 @@ export const Route = createFileRoute("/room/live")({
 });
 
 function DisplayRoomLiveView() {
-  const {gameCode, lastDisplayMessage} = useDisplayRoom();
+  const {gameCode, lastDisplayMessage, draftPreferences} = useDisplayRoom();
   const queryClient = useQueryClient();
   const matchesQuery = useQuery(activeGameMatchesQueryOptions(gameCode));
   const recentQuery = useQuery(activeGameRecentQueryOptions(gameCode));
@@ -77,17 +77,20 @@ function DisplayRoomLiveView() {
         title="Matches"
         items={matchesQuery.data?.items ?? []}
         tone="match"
+        watchRegion={draftPreferences.watchRegion}
       />
       <DisplayRail
         title="Recent History"
         items={recentQuery.data?.items ?? []}
         tone="mixed"
+        watchRegion={draftPreferences.watchRegion}
         interactive={false}
       />
       <DisplayRail
         title="Stinkers"
         items={stinkersQuery.data?.items ?? []}
         tone="stinker"
+        watchRegion={draftPreferences.watchRegion}
       />
     </div>
   );

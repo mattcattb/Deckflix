@@ -1,12 +1,14 @@
-import {useMemo, useRef, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import type {PointerEvent as ReactPointerEvent} from "react";
 import type {ActiveGameQueueItem, SwipeChoice} from "@deckflix/shared";
 import {MovieCard} from "../movie-catalog/components/movie-card";
+import {MovieDetailsOverlay} from "../movie-catalog/components/movie-details-overlay";
 
 type SwipeDeckProps = {
   item: ActiveGameQueueItem | null;
   onSwipe: (choice: SwipeChoice, movieId: string) => void;
   disabled?: boolean;
+  watchRegion?: string;
 };
 
 const SWIPE_THRESHOLD_PX = 120;
@@ -15,10 +17,12 @@ export function SwipeDeck({
   item,
   onSwipe,
   disabled = false,
+  watchRegion = "US",
 }: SwipeDeckProps) {
   const [dragX, setDragX] = useState(0);
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
   const startRef = useRef<{x: number; y: number} | null>(null);
 
   const rotate = useMemo(() => Math.max(-10, Math.min(10, dragX / 14)), [dragX]);
@@ -27,6 +31,10 @@ export function SwipeDeck({
     if (dragX < -24) return "NOPE";
     return null;
   }, [dragX]);
+
+  useEffect(() => {
+    setSelectedMovieId(null);
+  }, [item?.movie.id]);
 
   const resetDrag = () => {
     setIsDragging(false);
@@ -91,6 +99,12 @@ export function SwipeDeck({
 
   return (
     <div className="relative mx-auto w-full">
+      <MovieDetailsOverlay
+        movie={selectedMovieId ? item.movie : null}
+        movieId={selectedMovieId}
+        watchRegion={watchRegion}
+        onClose={() => setSelectedMovieId(null)}
+      />
       <div
         className="relative"
         onPointerDown={onPointerDown}
@@ -104,6 +118,7 @@ export function SwipeDeck({
           style={{
             transform: `translate(${dragX}px, ${dragY * 0.25}px) rotate(${rotate}deg)`,
           }}
+          onDetailsClick={() => setSelectedMovieId(item.movie.id)}
         />
         {swipeHint ? (
           <div

@@ -13,7 +13,7 @@ export const Route = createFileRoute("/room/results")({
 });
 
 function DisplayRoomResultsView() {
-  const {gameCode, lastDisplayMessage} = useDisplayRoom();
+  const {gameCode, lastDisplayMessage, draftPreferences} = useDisplayRoom();
   const queryClient = useQueryClient();
   const matchesQuery = useQuery(activeGameMatchesQueryOptions(gameCode));
   const stinkersQuery = useQuery(activeGameStinkersQueryOptions(gameCode));
@@ -44,11 +44,13 @@ function DisplayRoomResultsView() {
         title="Final Matches"
         items={matchesQuery.data?.items ?? []}
         tone="match"
+        watchRegion={draftPreferences.watchRegion}
       />
       <DisplayRail
         title="Stinkers"
         items={stinkersQuery.data?.items ?? []}
         tone="stinker"
+        watchRegion={draftPreferences.watchRegion}
       />
     </div>
   );
