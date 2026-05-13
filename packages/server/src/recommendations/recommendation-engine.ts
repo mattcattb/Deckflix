@@ -255,7 +255,6 @@ const createSourceHit = (
 const toRelaxedDiscoveryFilters = (filters: MovieQueryOptions): MovieQueryOptions => {
   const relaxed = {...filters};
   delete relaxed.with_watch_providers;
-  delete relaxed.without_watch_providers;
   delete relaxed.watch_region;
   return relaxed;
 };
@@ -1069,8 +1068,7 @@ export const fetchRecommendationCandidates = async (input: {
   const candidates = new Map<string, RecommendationCandidateRecord>();
   const baseStrategies = listBaseStrategies(plan);
   const hasProviderBias =
-    preferences.preferredProviderIds.length > 0 ||
-    preferences.excludedProviderIds.length > 0;
+    preferences.preferredProviderIds.length > 0;
   const baseResults = await Promise.allSettled(
     baseStrategies.map(async (strategy) => ({
       strategy,

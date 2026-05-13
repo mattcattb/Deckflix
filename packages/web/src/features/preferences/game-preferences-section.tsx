@@ -14,7 +14,6 @@ type MovieGenre = {
 };
 
 type GenreListKey = "includedGenreIds" | "excludedGenreIds";
-type ProviderListKey = "preferredProviderIds" | "excludedProviderIds";
 
 type GamePreferencesSectionProps = {
   settings: GameSettings;
@@ -93,20 +92,17 @@ export function GamePreferencesSection({
   };
 
   const toggleProviderId = (
-    listKey: ProviderListKey,
-    otherListKey: ProviderListKey,
+    listKey: keyof Pick<GamePreferences, "preferredProviderIds">,
     providerId: number,
     checked: boolean,
   ) => {
     const selectedProviderIds = preferences[listKey];
-    const otherSelectedProviderIds = preferences[otherListKey];
 
     onPreferencesChange({
       ...preferences,
       [listKey]: checked
         ? [...new Set([...selectedProviderIds, providerId])]
         : selectedProviderIds.filter((id) => id !== providerId),
-      [otherListKey]: otherSelectedProviderIds.filter((id) => id !== providerId),
     });
   };
 
@@ -243,8 +239,7 @@ function MovieFiltersPanel({
     checked: boolean,
   ) => void;
   onToggleProviderId: (
-    listKey: ProviderListKey,
-    otherListKey: ProviderListKey,
+    listKey: keyof Pick<GamePreferences, "preferredProviderIds">,
     providerId: number,
     checked: boolean,
   ) => void;
@@ -413,50 +408,18 @@ function MovieFiltersPanel({
           No providers are available for this region.
         </StatusMessage>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ProviderPicker
-            label="Preferred"
-            tone="include"
-            providers={movieProviders.filter(
-              (provider) =>
-                !preferences.excludedProviderIds.includes(provider.id) ||
-                preferences.preferredProviderIds.includes(provider.id),
-            )}
-            selectedProviderIds={preferences.preferredProviderIds}
-            emptyLabel="Any provider"
-            onToggle={(providerId, checked) =>
-              onToggleProviderId(
-                "preferredProviderIds",
-                "excludedProviderIds",
-                providerId,
-                checked,
-              )
-            }
-            onClear={() => onMoviePreferenceChange("preferredProviderIds", [])}
-          />
-          <ProviderPicker
-            label="Excluded"
-            tone="exclude"
-            providers={movieProviders.filter(
-              (provider) =>
-                !preferences.preferredProviderIds.includes(provider.id) ||
-                preferences.excludedProviderIds.includes(provider.id),
-            )}
-            selectedProviderIds={preferences.excludedProviderIds}
-            emptyLabel="None"
-            onToggle={(providerId, checked) =>
-              onToggleProviderId(
-                "excludedProviderIds",
-                "preferredProviderIds",
-                providerId,
-                checked,
-              )
-            }
-            onClear={() => onMoviePreferenceChange("excludedProviderIds", [])}
-          />
-        </div>
+        <ProviderPicker
+          label="Preferred providers"
+          tone="include"
+          providers={movieProviders}
+          selectedProviderIds={preferences.preferredProviderIds}
+          emptyLabel="Any provider"
+          onToggle={(providerId, checked) =>
+            onToggleProviderId("preferredProviderIds", providerId, checked)
+          }
+          onClear={() => onMoviePreferenceChange("preferredProviderIds", [])}
+        />
       )}
     </section>
   );
 }
-
