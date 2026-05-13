@@ -41,6 +41,9 @@ const gamePreferencesBaseSchema = z.object({
   popularityPreset: moviePopularityPresetSchema,
   includedGenreIds: z.array(z.number().int().positive()).max(10),
   excludedGenreIds: z.array(z.number().int().positive()).max(10),
+  preferredProviderIds: z.array(z.number().int().positive()).max(10),
+  excludedProviderIds: z.array(z.number().int().positive()).max(10),
+  watchRegion: z.string().trim().length(2).toUpperCase(),
   primaryReleaseDateGte: isoDateSchema.nullable(),
   primaryReleaseDateLte: isoDateSchema.nullable(),
   voteAverageGte: z.number().min(0).max(10).nullable(),
@@ -51,6 +54,8 @@ const addPreferenceIssues = (
   value: {
     includedGenreIds?: number[];
     excludedGenreIds?: number[];
+    preferredProviderIds?: number[];
+    excludedProviderIds?: number[];
     primaryReleaseDateGte?: string | null;
     primaryReleaseDateLte?: string | null;
     voteAverageGte?: number | null;
@@ -92,6 +97,19 @@ const addPreferenceIssues = (
       code: "custom",
       message: "Included and excluded genres cannot overlap",
       path: ["includedGenreIds"],
+    });
+  }
+
+  const overlappingProviderIds =
+    value.preferredProviderIds?.filter((providerId) =>
+      value.excludedProviderIds?.includes(providerId),
+    ) ?? [];
+
+  if (overlappingProviderIds.length > 0) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Preferred and excluded providers cannot overlap",
+      path: ["preferredProviderIds"],
     });
   }
 };

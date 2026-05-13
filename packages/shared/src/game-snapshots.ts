@@ -26,10 +26,18 @@ export const gamePlayerPresenceSchema = z.object({
   connectedAsPlayer: z.boolean(),
 });
 
-const gamePlayerSelfSchema = z.object({
+const gamePlayerProfileSchema = z.object({
   playerId: z.string().min(1),
   displayName: z.string().min(1).max(PLAYER_DISPLAY_NAME_MAX_LENGTH),
   iconId: playerIconIdSchema,
+});
+
+const gamePlayerSelfSchema = gamePlayerProfileSchema.extend({
+  currentIndex: z.number().int().min(0),
+  completed: z.boolean(),
+});
+
+const gamePlayerDeckSelfSchema = z.object({
   currentIndex: z.number().int().min(0),
   completed: z.boolean(),
 });
@@ -81,6 +89,18 @@ export const playerGameStateSchema = z.object({
   remainingCount: z.number().int().min(0),
 });
 
+export const playerRoomStateSchema = z.object({
+  summary: gameSummarySchema,
+  settings: gameSettingsSchema,
+  me: gamePlayerProfileSchema,
+});
+
+export const playerDeckStateSchema = z.object({
+  me: gamePlayerDeckSelfSchema,
+  currentItem: activeGameQueueItemSchema.nullable().default(null),
+  remainingCount: z.number().int().min(0),
+});
+
 export const createGamePayloadSchema = z.object({
   roomName: z.string().trim().max(60).optional(),
   settings: gameSettingsInputSchema.optional(),
@@ -114,5 +134,7 @@ export type GameResults = z.infer<typeof gameResultsSchema>;
 export type GameActivityItem = z.infer<typeof gameActivityItemSchema>;
 export type GameActivitySlice = z.infer<typeof gameActivitySliceSchema>;
 export type PlayerGameState = z.infer<typeof playerGameStateSchema>;
+export type PlayerRoomState = z.infer<typeof playerRoomStateSchema>;
+export type PlayerDeckState = z.infer<typeof playerDeckStateSchema>;
 export type PlayerIconId = PlayerProfileIconId;
 export type PlayerProfileInput = z.infer<typeof playerProfileInputSchema>;

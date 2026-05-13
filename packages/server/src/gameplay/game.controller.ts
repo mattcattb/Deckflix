@@ -16,8 +16,10 @@ import {
   getGameResults,
   getGameSummary,
   getGameStinkers,
+  getPlayerDeckState,
   getPlayerProgress,
-  getProjectedPlayerState,
+  getPlayerRoomState,
+  refreshPlayerDeckState,
 } from "../rooms/game-state.service";
 import * as GameService from "./game.service";
 
@@ -26,7 +28,17 @@ export const gameController = createRouter()
   .get("/player", requirePlayerActor, async (c) => {
     const {gameCode} = c.get("room");
     const {playerId} = c.get("playerActor");
-    return c.json(await getProjectedPlayerState({gameCode, playerId}));
+    return c.json(await getPlayerRoomState({gameCode, playerId}));
+  })
+  .get("/deck", requirePlayerActor, requireStartedGame, async (c) => {
+    const {gameCode} = c.get("room");
+    const {playerId} = c.get("playerActor");
+    return c.json(await getPlayerDeckState({gameCode, playerId}));
+  })
+  .post("/deck/refresh", requirePlayerActor, requireStartedGame, async (c) => {
+    const {gameCode} = c.get("room");
+    const {playerId} = c.get("playerActor");
+    return c.json(await refreshPlayerDeckState({gameCode, playerId}), 201);
   })
   .get("/summary", async (c) => {
     return c.json(await getGameSummary(c.get("room").gameCode));

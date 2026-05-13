@@ -16,12 +16,8 @@ describe("shared event messages", () => {
       nextStatus: "swiping",
     });
     const playerRaw = encodePlayerServerMessage({
-      type: "game.vote_recorded",
+      type: "room.started",
       gameCode: "ABCD",
-      playerId: "player-1",
-      movieId: "movie-1",
-      choice: "like",
-      votedAt: "2026-05-12T00:00:00.000Z",
     });
 
     expect(parseDisplayServerMessage(displayRaw)).toEqual({
@@ -31,12 +27,8 @@ describe("shared event messages", () => {
       nextStatus: "swiping",
     });
     expect(parsePlayerServerMessage(playerRaw)).toEqual({
-      type: "game.vote_recorded",
+      type: "room.started",
       gameCode: "ABCD",
-      playerId: "player-1",
-      movieId: "movie-1",
-      choice: "like",
-      votedAt: "2026-05-12T00:00:00.000Z",
     });
   });
 

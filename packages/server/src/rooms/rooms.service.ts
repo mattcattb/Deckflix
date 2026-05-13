@@ -56,7 +56,7 @@ const gameStatusRecordSchema = z.object({
   endedAt: z.string().datetime().nullable(),
 });
 
-export type DisplayRecord = z.infer<typeof displayRecordSchema>;
+type DisplayRecord = z.infer<typeof displayRecordSchema>;
 export type GameMetaRecord = z.infer<typeof gameMetaRecordSchema>;
 
 const createGameMeta = async (meta: GameMetaRecord) => {
@@ -251,7 +251,6 @@ export const start = async (input: {
       movies.map((movie) => movie.id),
     );
 
-    const previousStatus = meta.status;
     await setGameMeta(input.gameCode, {
       ...meta,
       status: "swiping",
@@ -259,18 +258,13 @@ export const start = async (input: {
     });
 
     const gameCode = input.gameCode.trim().toUpperCase();
-    emitEvent("room.status_changed", {
-      gameCode,
-      previousStatus,
-      nextStatus: "swiping",
-    });
     emitEvent("room.started", {
       gameCode,
     });
 
     return {
       gameCode,
-      previousStatus,
+      previousStatus: meta.status,
       nextStatus: "swiping" as const,
       playerIds,
     };
@@ -298,11 +292,6 @@ export const end = (input: {
     ]);
 
     const gameCode = normalizeGameCode(input.gameCode);
-    emitEvent("room.status_changed", {
-      gameCode,
-      previousStatus,
-      nextStatus: "completed",
-    });
     emitEvent("room.deleted", {
       gameCode,
     });

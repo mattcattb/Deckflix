@@ -252,6 +252,14 @@ const createSourceHit = (
   ...(anchorMovieId ? {anchorMovieId} : {}),
 });
 
+const toRelaxedDiscoveryFilters = (filters: MovieQueryOptions): MovieQueryOptions => {
+  const relaxed = {...filters};
+  delete relaxed.with_watch_providers;
+  delete relaxed.without_watch_providers;
+  delete relaxed.watch_region;
+  return relaxed;
+};
+
 const toCandidateRecord = (
   movie: MovieSourceCandidate,
   sourceHit: RecommendationSourceHit,
@@ -374,9 +382,10 @@ const getSettingsFingerprint = (
 const fetchDiscoverStrategy = async (
   strategy: RecommendationStrategy,
   seed: string,
+  strategyFilters?: MovieQueryOptions,
 ) => {
   const probePage = strategy.pageBandStart ?? 1;
-  const filters = strategy.filters ?? {};
+  const filters = strategyFilters ?? strategy.filters ?? {};
   const probe = await discoverTmdbMovies({
     ...filters,
     page: probePage,
@@ -1059,20 +1068,26 @@ export const fetchRecommendationCandidates = async (input: {
   const {plan, settings, preferences} = input;
   const candidates = new Map<string, RecommendationCandidateRecord>();
   const baseStrategies = listBaseStrategies(plan);
+  const hasProviderBias =
+    preferences.preferredProviderIds.length > 0 ||
+    preferences.excludedProviderIds.length > 0;
   const baseResults = await Promise.allSettled(
     baseStrategies.map(async (strategy) => ({
       strategy,
       pageResults:
         strategy.source === "discover"
-          ? await fetchDiscoverStrategy(strategy, plan.seed)
+          ? await fetchDiscoverStrategy(strategy, plan.seed, strategy.filters)
           : await fetchTrendingStrategy(strategy),
     })),
   );
-  const discoverSuccessCount = baseResults.reduce((count, result) => {
+  let discoverSuccessCount = 0;
+  let discoveredCandidateCount = 0;
+  const baseDiscoverSuccessCount = baseResults.reduce((count, result) => {
     if (result.status !== "fulfilled") {
       return count;
     }
 
+    const beforeCount = candidates.size;
     for (const pageResult of result.value.pageResults) {
       mergeCandidates(
         candidates,
@@ -1081,9 +1096,57 @@ export const fetchRecommendationCandidates = async (input: {
         pageResult.page,
       );
     }
+    if (result.value.strategy.source === "discover") {
+      discoveredCandidateCount += candidates.size - beforeCount;
+    }
 
     return result.value.strategy.source === "discover" ? count + 1 : count;
   }, 0);
+  discoverSuccessCount = baseDiscoverSuccessCount;
+  const minimumDiscoverPool = Math.max(settings.gameplay.maxMovies * 2, 30);
+
+  if (
+    hasProviderBias &&
+    discoveredCandidateCount < minimumDiscoverPool
+  ) {
+    const relaxedDiscoverPass = await Promise.allSettled(
+      baseStrategies.map(async (strategy) => {
+        if (strategy.source !== "discover" || !strategy.filters) {
+          return {
+            strategy,
+            pageResults: [],
+          };
+        }
+
+        const relaxedFilters = toRelaxedDiscoveryFilters(strategy.filters);
+        return {
+          strategy,
+          pageResults: await fetchDiscoverStrategy(
+            strategy,
+            plan.seed,
+            relaxedFilters,
+          ),
+        };
+      }),
+    );
+
+    for (const result of relaxedDiscoverPass) {
+      if (result.status !== "fulfilled") {
+        continue;
+      }
+
+      for (const pageResult of result.value.pageResults) {
+        const beforeCount = candidates.size;
+        mergeCandidates(
+          candidates,
+          pageResult.items,
+          result.value.strategy,
+          pageResult.page,
+        );
+        discoveredCandidateCount += candidates.size - beforeCount;
+      }
+    }
+  }
 
   const provisionalAnchors = selectExpansionAnchors(
     scoreBaseCandidatesForAnchors([...candidates.values()], preferences),

@@ -8,6 +8,7 @@ type MovieCardProps = {
   className?: string;
   active?: boolean;
   style?: CSSProperties;
+  onDetailsClick?: () => void;
 };
 
 export function MovieCard({
@@ -16,6 +17,7 @@ export function MovieCard({
   className,
   active = false,
   style,
+  onDetailsClick,
 }: MovieCardProps) {
   return (
     <article
@@ -32,6 +34,20 @@ export function MovieCard({
           className="h-[400px] w-full object-cover"
           draggable={false}
         />
+        {onDetailsClick ? (
+          <button
+            type="button"
+            aria-label={`Show more details about ${movie.title}`}
+            title="Show details"
+            className="absolute bottom-5 right-5 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white shadow-lg backdrop-blur transition hover:bg-white/18 focus:outline-none focus:ring-2 focus:ring-primary/80"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDetailsClick();
+            }}>
+            <ChevronUpIcon />
+          </button>
+        ) : null}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-5 pt-16">
           <div className="text-2xl font-bold text-white font-display leading-tight">
             {movie.title}
@@ -79,5 +95,22 @@ export function MovieCard({
         ) : null}
       </div>
     </article>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round">
+      <path d="m18 15-6-6-6 6" />
+    </svg>
   );
 }

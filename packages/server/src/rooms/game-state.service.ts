@@ -7,7 +7,8 @@ import type {
   GameSettings,
   GameSummary,
   GameVoteSummary,
-  PlayerGameState,
+  PlayerDeckState,
+  PlayerRoomState,
 } from "@deckflix/shared";
 import {UnauthorizedException} from "../common/errors";
 import * as DeckService from "../gameplay/deck.service";
@@ -243,10 +244,10 @@ export const getGameMeta = async (gameCode: string): Promise<GameMeta> => {
   };
 };
 
-const getPlayerGameState = async (input: {
+export const getPlayerRoomState = async (input: {
   gameCode: string;
   playerId: string;
-}): Promise<PlayerGameState> => {
+}): Promise<PlayerRoomState> => {
   const player = await PlayerService.getPlayerRecord(
     input.gameCode,
     input.playerId,
@@ -255,29 +256,10 @@ const getPlayerGameState = async (input: {
     throw new UnauthorizedException("Player not found");
   }
 
-  const [settings, currentMovieId] = await Promise.all([
-    RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
-    DeckService.peekOrTopUpCurrentMovieId(input.gameCode, input.playerId),
-  ]);
-  const deckStatus = await DeckService.getPlayerDeckStatus(
+  const settings = await RoomSettingsService.getGameSettingsOrThrow(
     input.gameCode,
-    input.playerId,
   );
   const summary = await getGameSummary(input.gameCode, settings);
-  const currentItem = currentMovieId
-    ? {
-        movie: await MovieMetadataService.getRoomMovieMetadataOrThrow(
-          input.gameCode,
-          currentMovieId,
-        ),
-      }
-    : null;
-  if (!currentItem && summary.status === "swiping") {
-    requestPoolExpansion({
-      gameCode: input.gameCode,
-      reason: "player_state_requested",
-    });
-  }
 
   return {
     summary,
@@ -286,6 +268,38 @@ const getPlayerGameState = async (input: {
       playerId: player.id,
       displayName: player.displayName,
       iconId: player.iconId,
+    },
+  };
+};
+
+const getPlayerDeckStateFromCurrent = async (input: {
+  gameCode: string;
+  playerId: string;
+  currentMovieId: string | null;
+}): Promise<PlayerDeckState> => {
+  const player = await PlayerService.getPlayerRecord(
+    input.gameCode,
+    input.playerId,
+  );
+  if (!player) {
+    throw new UnauthorizedException("Player not found");
+  }
+
+  const deckStatus = await DeckService.getPlayerDeckStatus(
+    input.gameCode,
+    input.playerId,
+  );
+  const currentItem = input.currentMovieId
+    ? {
+        movie: await MovieMetadataService.getRoomMovieMetadataOrThrow(
+          input.gameCode,
+          input.currentMovieId,
+        ),
+      }
+    : null;
+
+  return {
+    me: {
       currentIndex: deckStatus.currentIndex,
       completed: deckStatus.completed,
     },
@@ -294,7 +308,29 @@ const getPlayerGameState = async (input: {
   };
 };
 
-export const getProjectedPlayerState = async (input: {
+export const getPlayerDeckState = async (input: {
   gameCode: string;
   playerId: string;
-}): Promise<PlayerGameState> => getPlayerGameState(input);
+}): Promise<PlayerDeckState> =>
+  getPlayerDeckStateFromCurrent({
+    ...input,
+    currentMovieId: await DeckService.peekCurrentMovieId(
+      input.gameCode,
+      input.playerId,
+    ),
+  });
+
+export const refreshPlayerDeckState = async (input: {
+  gameCode: string;
+  playerId: string;
+}): Promise<PlayerDeckState> => {
+  await DeckService.refreshPlayerDeck(input.gameCode, input.playerId);
+  const state = await getPlayerDeckState(input);
+  if (!state.currentItem && !state.me.completed) {
+    requestPoolExpansion({
+      gameCode: input.gameCode,
+      reason: "player_state_requested",
+    });
+  }
+  return state;
+};

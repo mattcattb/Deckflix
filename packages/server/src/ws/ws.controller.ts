@@ -8,7 +8,7 @@ import {
 import {createRouter} from "../common/hono";
 import * as PresenceService from "../presence/presence.service";
 import * as RealtimeService from "../realtime/realtime.service";
-import {getProjectedPlayerState} from "../rooms/game-state.service";
+import {getPlayerRoomState} from "../rooms/game-state.service";
 import {activeRoomMiddleware} from "../rooms/rooms.middleware";
 
 const createSocketHandler = () =>
@@ -64,7 +64,7 @@ const createSocketHandler = () =>
             ws.send(
               encodePlayerServerMessage({
                 type: "player.snapshot",
-                payload: await getProjectedPlayerState({gameCode, playerId}),
+                payload: await getPlayerRoomState({gameCode, playerId}),
               }),
             );
             RealtimeService.subscribePlayerSocket(ws, gameCode, playerId);

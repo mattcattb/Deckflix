@@ -15,6 +15,8 @@ describe("game preferences", () => {
       resolveGamePreferences({
         includedGenreIds: [28],
         excludedGenreIds: [28],
+        preferredProviderIds: [8],
+        excludedProviderIds: [8],
         primaryReleaseDateGte: "2025-01-01",
         primaryReleaseDateLte: "2024-01-01",
         voteAverageGte: 8.5,
@@ -29,6 +31,9 @@ describe("game preferences", () => {
         popularityPreset: "popular",
         includedGenreIds: [28, 35],
         excludedGenreIds: [27],
+        preferredProviderIds: [8, 337],
+        excludedProviderIds: [9],
+        watchRegion: "US",
         primaryReleaseDateGte: "2020-01-01",
         primaryReleaseDateLte: "2024-12-31",
         voteAverageGte: 6.5,
@@ -39,6 +44,9 @@ describe("game preferences", () => {
     expect(filters).toEqual({
       with_genres: "28|35",
       without_genres: "27",
+      watch_region: "US",
+      with_watch_providers: "8|337",
+      without_watch_providers: "9",
       "primary_release_date.gte": "2020-01-01",
       "primary_release_date.lte": "2024-12-31",
       "vote_average.gte": 6.5,
@@ -50,6 +58,9 @@ describe("game preferences", () => {
     expect(buildMovieDiscoveryOptions(DEFAULT_GAME_PREFERENCES)).toEqual({
       with_genres: undefined,
       without_genres: undefined,
+      watch_region: undefined,
+      with_watch_providers: undefined,
+      without_watch_providers: undefined,
       "primary_release_date.gte": undefined,
       "primary_release_date.lte": undefined,
       "vote_average.gte": undefined,

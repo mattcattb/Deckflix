@@ -1,14 +1,14 @@
 import {beforeEach, describe, expect, mock, test} from "bun:test";
 
 const popCurrentMovieId = mock();
-const peekOrTopUpCurrentMovieId = mock();
+const peekCurrentMovieId = mock();
 const getPlayerDeckStatus = mock();
 const recordVote = mock();
 const requestPoolExpansion = mock();
 
 mock.module(new URL("./deck.service.ts", import.meta.url).href, () => ({
   popCurrentMovieId,
-  peekOrTopUpCurrentMovieId,
+  peekCurrentMovieId,
   getPlayerDeckStatus,
 }));
 
@@ -24,7 +24,7 @@ const GameService = await import("./game.service");
 
 beforeEach(() => {
   popCurrentMovieId.mockReset();
-  peekOrTopUpCurrentMovieId.mockReset();
+  peekCurrentMovieId.mockReset();
   getPlayerDeckStatus.mockReset();
   recordVote.mockReset();
   requestPoolExpansion.mockReset();
@@ -55,7 +55,7 @@ describe("swipe.service", () => {
     recordVote.mockResolvedValue({
       votedAt: "2026-05-12T00:00:00.000Z",
     });
-    peekOrTopUpCurrentMovieId.mockResolvedValue(null);
+    peekCurrentMovieId.mockResolvedValue(null);
     getPlayerDeckStatus.mockResolvedValue({
       currentIndex: 10,
       completed: true,

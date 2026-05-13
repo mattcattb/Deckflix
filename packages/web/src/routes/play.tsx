@@ -10,8 +10,9 @@ import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import type {
   ActiveRoomClient,
+  PlayerDeckState,
   PlayerIconId,
-  PlayerGameState,
+  PlayerRoomState,
   SwipeChoice,
 } from "@deckflix/shared";
 import {PLAYER_DISPLAY_NAME_MAX_LENGTH, playerAvatarIds} from "@deckflix/shared";
@@ -26,10 +27,12 @@ import {
   SocketStatusDot,
 } from "../components/layout";
 import {
-  activePlayerStateQueryOptions,
+  activePlayerDeckQueryOptions,
+  activePlayerRoomQueryOptions,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   activeRoomResultsQueryOptions,
+  roomKeys,
 } from "../features/room/room.queries";
 import {
   activeRoomSessionKeys,
@@ -52,7 +55,7 @@ const prefetchPlayerRoom = async (
     queryClient.prefetchQuery(activeRoomMetaQueryOptions(gameCode)),
     queryClient.prefetchQuery(activeRoomPlayersQueryOptions(gameCode)),
     queryClient.prefetchQuery(activeRoomResultsQueryOptions(gameCode)),
-    queryClient.prefetchQuery(activePlayerStateQueryOptions(gameCode)),
+    queryClient.prefetchQuery(activePlayerRoomQueryOptions(gameCode)),
   ]);
 };
 
@@ -90,14 +93,22 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const queryClient = useQueryClient();
   const {notify} = useToast();
   const didClearSessionRef = useRef(false);
+  const lastDeckRefreshAtRef = useRef(0);
+  const deckRefreshTimeoutScheduledRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
-  const [state, setState] = useState<PlayerGameState | null>(null);
+  const [playerState, setPlayerState] = useState<PlayerRoomState | null>(null);
+  const [isDeckRefreshQueued, setIsDeckRefreshQueued] = useState(false);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
-  const stateQuery = useQuery(activePlayerStateQueryOptions(gameCode));
+  const playerQuery = useQuery(activePlayerRoomQueryOptions(gameCode));
+  const deckQuery = useQuery({
+    ...activePlayerDeckQueryOptions(gameCode),
+    enabled: playerState?.summary.status === "swiping",
+  });
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
-  const refetchState = stateQuery.refetch;
+  const refetchPlayer = playerQuery.refetch;
+  const refetchDeck = deckQuery.refetch;
 
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
@@ -110,29 +121,93 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     });
   }, [gameCode, navigate, queryClient]);
 
-  useEffect(() => {
-    if (stateQuery.data) {
-      setState(stateQuery.data);
-    }
-  }, [stateQuery.data]);
+  const refreshDeckMutation = useMutation({
+    mutationFn: async () => parseRpc(api.api.game.deck.refresh.$post()),
+    onSuccess: (deck) => {
+      queryClient.setQueryData<PlayerDeckState>(
+        roomKeys.playerDeck(gameCode),
+        deck,
+      );
+    },
+    onError: (error) => {
+      if (isMissingRoomSessionError(error)) {
+        resetRoomSession();
+        return;
+      }
+
+      setGameError(
+        error instanceof Error ? error.message : "Unable to refresh deck",
+      );
+    },
+  });
+  const refreshDeck = refreshDeckMutation.mutate;
+  const refreshDeckPending = refreshDeckMutation.isPending;
 
   useEffect(() => {
-    const roomError = metaQuery.error ?? playersQuery.error ?? stateQuery.error;
+    if (playerQuery.data) {
+      setPlayerState(playerQuery.data);
+    }
+  }, [playerQuery.data]);
+
+  useEffect(() => {
+    const roomError =
+      metaQuery.error ??
+      playersQuery.error ??
+      playerQuery.error ??
+      deckQuery.error;
     if (roomError && isMissingRoomSessionError(roomError)) {
       resetRoomSession();
     }
-  }, [metaQuery.error, playersQuery.error, resetRoomSession, stateQuery.error]);
+  }, [
+    deckQuery.error,
+    metaQuery.error,
+    playerQuery.error,
+    playersQuery.error,
+    resetRoomSession,
+  ]);
 
   useEffect(() => {
-    if (state?.summary.status !== "swiping" || state.currentItem) {
+    if (
+      playerState?.summary.status !== "swiping" ||
+      deckQuery.data?.currentItem ||
+      deckQuery.data?.me.completed ||
+      deckQuery.isFetching ||
+      deckQuery.isLoading ||
+      refreshDeckPending ||
+      deckRefreshTimeoutScheduledRef.current
+    ) {
+      if (deckRefreshTimeoutScheduledRef.current) {
+        deckRefreshTimeoutScheduledRef.current = false;
+        setIsDeckRefreshQueued(false);
+      }
       return;
     }
 
-    const interval = window.setInterval(() => {
-      void refetchState();
-    }, 2500);
-    return () => window.clearInterval(interval);
-  }, [refetchState, state?.currentItem, state?.summary.status]);
+    const elapsed = Date.now() - lastDeckRefreshAtRef.current;
+    const delay = Math.max(0, 2500 - elapsed);
+    deckRefreshTimeoutScheduledRef.current = true;
+    setIsDeckRefreshQueued(true);
+    const timeout = window.setTimeout(() => {
+      lastDeckRefreshAtRef.current = Date.now();
+      deckRefreshTimeoutScheduledRef.current = false;
+      setIsDeckRefreshQueued(false);
+      refreshDeck();
+    }, delay);
+
+    return () => {
+      window.clearTimeout(timeout);
+      deckRefreshTimeoutScheduledRef.current = false;
+      setIsDeckRefreshQueued(false);
+    };
+  }, [
+    deckQuery.data?.currentItem,
+    deckQuery.data?.me.completed,
+    deckQuery.isFetching,
+    deckQuery.isLoading,
+    playerState?.summary.status,
+    refreshDeck,
+    refreshDeckPending,
+  ]);
 
   const voteMutation = useMutation({
     mutationFn: async (payload: {choice: SwipeChoice; movieId: string}) =>
@@ -145,19 +220,13 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }),
       ),
     onSuccess: (result) => {
-      setState((current) =>
-        current
-          ? {
-              ...current,
-              me: {
-                ...current.me,
-                ...result.statePatch.me,
-              },
-              currentItem: result.statePatch.currentItem,
-              remainingCount: result.statePatch.remainingCount,
-            }
-          : current,
+      queryClient.setQueryData<PlayerDeckState>(
+        roomKeys.playerDeck(gameCode),
+        result.statePatch,
       );
+      if (!result.statePatch.currentItem) {
+        refreshDeck();
+      }
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -202,7 +271,9 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       ),
     onSuccess: (player) => {
       setGameError(null);
-      setState((current) =>
+      const updatePlayerProfile = (
+        current: PlayerRoomState | null | undefined,
+      ) =>
         current
           ? {
               ...current,
@@ -212,7 +283,11 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
                 iconId: player.iconId,
               },
             }
-          : current,
+          : current;
+      setPlayerState((current) => updatePlayerProfile(current) ?? null);
+      queryClient.setQueryData<PlayerRoomState | null>(
+        roomKeys.player(gameCode),
+        updatePlayerProfile,
       );
       void refetchPlayers();
     },
@@ -235,8 +310,14 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       setGameError(null);
       void refetchMeta();
       void refetchPlayers();
-      void refetchState();
-    }, [refetchMeta, refetchPlayers, refetchState]),
+      void refetchPlayer();
+      void refetchDeck();
+    }, [
+      refetchDeck,
+      refetchMeta,
+      refetchPlayer,
+      refetchPlayers,
+    ]),
     onMessage: useCallback(
       (event: MessageEvent<string>) => {
         const message = parsePlayerServerMessage(event.data);
@@ -245,15 +326,31 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
 
         if (message.type === "player.snapshot") {
-          setState(message.payload);
+          setPlayerState(message.payload);
           void refetchMeta();
           void refetchPlayers();
+          return;
+        }
+
+        if (message.type === "room.started") {
+          void refetchMeta();
+          void refetchPlayers();
+          void refetchPlayer();
+          refreshDeck();
+          return;
+        }
+
+        if (message.type === "room.completed") {
+          void refetchMeta();
+          void refetchPlayer();
           return;
         }
 
         if (message.type === "room.status_changed") {
           void refetchMeta();
           void refetchPlayers();
+          void refetchPlayer();
+          refreshDeck();
           return;
         }
 
@@ -273,7 +370,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
 
         if (message.type === "player.updated") {
-          setState((current) =>
+          setPlayerState((current) =>
             current
               ? {
                   ...current,
@@ -304,15 +401,23 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
           setGameError(message.payload.message);
         }
       },
-      [notify, refetchMeta, refetchPlayers, resetRoomSession],
+      [
+        notify,
+        refetchDeck,
+        refetchMeta,
+        refetchPlayer,
+        refetchPlayers,
+        refreshDeck,
+        resetRoomSession,
+      ],
     ),
   });
 
   if (
     metaQuery.isLoading ||
     playersQuery.isLoading ||
-    stateQuery.isLoading ||
-    !state
+    playerQuery.isLoading ||
+    !playerState
   ) {
     return null;
   }
@@ -320,14 +425,14 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   if (
     metaQuery.error ||
     playersQuery.error ||
-    stateQuery.error ||
+    playerQuery.error ||
     !metaQuery.data ||
     !playersQuery.data
   ) {
     if (
       isMissingRoomSessionError(metaQuery.error) ||
       isMissingRoomSessionError(playersQuery.error) ||
-      isMissingRoomSessionError(stateQuery.error)
+      isMissingRoomSessionError(playerQuery.error)
     ) {
       return null;
     }
@@ -335,8 +440,8 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     return (
       <RoomUnavailable
         message={
-          stateQuery.error instanceof Error
-            ? stateQuery.error.message
+          playerQuery.error instanceof Error
+            ? playerQuery.error.message
             : metaQuery.error instanceof Error
               ? metaQuery.error.message
               : playersQuery.error instanceof Error
@@ -348,14 +453,14 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   }
 
   const vote = (choice: SwipeChoice, movieId?: string) => {
-    if (!state.currentItem) {
+    if (!deckQuery.data?.currentItem) {
       return;
     }
 
     setGameError(null);
     voteMutation.mutate({
       choice,
-      movieId: movieId ?? state.currentItem.movie.id,
+      movieId: movieId ?? deckQuery.data.currentItem.movie.id,
     });
   };
 
@@ -368,17 +473,17 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
           title={
             <button
               type="button"
-              aria-label={`Copy room code ${state.summary.code}`}
+              aria-label={`Copy room code ${playerState.summary.code}`}
               className="font-mono text-sm font-bold tracking-[0.22em] text-primary transition hover:text-[hsl(357_92%_55%)] sm:text-lg"
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(state.summary.code);
+                  await navigator.clipboard.writeText(playerState.summary.code);
                   setGameError(null);
                 } catch {
                   setGameError("Unable to copy room code");
                 }
               }}>
-              {state.summary.code}
+              {playerState.summary.code}
             </button>
           }
           actions={
@@ -401,8 +506,15 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       widthClassName="flex max-w-5xl flex-1 flex-col">
       <PlayerRoomBody
         isVoting={voteMutation.isPending}
+        deck={deckQuery.data ?? null}
+        deckPending={
+          deckQuery.isLoading ||
+          deckQuery.isFetching ||
+          refreshDeckPending ||
+          isDeckRefreshQueued
+        }
         profilePending={profileMutation.isPending}
-        state={state}
+        player={playerState}
         onProfileSubmit={(payload) => profileMutation.mutate(payload)}
         onVote={vote}
       />
@@ -412,26 +524,30 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
 
 function PlayerRoomBody({
   isVoting,
+  deck,
+  deckPending,
   onProfileSubmit,
   onVote,
+  player,
   profilePending,
-  state,
 }: {
+  deck: PlayerDeckState | null;
+  deckPending: boolean;
   isVoting: boolean;
   onProfileSubmit: (payload: {displayName: string; iconId: PlayerIconId}) => void;
   onVote: (choice: SwipeChoice, movieId?: string) => void;
+  player: PlayerRoomState;
   profilePending: boolean;
-  state: PlayerGameState;
 }) {
-  const viewMode = getPlayerRoomViewMode(state.summary.status);
+  const viewMode = getPlayerRoomViewMode(player.summary.status);
 
   if (viewMode === "waiting") {
     return (
       <PlayerRoomBodyFrame>
         <div className="w-full max-w-md">
           <PlayerProfileEditor
-            displayName={state.me.displayName}
-            iconId={state.me.iconId}
+            displayName={player.me.displayName}
+            iconId={player.me.iconId}
             pending={profilePending}
             onSubmit={onProfileSubmit}
           />
@@ -451,11 +567,19 @@ function PlayerRoomBody({
     );
   }
 
-  if (!state.currentItem) {
+  if (!deck?.currentItem) {
+    if (deckPending) {
+      return (
+        <PlayerRoomBodyFrame>
+          <PlayerDeckLoadingCard />
+        </PlayerRoomBodyFrame>
+      );
+    }
+
     return (
       <PlayerRoomBodyFrame>
         <PlayerStatusPanel
-          title="Finding more movies"
+          title="No movie ready"
           body="New picks are being added to the room. Your next card will appear here."
         />
       </PlayerRoomBodyFrame>
@@ -466,7 +590,7 @@ function PlayerRoomBody({
     <PlayerRoomBodyFrame>
       <div className="w-full max-w-sm space-y-4">
         <SwipeDeck
-          item={state.currentItem}
+          item={deck.currentItem}
           onSwipe={(choice, movieId) => onVote(choice, movieId)}
           disabled={isVoting}
         />
@@ -476,6 +600,26 @@ function PlayerRoomBody({
         />
       </div>
     </PlayerRoomBodyFrame>
+  );
+}
+
+function PlayerDeckLoadingCard() {
+  return (
+    <div className="w-full max-w-sm space-y-4">
+      <div className="relative mx-auto w-full overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04] shadow-[0_20px_60px_hsl(0_0%_0%/0.5)]">
+        <div className="h-[400px] bg-gradient-to-r from-white/[0.06] via-white/[0.12] to-white/[0.06] bg-[length:200%_100%] animate-[shimmer_1.4s_linear_infinite]" />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="flex flex-col items-center gap-3 rounded-xl border border-white/12 bg-black/65 px-4 py-4 text-xs uppercase tracking-[0.18em] text-white"
+            role="status"
+            aria-live="polite">
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-primary" />
+            <span className="font-bold text-muted-foreground">Finding your next movie</span>
+          </div>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/90 via-black/55 to-transparent" />
+      </div>
+    </div>
   );
 }
 

@@ -15,8 +15,10 @@ export const roomKeys = {
     ["room", normalizeGameCode(gameCode), "recent"] as const,
   stinkers: (gameCode: string) =>
     ["room", normalizeGameCode(gameCode), "stinkers"] as const,
-  playerState: (gameCode: string) =>
-    ["room", normalizeGameCode(gameCode), "player-state"] as const,
+  player: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "player"] as const,
+  playerDeck: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "player-deck"] as const,
 };
 
 export const activeRoomMetaQueryOptions = (gameCode: string) =>
@@ -55,8 +57,14 @@ export const activeGameStinkersQueryOptions = (gameCode: string) =>
     queryFn: () => parseRpc(api.api.game.stinkers.$get()),
   });
 
-export const activePlayerStateQueryOptions = (gameCode: string) =>
+export const activePlayerRoomQueryOptions = (gameCode: string) =>
   queryOptions({
-    queryKey: roomKeys.playerState(gameCode),
+    queryKey: roomKeys.player(gameCode),
     queryFn: () => parseRpc(api.api.game.player.$get()),
+  });
+
+export const activePlayerDeckQueryOptions = (gameCode: string) =>
+  queryOptions({
+    queryKey: roomKeys.playerDeck(gameCode),
+    queryFn: () => parseRpc(api.api.game.deck.$get()),
   });

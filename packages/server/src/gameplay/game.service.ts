@@ -53,7 +53,7 @@ export const recordSwipe = async (input: {
 };
 
 const getPlayerSwipeStatePatch = async (gameCode: string, playerId: string) => {
-  const currentMovieId = await DeckService.peekOrTopUpCurrentMovieId(
+  const currentMovieId = await DeckService.peekCurrentMovieId(
     gameCode,
     playerId,
   );

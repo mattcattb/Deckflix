@@ -77,7 +77,7 @@ export const getPlayerPoolCursor = async (
   playerId: string,
 ) => getCursor(gameCode, playerId);
 
-const topUpPlayerDeck = async (
+export const refreshPlayerDeck = async (
   gameCode: string,
   playerId: string,
   targetSize = PLAYER_DECK_TARGET,
@@ -128,7 +128,7 @@ const topUpPlayerDeck = async (
   await multi.exec();
 };
 
-const peekDeck = async (
+export const peekCurrentMovieId = async (
   gameCode: string,
   playerId: string,
 ): Promise<string | null> => {
@@ -148,25 +148,12 @@ const popDeck = async (
   return top;
 };
 
-export const peekOrTopUpCurrentMovieId = async (
-  gameCode: string,
-  playerId: string,
-) => {
-  const current = await peekDeck(gameCode, playerId);
-  if (current) {
-    return current;
-  }
-
-  await topUpPlayerDeck(gameCode, playerId);
-  return peekDeck(gameCode, playerId);
-};
-
 export const popCurrentMovieId = async (
   gameCode: string,
   playerId: string,
   expectedMovieId?: string,
 ) => {
-  const current = await peekOrTopUpCurrentMovieId(gameCode, playerId);
+  const current = await peekCurrentMovieId(gameCode, playerId);
   if (!current) {
     return {status: "empty" as const};
   }
@@ -175,7 +162,6 @@ export const popCurrentMovieId = async (
   }
 
   await popDeck(gameCode, playerId);
-  void topUpPlayerDeck(gameCode, playerId);
   return {status: "ok" as const, movieId: current};
 };
 

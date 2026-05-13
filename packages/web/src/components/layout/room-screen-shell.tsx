@@ -96,7 +96,7 @@ export function RoomScreenShell({
     <div className="flex min-h-screen w-full flex-col bg-black text-white">
       {header}
       <div className="flex w-full flex-1 gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        {sidebar ? <aside className="hidden w-60 shrink-0 lg:block">{sidebar}</aside> : null}
+        {sidebar ? <aside className="hidden w-48 shrink-0 lg:block">{sidebar}</aside> : null}
         <main className="min-w-0 flex-1">
           <div className={`mx-auto w-full ${widthClassName}`}>
             {mobileSidebar}
@@ -121,11 +121,13 @@ export function RoomSidebarSection({
   title: ReactNode;
 }) {
   return (
-    <div className="sticky top-24 h-[calc(100vh-7.5rem)] border-r border-white/10 pr-6">
+    <div className="fixed top-24 h-[calc(100vh-7.5rem)] w-48">
       <div className="pb-5">
         <Eyebrow className="text-white/45">{title}</Eyebrow>
       </div>
-      <div className="h-[calc(100%-5.75rem)] overflow-y-auto">{children}</div>
+      <div className="grid h-[calc(100%-5.75rem)] grid-cols-2 gap-x-3 gap-y-5 overflow-y-auto">
+        {children}
+      </div>
     </div>
   );
 }

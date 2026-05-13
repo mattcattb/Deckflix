@@ -20,7 +20,7 @@ const STATUS_TO_CODE: Record<number, ApiErrorCode> = {
   500: "INTERNAL_ERROR",
 };
 
-export class AppHttpError extends HTTPException {
+class AppHttpError extends HTTPException {
   public readonly code: ApiErrorCode;
   public readonly details?: unknown;
 
@@ -45,12 +45,6 @@ export class BadRequestException extends AppHttpError {
 export class UnauthorizedException extends AppHttpError {
   constructor(message?: string, details?: unknown) {
     super(401, "UNAUTHORIZED", message, details);
-  }
-}
-
-export class ForbiddenException extends AppHttpError {
-  constructor(message?: string, details?: unknown) {
-    super(403, "FORBIDDEN", message, details);
   }
 }
 

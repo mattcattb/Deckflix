@@ -14,10 +14,6 @@ type ProfileAvatarProps = {
   size?: ProfileAvatarSize;
 };
 
-type ProfileTileProps = ProfileAvatarProps & {
-  nameClassName?: string;
-};
-
 const AVATAR_GRADIENTS = [
   "from-red-500 to-rose-700",
   "from-amber-400 to-orange-600",
@@ -316,37 +312,6 @@ export function ProfileAvatar({
         className,
       )}>
       {getInitial(displayName)}
-    </div>
-  );
-}
-
-export function ProfileTile({
-  avatarKey,
-  className,
-  colorKey,
-  displayName,
-  iconKey,
-  imageUrl,
-  nameClassName,
-  size = "lg",
-}: ProfileTileProps) {
-  return (
-    <div className={cn("flex min-w-0 flex-col items-center gap-2", className)}>
-      <ProfileAvatar
-        avatarKey={avatarKey}
-        colorKey={colorKey}
-        displayName={displayName}
-        iconKey={iconKey}
-        imageUrl={imageUrl}
-        size={size}
-      />
-      <div
-        className={cn(
-          "max-w-full truncate text-center text-xs font-medium text-white/70",
-          nameClassName,
-        )}>
-        {displayName}
-      </div>
     </div>
   );
 }

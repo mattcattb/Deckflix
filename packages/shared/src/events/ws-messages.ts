@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {playerGameStateSchema} from "../game-snapshots";
+import {playerRoomStateSchema} from "../game-snapshots";
 import {
   playerConnectedEventSchema,
   playerDisconnectedEventSchema,
@@ -9,6 +9,7 @@ import {
   playerUpdatedEventSchema,
 } from "./player-events";
 import {
+  roomCompletedEventSchema,
   roomDeletedEventSchema,
   roomStartedEventSchema,
   roomStatusChangedEventSchema,
@@ -33,11 +34,12 @@ export const playerClientMessageSchema = z.discriminatedUnion("type", [
 
 export const playerSnapshotEventSchema = z.object({
   type: z.literal("player.snapshot"),
-  payload: playerGameStateSchema,
+  payload: playerRoomStateSchema,
 });
 
 export const displayServerMessageSchema = z.discriminatedUnion("type", [
   roomStartedEventSchema,
+  roomCompletedEventSchema,
   roomStatusChangedEventSchema,
   roomDeletedEventSchema,
   playerJoinedEventSchema,
@@ -54,6 +56,8 @@ export const displayServerMessageSchema = z.discriminatedUnion("type", [
 
 export const playerServerMessageSchema = z.discriminatedUnion("type", [
   playerSnapshotEventSchema,
+  roomStartedEventSchema,
+  roomCompletedEventSchema,
   roomStatusChangedEventSchema,
   roomDeletedEventSchema,
   playerKickedEventSchema,

@@ -62,7 +62,12 @@ const publishRealtimeEvent = (event: AppEvent) => {
   }
 
   if (event.type === "room.started") {
-    publishDisplayMessage(realtimeServer, event.gameCode, event);
+    publishRoomMessage(realtimeServer, event.gameCode, event);
+    return;
+  }
+
+  if (event.type === "room.completed") {
+    publishRoomMessage(realtimeServer, event.gameCode, event);
     return;
   }
 

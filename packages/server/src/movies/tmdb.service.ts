@@ -34,7 +34,7 @@ export type TmdbMovieSimilarResult = Awaited<
 >;
 
 export type TmdbLanguage = AvailableLanguage;
-export const movieDetailsAppendKeys = [
+const movieDetailsAppendKeys = [
   "credits",
   "videos",
   "images",
@@ -53,11 +53,21 @@ export type TmdbMovieDetailsWithAppends = AppendToResponse<
   "movie"
 >;
 
+type TmdbMovieProviderResponse = {
+  results: Array<{
+    provider_id: number;
+    provider_name: string;
+    logo_path: string | null;
+    display_priority: number;
+  }>;
+};
+
 const TMDB_GENRE_CACHE_TTL_SECONDS = 60 * 60 * 24;
 const TMDB_DISCOVER_CACHE_TTL_SECONDS = 60 * 60 * 6;
 const TMDB_LIST_CACHE_TTL_SECONDS = 60 * 60;
 const TMDB_RELATED_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const TMDB_MOVIE_DETAILS_CACHE_TTL_SECONDS = 60 * 60 * 12;
+const TMDB_MOVIE_PROVIDERS_CACHE_TTL_SECONDS = 60 * 60 * 12;
 
 const stableStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -144,6 +154,38 @@ export const getTmdbPopularMovies = async (
         return await getTmdbClient().movies.popular(options);
       } catch (error) {
         return handleTmdbError(error, "TMDB popular movies request failed");
+      }
+    },
+  );
+
+export const getTmdbMovieProviders = async (options?: {
+  region?: string;
+  language?: TmdbLanguage;
+}): Promise<TmdbMovieProviderResponse> =>
+  getCached(
+    cacheKey("providers:movie", {
+      region: options?.region ?? "US",
+      language: options?.language,
+    }),
+    TMDB_MOVIE_PROVIDERS_CACHE_TTL_SECONDS,
+    async () => {
+      try {
+        const client = getTmdbClient() as unknown as {
+          watch: {
+            providers: {
+              movie: (options?: {
+                watch_region: string;
+                language: TmdbLanguage;
+              }) => Promise<TmdbMovieProviderResponse>;
+            };
+          };
+        };
+        return await client.watch.providers.movie({
+          watch_region: options?.region ?? "US",
+          language: options?.language ?? toTmdbLanguage(),
+        });
+      } catch (error) {
+        return handleTmdbError(error, "TMDB movie providers request failed");
       }
     },
   );

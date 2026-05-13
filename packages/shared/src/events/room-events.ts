@@ -7,6 +7,11 @@ export const roomStartedEventSchema = z.object({
   gameCode: gameCodeSchema,
 });
 
+export const roomCompletedEventSchema = z.object({
+  type: z.literal("room.completed"),
+  gameCode: gameCodeSchema,
+});
+
 export const roomStatusChangedEventSchema = z.object({
   type: z.literal("room.status_changed"),
   gameCode: gameCodeSchema,
@@ -20,5 +25,6 @@ export const roomDeletedEventSchema = z.object({
 });
 
 export type RoomStartedEvent = z.infer<typeof roomStartedEventSchema>;
+export type RoomCompletedEvent = z.infer<typeof roomCompletedEventSchema>;
 export type RoomStatusChangedEvent = z.infer<typeof roomStatusChangedEventSchema>;
 export type RoomDeletedEvent = z.infer<typeof roomDeletedEventSchema>;
