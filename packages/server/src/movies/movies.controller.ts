@@ -14,6 +14,7 @@ import {
   searchTmdbMovies,
   toTmdbLanguage,
 } from "./tmdb.service";
+import {toMovieCandidateFromTmdb} from "./movie-normalizer";
 
 const movieSearchQuerySchema = z.object({
   q: z.string().trim().min(1).max(120),
@@ -26,28 +27,6 @@ const moviePopularQuerySchema = z.object({
 
 const movieDetailsQuerySchema = z.object({
   language: z.string().trim().min(2).max(10).optional().default("en-US"),
-});
-
-const toYear = (releaseDate?: string | null) => {
-  if (!releaseDate) return 0;
-  const year = Number(releaseDate.slice(0, 4));
-  return Number.isNaN(year) ? 0 : year;
-};
-
-const toMovieSummary = (movie: {
-  id: number;
-  title: string;
-  release_date?: string | null;
-  overview?: string | null;
-  poster_path?: string | null;
-  vote_average?: number | null;
-}) => ({
-  id: String(movie.id),
-  title: movie.title,
-  year: toYear(movie.release_date),
-  overview: movie.overview ?? "",
-  posterUrl: buildTmdbImageUrl(movie.poster_path) ?? "",
-  rating: Number(movie.vote_average?.toFixed(1) ?? 0),
 });
 
 export const moviesController = createRouter()
@@ -89,7 +68,7 @@ export const moviesController = createRouter()
       page: result.page,
       totalPages: result.total_pages,
       totalResults: result.total_results,
-      items: result.results.map(toMovieSummary),
+      items: result.results.map(toMovieCandidateFromTmdb),
     });
   })
   .get("/popular", zValidator("query", moviePopularQuerySchema), async (c) => {
@@ -101,7 +80,7 @@ export const moviesController = createRouter()
       page: result.page,
       totalPages: result.total_pages,
       totalResults: result.total_results,
-      items: result.results.map(toMovieSummary),
+      items: result.results.map(toMovieCandidateFromTmdb),
     });
   })
   .get("/:movieId", zValidator("query", movieDetailsQuerySchema), async (c) => {
@@ -112,7 +91,7 @@ export const moviesController = createRouter()
       toTmdbLanguage(query.language),
     );
     return c.json({
-      ...toMovieSummary(movie),
+      ...toMovieCandidateFromTmdb(movie),
       backdropUrl: buildTmdbImageUrl(movie.backdrop_path, "w1280") ?? "",
       releaseDate: movie.release_date,
       runtimeMinutes: movie.runtime,

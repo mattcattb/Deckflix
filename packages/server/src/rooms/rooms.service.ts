@@ -8,10 +8,11 @@ import {
 import {randomUUID} from "node:crypto";
 import * as MovieStateService from "../gameplay/movie-state.service";
 import {emitEvent} from "../common/app-events";
-import * as PreferencesService from "../movies/preferences.service";
+import * as PreferencesService from "./room-preferences.service";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
 import * as PresenceService from "../presence/presence.service";
 import * as RecommendationsService from "../recommendations/recommendations.service";
-import * as PoolService from "../recommendations/pool.service";
+import * as PoolService from "../pool/pool.service";
 
 import {
   BadRequestException,
@@ -180,7 +181,7 @@ export const create = async (input: {
   const displayId = randomUUID();
   const sessionToken = randomUUID();
 
-  const poolSeed = RecommendationsService.createPoolSeed();
+  const poolSeed = RecommendationsService.createRecommendationSeed();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const gameCode = generateGameCode();
@@ -232,13 +233,19 @@ export const start = async (input: {
       PreferencesService.getGamePreferencesOrThrow(input.gameCode),
     ]);
 
-    const movies = await RecommendationsService.generatePool({
+    const movies = await RecommendationsService.generateInitialRecommendations({
       gameCode: input.gameCode,
       poolSeed: meta.poolSeed,
       settings,
       preferences,
     });
-    await PoolService.replacePool(input.gameCode, movies);
+    await Promise.all([
+      MovieMetadataService.replaceRoomMovieMetadata(input.gameCode, movies),
+      PoolService.replacePool(
+        input.gameCode,
+        movies.map((movie) => movie.id),
+      ),
+    ]);
     await MovieStateService.initializeMovieStates(
       input.gameCode,
       movies.map((movie) => movie.id),

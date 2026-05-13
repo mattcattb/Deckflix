@@ -6,6 +6,7 @@ import {ensureGameEventListener} from "./gameplay/game-event-listener";
 import {connectRedis} from "./redis/redis";
 import {ensureRealtimeDomainEventListener} from "./realtime/domain-event-listener";
 import {ensureSocketPubSub} from "./realtime/socket-pubsub.service";
+import {ensurePoolEventListener} from "./pool/pool-event-listener";
 export {app, protectedProjectsRoutes} from "./app";
 export type {AppType, ApiRoutesType} from "./app";
 
@@ -19,6 +20,7 @@ const ensureServerListeners = (
   void ensureSocketPubSub(server);
   ensureRealtimeDomainEventListener(server);
   ensureGameEventListener();
+  ensurePoolEventListener();
 };
 
 export default {

@@ -4,6 +4,7 @@ import {
   type GamePreferences,
   type GamePreferencesPatch,
 } from "@deckflix/shared";
+import type {MovieQueryOptions} from "tmdb-ts";
 import {NotFoundException} from "../common/errors";
 import {redisClient} from "../redis/redis";
 
@@ -112,15 +113,17 @@ export const patchGamePreferences = async (
   return next;
 };
 
-export const buildMovieDiscoveryFilters = (preferences: GamePreferences) => ({
-  includedGenreIds: preferences.includedGenreIds.length
-    ? preferences.includedGenreIds
+export const buildMovieDiscoveryOptions = (
+  preferences: GamePreferences,
+): MovieQueryOptions => ({
+  with_genres: preferences.includedGenreIds.length
+    ? preferences.includedGenreIds.join("|")
     : undefined,
-  excludedGenreIds: preferences.excludedGenreIds.length
-    ? preferences.excludedGenreIds
+  without_genres: preferences.excludedGenreIds.length
+    ? preferences.excludedGenreIds.join(",")
     : undefined,
-  primaryReleaseDateGte: preferences.primaryReleaseDateGte ?? undefined,
-  primaryReleaseDateLte: preferences.primaryReleaseDateLte ?? undefined,
-  voteAverageGte: preferences.voteAverageGte ?? undefined,
-  voteAverageLte: preferences.voteAverageLte ?? undefined,
+  "primary_release_date.gte": preferences.primaryReleaseDateGte ?? undefined,
+  "primary_release_date.lte": preferences.primaryReleaseDateLte ?? undefined,
+  "vote_average.gte": preferences.voteAverageGte ?? undefined,
+  "vote_average.lte": preferences.voteAverageLte ?? undefined,
 });

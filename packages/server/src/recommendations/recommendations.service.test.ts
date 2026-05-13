@@ -1,14 +1,14 @@
 import {describe, expect, test} from "bun:test";
 import {DEFAULT_GAME_SETTINGS} from "../rooms/room-settings.service";
-import * as RecommendationsService from "./recommendations.service";
+import * as RecommendationEngine from "./recommendation-engine";
 
 describe("recommendations.service", () => {
   test("plans deterministic source strategies for a seed", () => {
-    const first = RecommendationsService.planPoolQueries(
+    const first = RecommendationEngine.planRecommendationQueries(
       DEFAULT_GAME_SETTINGS,
       "seed-1",
     );
-    const second = RecommendationsService.planPoolQueries(
+    const second = RecommendationEngine.planRecommendationQueries(
       DEFAULT_GAME_SETTINGS,
       "seed-1",
     );
@@ -22,7 +22,7 @@ describe("recommendations.service", () => {
   });
 
   test("selects a final pool without duplicate movies", () => {
-    const movies = RecommendationsService.selectFinalPool(
+    const movies = RecommendationEngine.selectRecommendedMovies(
       Array.from({length: 8}, (_, index) => ({
         movie: {
           id: `movie-${index}`,

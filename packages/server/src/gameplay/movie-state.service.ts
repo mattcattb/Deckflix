@@ -113,6 +113,28 @@ export const initializeMovieStates = async (
   await multi.exec();
 };
 
+export const initializeMissingMovieStates = async (
+  gameCode: string,
+  movieIds: string[],
+) => {
+  const initialState = createInitialMovieState();
+  const existingStates = await Promise.all(
+    movieIds.map(async (movieId) => [
+      movieId,
+      await redisClient.hGet(movieStateKey(gameCode, movieId), "status"),
+    ] as const),
+  );
+  const multi = redisClient.multi();
+
+  for (const [movieId, status] of existingStates) {
+    if (!status) {
+      queueSetMovieState(multi, gameCode, movieId, initialState);
+    }
+  }
+
+  await multi.exec();
+};
+
 export const getMovieStateOrThrow = async (
   gameCode: string,
   movieId: string,

@@ -1,7 +1,8 @@
 import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
 import {emitEvent} from "../common/app-events";
-import * as PoolService from "../recommendations/pool.service";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
+import {requestPoolExpansion} from "../pool/pool-events";
 import * as DeckService from "./deck.service";
 import * as VoteService from "./vote.service";
 
@@ -38,10 +39,16 @@ export const recordSwipe = async (input: {
     votedAt: vote.votedAt,
   });
 
+  const statePatch = await getPlayerSwipeStatePatch(input.gameCode, input.playerId);
+  requestPoolExpansion({
+    gameCode: input.gameCode,
+    reason: "swipe_recorded",
+  });
+
   return {
     movieId: popped.movieId,
     choice: input.choice,
-    statePatch: await getPlayerSwipeStatePatch(input.gameCode, input.playerId),
+    statePatch,
   };
 };
 
@@ -59,7 +66,10 @@ const getPlayerSwipeStatePatch = async (gameCode: string, playerId: string) => {
     },
     currentItem: currentMovieId
       ? {
-          movie: await PoolService.getMovieMetaOrThrow(gameCode, currentMovieId),
+          movie: await MovieMetadataService.getRoomMovieMetadataOrThrow(
+            gameCode,
+            currentMovieId,
+          ),
         }
       : null,
     remainingCount: deckStatus.remainingCount,

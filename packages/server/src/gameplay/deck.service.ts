@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {redisClient} from "../redis/redis";
-import * as PoolService from "../recommendations/pool.service";
+import * as PoolService from "../pool/pool.service";
 import * as RoomsService from "../rooms/rooms.service";
 import {normalizeGameCode, ROOM_TTL_SECONDS} from "../rooms/room-keys";
 
@@ -71,6 +71,11 @@ const getCursor = async (gameCode: string, playerId: string) => {
   const cursorKey = KEYS.CURSOR(gameCode, playerId);
   return parseNumber(await redisClient.get(cursorKey));
 };
+
+export const getPlayerPoolCursor = async (
+  gameCode: string,
+  playerId: string,
+) => getCursor(gameCode, playerId);
 
 const topUpPlayerDeck = async (
   gameCode: string,

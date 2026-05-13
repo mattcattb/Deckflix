@@ -1,7 +1,7 @@
 import {zValidator} from "@hono/zod-validator";
 import {voteGamePayloadSchema} from "@deckflix/shared";
 import {createRouter} from "../common/hono";
-import * as PreferencesService from "../movies/preferences.service";
+import * as PreferencesService from "../rooms/room-preferences.service";
 import {
   activeRoomMiddleware,
   requireDisplayActor,

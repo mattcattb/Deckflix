@@ -1,9 +1,9 @@
 import {describe, expect, test} from "bun:test";
 import {
-  buildMovieDiscoveryFilters,
+  buildMovieDiscoveryOptions,
   DEFAULT_GAME_PREFERENCES,
   resolveGamePreferences,
-} from "./preferences.service";
+} from "./room-preferences.service";
 
 describe("game preferences", () => {
   test("resolves movie filter defaults", () => {
@@ -24,7 +24,7 @@ describe("game preferences", () => {
   });
 
   test("maps preferences into tmdb discovery filters", () => {
-    const filters = buildMovieDiscoveryFilters(
+    const filters = buildMovieDiscoveryOptions(
       resolveGamePreferences({
         popularityPreset: "popular",
         includedGenreIds: [28, 35],
@@ -37,23 +37,23 @@ describe("game preferences", () => {
     );
 
     expect(filters).toEqual({
-      includedGenreIds: [28, 35],
-      excludedGenreIds: [27],
-      primaryReleaseDateGte: "2020-01-01",
-      primaryReleaseDateLte: "2024-12-31",
-      voteAverageGte: 6.5,
-      voteAverageLte: 8.8,
+      with_genres: "28|35",
+      without_genres: "27",
+      "primary_release_date.gte": "2020-01-01",
+      "primary_release_date.lte": "2024-12-31",
+      "vote_average.gte": 6.5,
+      "vote_average.lte": 8.8,
     });
   });
 
   test("omits empty preferences from tmdb discovery mapping", () => {
-    expect(buildMovieDiscoveryFilters(DEFAULT_GAME_PREFERENCES)).toEqual({
-      includedGenreIds: undefined,
-      excludedGenreIds: undefined,
-      primaryReleaseDateGte: undefined,
-      primaryReleaseDateLte: undefined,
-      voteAverageGte: undefined,
-      voteAverageLte: undefined,
+    expect(buildMovieDiscoveryOptions(DEFAULT_GAME_PREFERENCES)).toEqual({
+      with_genres: undefined,
+      without_genres: undefined,
+      "primary_release_date.gte": undefined,
+      "primary_release_date.lte": undefined,
+      "vote_average.gte": undefined,
+      "vote_average.lte": undefined,
     });
   });
 });

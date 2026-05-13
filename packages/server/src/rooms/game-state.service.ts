@@ -13,7 +13,9 @@ import {UnauthorizedException} from "../common/errors";
 import * as DeckService from "../gameplay/deck.service";
 import {listConnectedPlayerIds} from "../presence/presence.service";
 import * as MovieStateService from "../gameplay/movie-state.service";
-import * as PoolService from "../recommendations/pool.service";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
+import * as PoolService from "../pool/pool.service";
+import {requestPoolExpansion} from "../pool/pool-events";
 import * as PlayerService from "../players/player.service";
 import * as RoomsService from "./rooms.service";
 import * as RoomSettingsService from "./room-settings.service";
@@ -116,7 +118,7 @@ const getActivityItems = async (gameCode: string) => {
   const movieIds = poolEntries.map((entry) => entry.movieId);
   const [movieStates, movieMetas] = await Promise.all([
     MovieStateService.getMovieStates(gameCode, movieIds),
-    PoolService.getMovieMetas(gameCode, movieIds),
+    MovieMetadataService.getRoomMovieMetadataMap(gameCode, movieIds),
   ]);
 
   return poolEntries
@@ -199,7 +201,7 @@ export const getGameStinkers = async (
 
 export const getGameQueue = async (gameCode: string) => {
   const poolEntries = await PoolService.listPoolEntries(gameCode);
-  const movieMetas = await PoolService.getMovieMetas(
+  const movieMetas = await MovieMetadataService.getRoomMovieMetadataMap(
     gameCode,
     poolEntries.map((entry) => entry.movieId),
   );
@@ -264,12 +266,18 @@ const getPlayerGameState = async (input: {
   const summary = await getGameSummary(input.gameCode, settings);
   const currentItem = currentMovieId
     ? {
-        movie: await PoolService.getMovieMetaOrThrow(
+        movie: await MovieMetadataService.getRoomMovieMetadataOrThrow(
           input.gameCode,
           currentMovieId,
         ),
       }
     : null;
+  if (!currentItem && summary.status === "swiping") {
+    requestPoolExpansion({
+      gameCode: input.gameCode,
+      reason: "player_state_requested",
+    });
+  }
 
   return {
     summary,
