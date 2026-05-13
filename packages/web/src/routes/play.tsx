@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
@@ -15,13 +14,17 @@ import type {
   PlayerGameState,
   SwipeChoice,
 } from "@deckflix/shared";
-import {playerIconIds} from "@deckflix/shared";
-import {Eyebrow, ProfileIdentity} from "../components/common";
+import {PLAYER_DISPLAY_NAME_MAX_LENGTH, playerAvatarIds} from "@deckflix/shared";
+import {PlayerAvatarImage, ProfileAvatar} from "../components/common";
 import {Button, Input, Label, useToast} from "../components/ui";
 import {api, parseRpc} from "../lib/api";
 import {RoomUnavailable} from "../features/room/room-unavailable";
 import {PlayerStatusPanel} from "../features/player/PlayerStatusPanel";
-import {RoomHeader, RoomScreenShell} from "../components/layout";
+import {
+  RoomHeader,
+  RoomScreenShell,
+  SocketStatusDot,
+} from "../components/layout";
 import {
   activePlayerStateQueryOptions,
   activeRoomMetaQueryOptions,
@@ -34,10 +37,8 @@ import {
   clearStoredRoomSessionToken,
   isMissingRoomSessionError,
 } from "../features/room/room-session";
-import {
-  createActiveRoomWebSocketUrl,
-  parsePlayerServerMessage,
-} from "../features/room/room.ws";
+import {parsePlayerServerMessage} from "../features/room/room.ws";
+import {useRoomWebSocket} from "../features/room/use-room-websocket";
 import {SwipeControls} from "../features/swipe/SwipeControls";
 import {SwipeDeck} from "../features/swipe/SwipeDeck";
 import {getPlayerRoomViewMode} from "../features/room/room-view-modes";
@@ -88,7 +89,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const {notify} = useToast();
-  const socketRef = useRef<WebSocket | null>(null);
   const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
   const [state, setState] = useState<PlayerGameState | null>(null);
@@ -97,6 +97,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const stateQuery = useQuery(activePlayerStateQueryOptions(gameCode));
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
+  const refetchState = stateQuery.refetch;
 
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
@@ -121,6 +122,17 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       resetRoomSession();
     }
   }, [metaQuery.error, playersQuery.error, resetRoomSession, stateQuery.error]);
+
+  useEffect(() => {
+    if (state?.summary.status !== "swiping" || state.currentItem) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refetchState();
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [refetchState, state?.currentItem, state?.summary.status]);
 
   const voteMutation = useMutation({
     mutationFn: async (payload: {choice: SwipeChoice; movieId: string}) =>
@@ -203,10 +215,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
           : current,
       );
       void refetchPlayers();
-      notify({
-        title: "Profile updated",
-        type: "success",
-      });
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -220,107 +228,85 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     },
   });
 
-  useEffect(() => {
-    const socket = new WebSocket(createActiveRoomWebSocketUrl());
-    socketRef.current = socket;
-
-    socket.onopen = () => {
+  const socketStatus = useRoomWebSocket({
+    label: "Player",
+    onInvalidSession: resetRoomSession,
+    onOpen: useCallback(() => {
       setGameError(null);
-    };
+      void refetchMeta();
+      void refetchPlayers();
+      void refetchState();
+    }, [refetchMeta, refetchPlayers, refetchState]),
+    onMessage: useCallback(
+      (event: MessageEvent<string>) => {
+        const message = parsePlayerServerMessage(event.data);
+        if (!message) {
+          return;
+        }
 
-    socket.onclose = (event) => {
-      if (event.code === 4001) {
-        resetRoomSession();
-        return;
-      }
+        if (message.type === "player.snapshot") {
+          setState(message.payload);
+          void refetchMeta();
+          void refetchPlayers();
+          return;
+        }
 
-      if (event.reason) {
-        setGameError(`Player socket closed: ${event.reason}`);
-      }
-    };
+        if (message.type === "room.status_changed") {
+          void refetchMeta();
+          void refetchPlayers();
+          return;
+        }
 
-    socket.onerror = () => {
-      setGameError("Player socket error");
-    };
+        if (message.type === "room.deleted") {
+          resetRoomSession();
+          return;
+        }
 
-    socket.onmessage = (event: MessageEvent<string>) => {
-      const message = parsePlayerServerMessage(event.data);
-      if (!message) {
-        return;
-      }
+        if (message.type === "player.kicked") {
+          notify({
+            title: "Removed from room",
+            description: "You can rejoin from the room code screen.",
+            type: "info",
+          });
+          resetRoomSession();
+          return;
+        }
 
-      if (message.type === "player.snapshot") {
-        setState(message.payload);
-        void refetchMeta();
-        void refetchPlayers();
-        return;
-      }
+        if (message.type === "player.updated") {
+          setState((current) =>
+            current
+              ? {
+                  ...current,
+                  me:
+                    message.player.id === current.me.playerId
+                      ? {
+                          ...current.me,
+                          displayName: message.player.displayName,
+                          iconId: message.player.iconId,
+                        }
+                      : current.me,
+                }
+              : current,
+          );
+          void refetchPlayers();
+          return;
+        }
 
-      if (message.type === "room.status_changed") {
-        void refetchMeta();
-        void refetchPlayers();
-        return;
-      }
+        if (message.type === "game.vote_recorded") {
+          return;
+        }
 
-      if (message.type === "room.deleted") {
-        resetRoomSession();
-        return;
-      }
+        if (message.type === "game.match_found") {
+          return;
+        }
 
-      if (message.type === "player.kicked") {
-        notify({
-          title: "Removed from room",
-          description: "You can rejoin from the room code screen.",
-          type: "info",
-        });
-        resetRoomSession();
-        return;
-      }
-
-      if (message.type === "player.updated") {
-        setState((current) =>
-          current
-            ? {
-                ...current,
-                me:
-                  message.player.id === current.me.playerId
-                    ? {
-                        ...current.me,
-                        displayName: message.player.displayName,
-                        iconId: message.player.iconId,
-                      }
-                    : current.me,
-              }
-            : current,
-        );
-        void refetchPlayers();
-        return;
-      }
-
-      if (message.type === "game.vote_recorded") {
-        return;
-      }
-
-      if (message.type === "game.match_found") {
-        return;
-      }
-
-      if (message.type === "socket.error") {
-        setGameError(message.payload.message);
-      }
-    };
-
-    return () => {
-      if (
-        socket.readyState === WebSocket.CONNECTING ||
-        socket.readyState === WebSocket.OPEN
-      ) {
-        socket.close();
-      }
-
-      socketRef.current = null;
-    };
-  }, [notify, refetchMeta, refetchPlayers, resetRoomSession]);
+        if (message.type === "socket.error") {
+          setGameError(message.payload.message);
+        }
+      },
+      [notify, refetchMeta, refetchPlayers, resetRoomSession],
+    ),
+  });
 
   if (
     metaQuery.isLoading ||
@@ -380,17 +366,10 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         <RoomHeader
           brandTo="/play"
           title={
-            <ProfileIdentity
-              avatarSize="sm"
-              colorKey={state.me.displayName}
-              displayName={state.me.displayName}
-              iconKey={state.me.iconId}
-            />
-          }
-          center={
             <button
               type="button"
-              className="font-mono text-xl font-bold tracking-[0.24em] text-primary transition hover:text-[hsl(357_92%_55%)] sm:text-2xl"
+              aria-label={`Copy room code ${state.summary.code}`}
+              className="font-mono text-sm font-bold tracking-[0.22em] text-primary transition hover:text-[hsl(357_92%_55%)] sm:text-lg"
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(state.summary.code);
@@ -404,16 +383,16 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
           }
           actions={
             <>
-              <Eyebrow className="text-white/45" size="sm">
-                {playersQuery.data.players.length} player
-                {playersQuery.data.players.length === 1 ? "" : "s"}
-              </Eyebrow>
+              <SocketStatusDot status={socketStatus} />
               <Button
                 variant="ghost"
                 size="sm"
+                aria-label="Leave room"
+                title="Leave room"
+                className="h-9 w-9 rounded-full p-0 text-lg leading-none"
                 onClick={() => leaveMutation.mutate()}
                 disabled={leaveMutation.isPending}>
-                Leave
+                <LeaveRoomIcon />
               </Button>
             </>
           }
@@ -449,19 +428,7 @@ function PlayerRoomBody({
   if (viewMode === "waiting") {
     return (
       <PlayerRoomBodyFrame>
-        <div className="w-full max-w-md space-y-5">
-          <PlayerStatusPanel
-            title={
-              state.summary.playerCount < 2
-                ? "Waiting for another player"
-                : "Waiting for the display to start"
-            }
-            body={
-              state.summary.playerCount < 2
-                ? "Voting starts once at least two players are in the room."
-                : "The room is ready. The display can start the round any time."
-            }
-          />
+        <div className="w-full max-w-md">
           <PlayerProfileEditor
             displayName={state.me.displayName}
             iconId={state.me.iconId}
@@ -488,8 +455,8 @@ function PlayerRoomBody({
     return (
       <PlayerRoomBodyFrame>
         <PlayerStatusPanel
-          title="You are done for this round"
-          body="Watch the display while everyone else finishes swiping."
+          title="Finding more movies"
+          body="New picks are being added to the room. Your next card will appear here."
         />
       </PlayerRoomBodyFrame>
     );
@@ -523,61 +490,157 @@ function PlayerProfileEditor({
   onSubmit: (payload: {displayName: string; iconId: PlayerIconId}) => void;
   pending: boolean;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [draftName, setDraftName] = useState(displayName);
   const [draftIconId, setDraftIconId] = useState<PlayerIconId>(iconId);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
   useEffect(() => {
     setDraftName(displayName);
     setDraftIconId(iconId);
   }, [displayName, iconId]);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (!iconPickerOpen) {
+      return;
+    }
+
+    const closeOnOutsideTap = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIconPickerOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideTap);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideTap);
+  }, [iconPickerOpen]);
+
+  useEffect(() => {
+    const nextName = draftName.trim();
+    if (!nextName || nextName === displayName || pending) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      onSubmit({
+        displayName: nextName,
+        iconId: draftIconId,
+      });
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [displayName, draftIconId, draftName, onSubmit, pending]);
+
+  const selectIcon = (nextIconId: PlayerIconId) => {
+    const nextName = draftName.trim() || displayName;
+    setDraftIconId(nextIconId);
+    setIconPickerOpen(false);
     onSubmit({
-      displayName: draftName,
-      iconId: draftIconId,
+      displayName: nextName,
+      iconId: nextIconId,
     });
   };
 
   return (
-    <form
-      className="space-y-4 border-t border-white/10 pt-5"
-      onSubmit={submit}>
-      <div className="space-y-2">
-        <Label htmlFor="player-display-name">Display name</Label>
-        <Input
-          id="player-display-name"
-          maxLength={40}
-          value={draftName}
-          onChange={(event) => setDraftName(event.target.value)}
-        />
+    <div ref={containerRef} className="relative w-full space-y-3">
+      <div className="flex items-center gap-3 border-b border-white/10 py-3">
+        <button
+          type="button"
+          className="rounded-sm transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          aria-label="Choose player icon"
+          onClick={() => setIconPickerOpen((current) => !current)}>
+          <ProfileAvatar
+            avatarKey={draftIconId}
+            displayName={draftName}
+            size="xl"
+          />
+        </button>
+        <div className="min-w-0 flex-1">
+          <Label className="sr-only" htmlFor="player-display-name">
+            Display name
+          </Label>
+          <Input
+            ref={inputRef}
+            id="player-display-name"
+            maxLength={PLAYER_DISPLAY_NAME_MAX_LENGTH}
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onBlur={() => {
+              if (!draftName.trim()) {
+                setDraftName(displayName);
+              }
+            }}
+            className="h-12 border-0 bg-transparent px-0 text-2xl font-semibold text-white shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
+        </div>
+        <button
+          type="button"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded text-white/55 transition hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          aria-label="Edit display name"
+          onClick={() => inputRef.current?.focus()}>
+          <EditIcon />
+        </button>
       </div>
-      <div className="space-y-2">
-        <Label>Icon</Label>
-        <div className="grid grid-cols-3 gap-2">
-          {playerIconIds.map((item) => (
+
+      {iconPickerOpen ? (
+        <div className="absolute left-0 top-full z-20 mt-3 grid w-[21rem] max-w-[calc(100vw-2rem)] grid-cols-4 gap-2 rounded border border-white/10 bg-[#111] p-3 shadow-[0_16px_48px_rgb(0_0_0/0.55)]">
+          {playerAvatarIds.map((item) => (
             <button
               key={item}
               type="button"
               className={
                 item === draftIconId
-                  ? "rounded border border-primary bg-primary/15 px-3 py-2 text-sm font-semibold text-white"
-                  : "rounded border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white/70 hover:bg-white/[0.08]"
+                  ? "flex h-20 items-center justify-center rounded border border-primary bg-primary/15"
+                  : "flex h-20 items-center justify-center rounded border border-white/10 bg-black/20 transition hover:bg-white/[0.08]"
               }
-              onClick={() => setDraftIconId(item)}>
-              {item}
+              aria-label={`Choose ${item} avatar`}
+              onClick={() => selectIcon(item)}>
+              <PlayerAvatarImage avatarKey={item} size="lg" />
             </button>
           ))}
         </div>
-      </div>
-      <Button
-        className="w-full"
-        disabled={pending || draftName.trim().length === 0}
-        type="submit"
-        variant="secondary">
-        Save profile
-      </Button>
-    </form>
+      ) : null}
+    </div>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16.862 4.487 19.5 7.125M5 19l4.2-.8L18.7 8.7a1.8 1.8 0 0 0 0-2.55l-.85-.85a1.8 1.8 0 0 0-2.55 0L5.8 14.8 5 19Z"
+      />
+    </svg>
+  );
+}
+
+function LeaveRoomIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="2">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 7V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2M10 12h10m0 0-3-3m3 3-3 3"
+      />
+    </svg>
   );
 }
 

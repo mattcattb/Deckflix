@@ -28,17 +28,14 @@ import {
   activeRoomSessionKeys,
   isMissingRoomSessionError,
 } from "../room/room-session";
-import {
-  createActiveRoomWebSocketUrl,
-  parseDisplayServerMessage,
-} from "../room/room.ws";
+import {parseDisplayServerMessage} from "../room/room.ws";
 import {
   activeGamePreferencesQueryOptions,
   activeRoomSettingsQueryOptions,
   preferenceKeys,
 } from "../preferences/preferences.queries";
 import {movieGenresQueryOptions} from "../movie-catalog/movie-catalog.queries";
-import {Eyebrow, ProfileAvatar} from "../../components/common";
+import {Eyebrow, ProfileTile} from "../../components/common";
 import {Button} from "../../components/ui";
 import {RoomUnavailable} from "../room/room-unavailable";
 import {
@@ -49,7 +46,9 @@ import {
   RoomHeader,
   RoomScreenShell,
   RoomSidebarSection,
+  SocketStatusDot,
 } from "../../components/layout";
+import {useRoomWebSocket} from "../room/use-room-websocket";
 
 type PlayerVoteFlashTone = "positive" | "negative";
 
@@ -99,7 +98,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const socketRef = useRef<WebSocket | null>(null);
   const didClearSessionRef = useRef(false);
   const [gameError, setGameError] = useState<string | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
@@ -267,119 +265,96 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     },
   });
 
-  useEffect(() => {
-    const socket = new WebSocket(createActiveRoomWebSocketUrl());
-    socketRef.current = socket;
-
-    socket.onopen = () => {
+  const socketStatus = useRoomWebSocket({
+    label: "Display",
+    onInvalidSession: resetRoomSession,
+    onOpen: useCallback(() => {
       setGameError(null);
-    };
+      void refetchMeta();
+      void refetchPlayers();
+    }, [refetchMeta, refetchPlayers]),
+    onMessage: useCallback(
+      (event: MessageEvent<string>) => {
+        const message = parseDisplayServerMessage(event.data);
+        if (!message) {
+          return;
+        }
 
-    socket.onclose = (event) => {
-      if (event.code === 4001) {
-        resetRoomSession();
-        return;
-      }
+        setLastDisplayMessage(message);
 
-      if (event.reason) {
-        setGameError(`Display socket closed: ${event.reason}`);
-      }
-    };
+        if (message.type === "room.started") {
+          void refetchMeta();
+          return;
+        }
 
-    socket.onerror = () => {
-      setGameError("Display socket error");
-    };
+        if (message.type === "room.status_changed") {
+          void refetchMeta();
+          return;
+        }
 
-    socket.onmessage = (event: MessageEvent<string>) => {
-      const message = parseDisplayServerMessage(event.data);
-      if (!message) {
-        return;
-      }
+        if (message.type === "room.deleted") {
+          resetRoomSession();
+          return;
+        }
 
-      setLastDisplayMessage(message);
+        if (message.type === "player.joined") {
+          void refetchMeta();
+          void refetchPlayers();
+          return;
+        }
 
-      if (message.type === "room.started") {
-        void refetchMeta();
-        return;
-      }
+        if (
+          message.type === "player.left" ||
+          message.type === "player.kicked" ||
+          message.type === "player.updated"
+        ) {
+          void refetchMeta();
+          void refetchPlayers();
+          return;
+        }
 
-      if (message.type === "room.status_changed") {
-        void refetchMeta();
-        return;
-      }
+        if (
+          message.type === "player.connected" ||
+          message.type === "player.disconnected"
+        ) {
+          void refetchPlayers();
+          return;
+        }
 
-      if (message.type === "room.deleted") {
-        resetRoomSession();
-        return;
-      }
+        if (message.type === "game.match_found") {
+          return;
+        }
 
-      if (message.type === "player.joined") {
-        void refetchMeta();
-        void refetchPlayers();
-        return;
-      }
+        if (message.type === "game.vote_recorded") {
+          const tone =
+            message.choice === "like" || message.choice === "super_like"
+              ? "positive"
+              : "negative";
+          setPlayerVoteFlashById((current) => ({
+            ...current,
+            [message.playerId]: tone,
+          }));
+          window.setTimeout(() => {
+            setPlayerVoteFlashById((current) => {
+              if (current[message.playerId] !== tone) {
+                return current;
+              }
 
-      if (
-        message.type === "player.left" ||
-        message.type === "player.kicked" ||
-        message.type === "player.updated"
-      ) {
-        void refetchMeta();
-        void refetchPlayers();
-        return;
-      }
+              const next = {...current};
+              delete next[message.playerId];
+              return next;
+            });
+          }, 650);
+          return;
+        }
 
-      if (
-        message.type === "player.connected" ||
-        message.type === "player.disconnected"
-      ) {
-        void refetchPlayers();
-        return;
-      }
-
-      if (message.type === "game.match_found") {
-        return;
-      }
-
-      if (message.type === "game.vote_recorded") {
-        const tone =
-          message.choice === "like" || message.choice === "super_like"
-            ? "positive"
-            : "negative";
-        setPlayerVoteFlashById((current) => ({
-          ...current,
-          [message.playerId]: tone,
-        }));
-        window.setTimeout(() => {
-          setPlayerVoteFlashById((current) => {
-            if (current[message.playerId] !== tone) {
-              return current;
-            }
-
-            const next = {...current};
-            delete next[message.playerId];
-            return next;
-          });
-        }, 650);
-        return;
-      }
-
-      if (message.type === "socket.error") {
-        setGameError(message.payload.message);
-      }
-    };
-
-    return () => {
-      if (
-        socket.readyState === WebSocket.CONNECTING ||
-        socket.readyState === WebSocket.OPEN
-      ) {
-        socket.close();
-      }
-
-      socketRef.current = null;
-    };
-  }, [refetchMeta, refetchPlayers, resetRoomSession]);
+        if (message.type === "socket.error") {
+          setGameError(message.payload.message);
+        }
+      },
+      [refetchMeta, refetchPlayers, resetRoomSession],
+    ),
+  });
 
   useEffect(() => {
     if (!metaQuery.data) {
@@ -473,15 +448,18 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
                 </div>
               }
               actions={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  title="End room"
-                  onClick={() => deleteRoomMutation.mutate()}
-                  disabled={deleteRoomMutation.isPending}>
-                  <span className="hidden sm:inline">End room</span>
-                  <span className="sm:hidden">End</span>
-                </Button>
+                <>
+                  <SocketStatusDot status={socketStatus} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title="End room"
+                    onClick={() => deleteRoomMutation.mutate()}
+                    disabled={deleteRoomMutation.isPending}>
+                    <span className="hidden sm:inline">End room</span>
+                    <span className="sm:hidden">End</span>
+                  </Button>
+                </>
               }
             />
           }
@@ -548,8 +526,9 @@ function PlayerSidebarRow({
   onKick?: (playerId: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 border-b border-white/10 py-3 transition">
-      <ProfileAvatar
+    <div className="relative flex flex-col items-center gap-2 border-b border-white/10 py-4 text-center transition">
+      <ProfileTile
+        avatarKey={player.iconId}
         className={
           flashTone === "positive"
             ? "player-vote-flash-positive"
@@ -557,19 +536,13 @@ function PlayerSidebarRow({
               ? "player-vote-flash-negative"
               : ""
         }
-        colorKey={player.displayName}
         displayName={player.displayName}
-        iconKey={player.iconId}
+        nameClassName="text-sm text-white/70"
       />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-white">
-          {player.displayName}
-        </div>
-      </div>
       {canKick ? (
         <Button
           aria-label={`Remove ${player.displayName}`}
-          className="h-8 w-8 px-0 text-base"
+          className="absolute right-0 top-2 h-8 w-8 px-0 text-base"
           disabled={kickPending}
           onClick={() => onKick?.(player.id)}
           size="sm"

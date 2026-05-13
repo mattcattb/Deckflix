@@ -14,6 +14,7 @@
     "./game-sessions": "./src/game-sessions.ts",
     "./game-snapshots": "./src/game-snapshots.ts",
     "./game-messages": "./src/game-messages.ts",
+    "./profiles": "./src/profiles.ts",
     "./random-names": "./src/random-names.ts",
     "./movies": "./src/movies.ts"
   }

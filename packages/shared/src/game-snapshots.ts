@@ -8,21 +8,19 @@ import {
   swipeChoiceSchema,
 } from "./game-core";
 import {gameCodeSchema} from "./game-sessions";
+import {
+  PLAYER_DISPLAY_NAME_MAX_LENGTH,
+  playerProfileIconIdSchema,
+  playerProfileIconIds,
+  type PlayerProfileIconId,
+} from "./profiles";
 
-export const playerIconIds = [
-  "popcorn",
-  "ticket",
-  "camera",
-  "star",
-  "heart",
-  "bolt",
-] as const;
-
-export const playerIconIdSchema = z.enum(playerIconIds);
+export const playerIconIds = playerProfileIconIds;
+export const playerIconIdSchema = playerProfileIconIdSchema;
 
 export const gamePlayerPresenceSchema = z.object({
   id: z.string().min(1),
-  displayName: z.string().min(1).max(40),
+  displayName: z.string().min(1).max(PLAYER_DISPLAY_NAME_MAX_LENGTH),
   iconId: playerIconIdSchema,
   joinedAt: z.string().datetime(),
   connectedAsPlayer: z.boolean(),
@@ -30,7 +28,7 @@ export const gamePlayerPresenceSchema = z.object({
 
 const gamePlayerSelfSchema = z.object({
   playerId: z.string().min(1),
-  displayName: z.string().min(1).max(40),
+  displayName: z.string().min(1).max(PLAYER_DISPLAY_NAME_MAX_LENGTH),
   iconId: playerIconIdSchema,
   currentIndex: z.number().int().min(0),
   completed: z.boolean(),
@@ -89,11 +87,16 @@ export const createGamePayloadSchema = z.object({
 });
 
 export const joinGamePayloadSchema = z.object({
-  displayName: z.string().trim().max(40).optional(),
+  displayName: z.string().trim().max(PLAYER_DISPLAY_NAME_MAX_LENGTH).optional(),
 });
 
 export const playerProfileInputSchema = z.object({
-  displayName: z.string().trim().min(1).max(40).optional(),
+  displayName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(PLAYER_DISPLAY_NAME_MAX_LENGTH)
+    .optional(),
   iconId: playerIconIdSchema.optional(),
 });
 
@@ -111,5 +114,5 @@ export type GameResults = z.infer<typeof gameResultsSchema>;
 export type GameActivityItem = z.infer<typeof gameActivityItemSchema>;
 export type GameActivitySlice = z.infer<typeof gameActivitySliceSchema>;
 export type PlayerGameState = z.infer<typeof playerGameStateSchema>;
-export type PlayerIconId = z.infer<typeof playerIconIdSchema>;
+export type PlayerIconId = PlayerProfileIconId;
 export type PlayerProfileInput = z.infer<typeof playerProfileInputSchema>;

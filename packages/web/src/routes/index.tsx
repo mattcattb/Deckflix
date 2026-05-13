@@ -5,6 +5,7 @@ import {
   createRandomRoomName,
   createRandomUserName,
   GAME_CODE_LENGTH,
+  PLAYER_DISPLAY_NAME_MAX_LENGTH,
 } from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
 import {BrandMark} from "../components/common";
@@ -166,6 +167,7 @@ function HomePage() {
                 <Label htmlFor="displayName">Your name</Label>
                 <Input
                   id="displayName"
+                  maxLength={PLAYER_DISPLAY_NAME_MAX_LENGTH}
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   placeholder={suggestedDisplayName}

@@ -1,7 +1,10 @@
 import {useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
-import {createRandomUserName} from "@deckflix/shared";
+import {
+  createRandomUserName,
+  PLAYER_DISPLAY_NAME_MAX_LENGTH,
+} from "@deckflix/shared";
 import {BrandMark, StatusMessage} from "../components/common";
 import {CenteredPanel} from "../components/layout";
 import {Button, Card, CardContent, Input, Label} from "../components/ui";
@@ -77,6 +80,7 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
                 <Label htmlFor="room-display-name">Your name</Label>
                 <Input
                   id="room-display-name"
+                  maxLength={PLAYER_DISPLAY_NAME_MAX_LENGTH}
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
                   placeholder={suggestedDisplayName}

@@ -1,6 +1,13 @@
 import type {ComponentProps, ReactNode} from "react";
 import {BrandMark, Eyebrow, StatusMessage} from "../common";
 
+type RoomSocketStatus =
+  | "connecting"
+  | "open"
+  | "reconnecting"
+  | "closed"
+  | "error";
+
 type RoomHeaderProps = {
   actions?: ReactNode;
   brandTo: ComponentProps<typeof BrandMark>["to"];
@@ -45,6 +52,35 @@ export function RoomHeader({
         {actions ? <div className="flex items-center gap-3">{actions}</div> : null}
       </div>
     </header>
+  );
+}
+
+const socketStatusClasses: Record<RoomSocketStatus, string> = {
+  closed: "bg-white/30",
+  connecting: "bg-amber-300",
+  error: "bg-red-400",
+  open: "bg-emerald-400",
+  reconnecting: "bg-amber-300",
+};
+
+const socketStatusLabels: Record<RoomSocketStatus, string> = {
+  closed: "Socket closed",
+  connecting: "Socket connecting",
+  error: "Socket error",
+  open: "Socket connected",
+  reconnecting: "Socket reconnecting",
+};
+
+export function SocketStatusDot({status}: {status: RoomSocketStatus}) {
+  return (
+    <span
+      aria-label={socketStatusLabels[status]}
+      className="inline-flex h-8 w-8 items-center justify-center"
+      title={socketStatusLabels[status]}>
+      <span
+        className={`h-2.5 w-2.5 rounded-full ${socketStatusClasses[status]}`}
+      />
+    </span>
   );
 }
 

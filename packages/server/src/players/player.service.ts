@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {
+  PLAYER_DISPLAY_NAME_MAX_LENGTH,
   playerIconIdSchema,
   resolveUserName,
   type GamePlayerPresence,
@@ -21,7 +22,7 @@ import {
 
 const storedPlayerRecordSchema = z.object({
   id: z.string().min(1),
-  displayName: z.string().min(1).max(40),
+  displayName: z.string().min(1).max(PLAYER_DISPLAY_NAME_MAX_LENGTH),
   iconId: playerIconIdSchema.optional(),
   joinedAt: z.string().datetime(),
   sessionToken: z.string().min(1),
