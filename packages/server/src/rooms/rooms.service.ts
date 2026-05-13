@@ -2,6 +2,7 @@ import {z} from "zod";
 import {
   gameCodeSchema,
   gameStatusSchema,
+  resolveRoomName,
   type GameSettingsInput,
 } from "@deckflix/shared";
 import {randomUUID} from "node:crypto";
@@ -175,7 +176,7 @@ export const create = async (input: {
 }) => {
   const createdAt = new Date().toISOString();
   const settings = RoomSettingsService.resolveGameSettings(input.settings);
-  const roomName = input.roomName?.trim() || null;
+  const roomName = resolveRoomName(input.roomName);
   const displayId = randomUUID();
   const sessionToken = randomUUID();
 

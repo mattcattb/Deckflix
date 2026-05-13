@@ -1,7 +1,11 @@
 import {useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
-import {GAME_CODE_LENGTH} from "@deckflix/shared";
+import {
+  createRandomRoomName,
+  createRandomUserName,
+  GAME_CODE_LENGTH,
+} from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
 import {BrandMark} from "../components/common";
 import {CenteredPanel} from "../components/layout";
@@ -26,6 +30,8 @@ function HomePage() {
   const queryClient = useQueryClient();
   const {notify} = useToast();
   const [mode, setMode] = useState<HomeMode>("play");
+  const [suggestedRoomName] = useState(() => createRandomRoomName());
+  const [suggestedDisplayName] = useState(() => createRandomUserName());
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -35,7 +41,7 @@ function HomePage() {
       parseRpc(
         api.api.room.$post({
           json: {
-            roomName: roomName.trim() || undefined,
+            roomName: roomName.trim() || suggestedRoomName,
           },
         }),
       ),
@@ -62,7 +68,7 @@ function HomePage() {
         api.api.room[":gameCode"].join.$post({
           param: {gameCode: normalizeGameCode(gameCode)},
           json: {
-            displayName: displayName.trim(),
+            displayName: displayName.trim() || suggestedDisplayName,
           },
         }),
       ),
@@ -129,13 +135,12 @@ function HomePage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 if (
-                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
-                  !displayName.trim()
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH
                 ) {
                   notify({
                     type: "error",
                     title: "Couldn’t join room",
-                    description: `Enter a ${GAME_CODE_LENGTH}-character room code and your name first.`,
+                    description: `Enter a ${GAME_CODE_LENGTH}-character room code first.`,
                   });
                   return;
                 }
@@ -163,7 +168,7 @@ function HomePage() {
                   id="displayName"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="What should the room call you?"
+                  placeholder={suggestedDisplayName}
                 />
               </div>
 
@@ -172,8 +177,7 @@ function HomePage() {
                 type="submit"
                 disabled={
                   joinGameMutation.isPending ||
-                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
-                  !displayName.trim()
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH
                 }>
                 {joinGameMutation.isPending ? "Joining room..." : "Join room"}
               </Button>
@@ -191,7 +195,7 @@ function HomePage() {
                   id="roomName"
                   value={roomName}
                   onChange={(event) => setRoomName(event.target.value)}
-                  placeholder="Friday Night Picks"
+                  placeholder={suggestedRoomName}
                   autoFocus
                 />
               </div>

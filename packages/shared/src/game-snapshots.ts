@@ -84,12 +84,12 @@ export const playerGameStateSchema = z.object({
 });
 
 export const createGamePayloadSchema = z.object({
-  roomName: z.string().trim().min(1).max(60).optional(),
+  roomName: z.string().trim().max(60).optional(),
   settings: gameSettingsInputSchema.optional(),
 });
 
 export const joinGamePayloadSchema = z.object({
-  displayName: z.string().trim().min(1).max(40),
+  displayName: z.string().trim().max(40).optional(),
 });
 
 export const playerProfileInputSchema = z.object({

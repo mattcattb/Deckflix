@@ -1,6 +1,7 @@
 import {useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
+import {createRandomUserName} from "@deckflix/shared";
 import {BrandMark, StatusMessage} from "../components/common";
 import {CenteredPanel} from "../components/layout";
 import {Button, Card, CardContent, Input, Label} from "../components/ui";
@@ -29,6 +30,7 @@ function JoinRoomPage() {
 function JoinRoomView({gameCode}: {gameCode: string}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [suggestedDisplayName] = useState(() => createRandomUserName());
   const [displayName, setDisplayName] = useState("");
   const normalizedGameCode = normalizeGameCode(gameCode);
 
@@ -38,7 +40,7 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
         api.api.room[":gameCode"].join.$post({
           param: {gameCode: normalizedGameCode},
           json: {
-            displayName: displayName.trim(),
+            displayName: displayName.trim() || suggestedDisplayName,
           },
         }),
       ),
@@ -69,10 +71,6 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
               className="space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!displayName.trim()) {
-                  return;
-                }
-
                 joinGameMutation.mutate();
               }}>
               <div className="space-y-2">
@@ -81,7 +79,7 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
                   id="room-display-name"
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="What should the room call you?"
+                  placeholder={suggestedDisplayName}
                   autoFocus
                 />
               </div>

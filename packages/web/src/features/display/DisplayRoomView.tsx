@@ -469,7 +469,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
               brandTo="/room"
               title={
                 <div className="min-w-0 truncate text-xs font-medium text-white sm:text-sm">
-                  {metaQuery.data.summary.roomName || "Movie night"}
+                  {metaQuery.data.summary.roomName || "Deckflix Room"}
                 </div>
               }
               actions={

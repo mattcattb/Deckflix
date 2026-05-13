@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {
   playerIconIdSchema,
+  resolveUserName,
   type GamePlayerPresence,
   type PlayerIconId,
   type PlayerProfileInput,
@@ -195,17 +196,18 @@ export const updatePlayerProfile = async (input: {
 
 export const join = async (input: {
   gameCode: string;
-  displayName: string;
+  displayName?: string;
 }) => {
   const playerId = randomUUID();
   const sessionToken = randomUUID();
   const joinedAt = new Date().toISOString();
   const iconId: PlayerIconId = "popcorn";
+  const displayName = resolveUserName(input.displayName);
 
   await withRoomLock(input.gameCode, async () => {
     await setPlayerRecord(input.gameCode, playerId, {
       id: playerId,
-      displayName: input.displayName,
+      displayName,
       iconId,
       joinedAt,
       sessionToken,
@@ -215,7 +217,7 @@ export const join = async (input: {
   const gameCode = normalizeGameCode(input.gameCode);
   const player = {
     id: playerId,
-    displayName: input.displayName,
+    displayName,
     iconId,
     joinedAt,
     connectedAsPlayer: false,
