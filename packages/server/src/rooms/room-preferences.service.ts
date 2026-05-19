@@ -22,7 +22,6 @@ export const DEFAULT_GAME_PREFERENCES: GamePreferences = {
   includedGenreIds: [],
   excludedGenreIds: [],
   preferredProviderIds: [],
-  excludedProviderIds: [],
   watchRegion: "US",
   primaryReleaseDateGte: null,
   primaryReleaseDateLte: null,
@@ -126,15 +125,11 @@ export const buildMovieDiscoveryOptions = (
     ? preferences.excludedGenreIds.join(",")
     : undefined,
   watch_region:
-    preferences.preferredProviderIds.length ||
-    preferences.excludedProviderIds.length
+    preferences.preferredProviderIds.length
       ? preferences.watchRegion
       : undefined,
   with_watch_providers: preferences.preferredProviderIds.length
     ? preferences.preferredProviderIds.join("|")
-    : undefined,
-  without_watch_providers: preferences.excludedProviderIds.length
-    ? preferences.excludedProviderIds.join(",")
     : undefined,
   "primary_release_date.gte": preferences.primaryReleaseDateGte ?? undefined,
   "primary_release_date.lte": preferences.primaryReleaseDateLte ?? undefined,
