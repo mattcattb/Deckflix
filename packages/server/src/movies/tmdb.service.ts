@@ -170,18 +170,10 @@ export const getTmdbMovieProviders = async (options?: {
     TMDB_MOVIE_PROVIDERS_CACHE_TTL_SECONDS,
     async () => {
       try {
-        const client = getTmdbClient() as unknown as {
-          watch: {
-            providers: {
-              movie: (options?: {
-                watch_region: string;
-                language: TmdbLanguage;
-              }) => Promise<TmdbMovieProviderResponse>;
-            };
-          };
-        };
-        return await client.watch.providers.movie({
-          watch_region: options?.region ?? "US",
+        const client = getTmdbClient();
+
+        return await client.watchProviders.getMovieProviders({
+          watch_region: "US",
           language: options?.language ?? toTmdbLanguage(),
         });
       } catch (error) {
