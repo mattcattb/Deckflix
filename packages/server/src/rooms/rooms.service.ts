@@ -1,98 +1,195 @@
-import type {GamePlayerPresence} from "@deckflix/shared";
-import * as GameSnapshotService from "../games/game-snapshot.service";
-import * as GamePoolService from "../games/game-pool";
-import {BadRequestException, ConflictException} from "../common/errors";
-import {randomUUID} from "node:crypto";
-import {clearPresenceState} from "../ws/presence.ws";
-import * as GameRedisService from "../games/game-redis.service";
-import {publishGameState} from "../games/game-state.pubsub";
-import * as GameSettingsService from "../settings/game-settings.service";
-import * as RoomMetaService from "./room-meta.service";
-import * as RoomSessionService from "./room-session.service";
+import {z} from "zod";
 import {
-  publishRoomDeleted,
-  publishRoomStarted,
-  publishRoomStatusChanged,
-} from "./rooms.pubsub";
-import type {RealtimeServer} from "../realtime/socket-bus";
-import * as SwipeService from "../swipe/swipe.service";
-import {publishPlayerJoined} from "../ws/presence.pubsub";
+  gameCodeSchema,
+  gameStatusSchema,
+  resolveRoomName,
+  type GameSettingsInput,
+} from "@deckflix/shared";
+import {randomUUID} from "node:crypto";
+import * as MovieStateService from "../gameplay/movie-state.service";
+import {emitEvent} from "../common/app-events";
+import * as PreferencesService from "./room-preferences.service";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
+import * as PresenceService from "../presence/presence.service";
+import * as RecommendationsService from "../recommendations/recommendations.service";
+import * as PoolService from "../pool/pool.service";
 
-const generateGameCode = () => {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 4; i += 1) {
-    code += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return code;
-};
+import {
+  BadRequestException,
+  NotFoundException,
+} from "../common/errors";
+import {redisClient} from "../redis/redis";
+import * as RoomSettingsService from "./room-settings.service";
+import {parseJson} from "../lib/json";
+import {generateGameCode} from "../lib/gen";
+import * as PlayerService from "../players/player.service";
+export {
+  normalizeGameCode,
+  roomKey,
+  roomPrefix,
+} from "./room-keys";
+import {
+  normalizeGameCode,
+  roomKey,
+  ROOM_TTL_SECONDS,
+  withRoomLock,
+} from "./room-keys";
 
-const publishStateForGame = async (server: RealtimeServer, gameCode: string) => {
-  const playerIds = await GameRedisService.listPlayerIds(gameCode);
-  await publishGameState(server, gameCode, playerIds);
-};
+const displayRecordSchema = z.object({
+  id: z.string().min(1),
+  sessionToken: z.string().min(1),
+});
 
-export const join = async (input: {
-  gameCode: string;
-  displayName: string;
-  server: RealtimeServer;
-}) => {
-  const playerId = randomUUID();
-  const sessionToken = randomUUID();
-  const joinedAt = new Date().toISOString();
+const gameMetaRecordSchema = z.object({
+  id: z.string().min(1),
+  code: gameCodeSchema,
+  roomName: z.string().min(1).max(60).nullable(),
+  poolSeed: z.string().min(1),
+  status: gameStatusSchema,
+  createdAt: z.string().datetime(),
+  endedAt: z.string().datetime().nullable(),
+  display: displayRecordSchema,
+});
 
-  await GameRedisService.withGameLock(input.gameCode, async () => {
-    const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
-    if (meta.status === "completed") {
-      throw new ConflictException("This room is completed");
-    }
+const gameStatusRecordSchema = z.object({
+  status: gameStatusSchema,
+  endedAt: z.string().datetime().nullable(),
+});
 
-    await GameRedisService.setPlayerRecord(input.gameCode, playerId, {
-      id: playerId,
-      displayName: input.displayName,
-      joinedAt,
-      sessionToken,
-    });
+type DisplayRecord = z.infer<typeof displayRecordSchema>;
+export type GameMetaRecord = z.infer<typeof gameMetaRecordSchema>;
 
-    await GameRedisService.touchRoomKeys(input.gameCode);
-  });
-
-  const result = {
-    gameCode: input.gameCode.trim().toUpperCase(),
-    playerSession: {
-      gameCode: input.gameCode.trim().toUpperCase(),
-      playerId,
-      sessionToken,
-    },
-    player: {
-      id: playerId,
-      displayName: input.displayName,
-      joinedAt,
-      connectedAsPlayer: false,
-    } satisfies GamePlayerPresence,
+const createGameMeta = async (meta: GameMetaRecord) => {
+  const normalized = normalizeGameCode(meta.code);
+  const key = roomKey(normalized);
+  const normalizedMeta = {
+    id: meta.id,
+    code: normalized,
+    roomName: meta.roomName,
+    createdAt: meta.createdAt,
   };
-  publishPlayerJoined(input.server, result.gameCode, result.player);
-  await publishStateForGame(input.server, result.gameCode);
-  return result;
+  const created = await redisClient.hSetNX(
+    key,
+    "meta",
+    JSON.stringify(normalizedMeta),
+  );
+
+  if (created) {
+    const multi = redisClient.multi();
+    multi.hSet(
+      key,
+      "status",
+      JSON.stringify({
+        status: meta.status,
+        endedAt: meta.endedAt,
+      }),
+    );
+    multi.hSet(key, "display", JSON.stringify(meta.display));
+    multi.hSet(key, "poolSeed", meta.poolSeed);
+    multi.expire(key, ROOM_TTL_SECONDS);
+    await multi.exec();
+  }
+
+  return Boolean(created);
+};
+
+export const getGameMetaOrThrow = async (gameCode: string) => {
+  const normalized = normalizeGameCode(gameCode);
+  const [metaRaw, statusRaw, displayRaw, poolSeed] = await redisClient.hmGet(
+    roomKey(normalized),
+    ["meta", "status", "display", "poolSeed"],
+  );
+  if (!metaRaw || !statusRaw || !displayRaw || !poolSeed) {
+    throw new NotFoundException(`Game ${normalized} not found`);
+  }
+
+  const meta = parseJson(
+    metaRaw,
+    gameMetaRecordSchema.pick({
+      id: true,
+      code: true,
+      roomName: true,
+      createdAt: true,
+    }),
+    `Game ${normalized} not found`,
+  );
+  const status = parseJson(
+    statusRaw,
+    gameStatusRecordSchema,
+    `Game ${normalized} not found`,
+  );
+  const display = parseJson(
+    displayRaw,
+    displayRecordSchema,
+    `Game ${normalized} not found`,
+  );
+
+  return gameMetaRecordSchema.parse({
+    ...meta,
+    ...status,
+    display,
+    poolSeed,
+  });
+};
+
+const setGameMeta = async (gameCode: string, meta: GameMetaRecord) => {
+  const key = roomKey(gameCode);
+  const multi = redisClient.multi();
+  multi.hSet(
+    key,
+    "meta",
+    JSON.stringify({
+      id: meta.id,
+      code: normalizeGameCode(meta.code),
+      roomName: meta.roomName,
+      createdAt: meta.createdAt,
+    }),
+  );
+  multi.hSet(
+    key,
+    "status",
+    JSON.stringify({
+      status: meta.status,
+      endedAt: meta.endedAt,
+    }),
+  );
+  multi.hSet(key, "display", JSON.stringify(meta.display));
+  multi.hSet(key, "poolSeed", meta.poolSeed);
+  multi.expire(key, ROOM_TTL_SECONDS);
+  await multi.exec();
+};
+
+export const updateSettings = async (input: {
+  gameCode: string;
+  settings: GameSettingsInput;
+}) => {
+  const current = await RoomSettingsService.getGameSettingsOrThrow(
+    input.gameCode,
+  );
+  const next = RoomSettingsService.mergeGameSettings(current, input.settings);
+  await RoomSettingsService.setGameSettings(input.gameCode, next);
+  return next;
 };
 
 export const create = async (input: {
   roomName?: string;
-  settings?: import("@deckflix/shared").GameSettingsInput;
+  settings?: GameSettingsInput;
 }) => {
   const createdAt = new Date().toISOString();
-  const settings = GameSettingsService.resolveGameSettings(input.settings);
-  const roomName = input.roomName?.trim() || null;
+  const settings = RoomSettingsService.resolveGameSettings(input.settings);
+  const roomName = resolveRoomName(input.roomName);
   const displayId = randomUUID();
   const sessionToken = randomUUID();
-  const poolSeed = GamePoolService.createPoolSeed();
+
+  const poolSeed = RecommendationsService.createRecommendationSeed();
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const gameCode = generateGameCode();
-    const created = await RoomMetaService.createGameMeta({
+    const created = await createGameMeta({
       id: randomUUID(),
       code: gameCode,
       roomName,
+      poolSeed,
       status: "lobby",
       createdAt,
       endedAt: null,
@@ -103,12 +200,10 @@ export const create = async (input: {
     });
 
     if (created) {
-      await GameSettingsService.setGameSettings(gameCode, settings);
-      await GamePoolService.setPoolSeed({
-        gameCode,
-        seed: poolSeed,
-      });
-      await GameRedisService.touchRoomKeys(gameCode);
+      await Promise.all([
+        RoomSettingsService.setGameSettings(gameCode, settings),
+        PreferencesService.createGamePreferences(gameCode),
+      ]);
       return {
         gameCode,
         displaySession: {
@@ -123,108 +218,88 @@ export const create = async (input: {
   throw new BadRequestException("Unable to generate game code");
 };
 
-export const updateSettings = async (input: {
-  gameCode: string;
-  settings: import("@deckflix/shared").GameSettingsInput;
-}) =>
-  GameRedisService.withGameLock(input.gameCode, async () => {
-    const currentSettings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const nextSettings = GameSettingsService.mergeGameSettings(
-      currentSettings,
-      input.settings,
-    );
-
-    await GameSettingsService.setGameSettings(input.gameCode, nextSettings);
-    await GameRedisService.touchRoomKeys(input.gameCode);
-
-    return GameSnapshotService.getGameMeta(input.gameCode);
-  });
-
 export const start = async (input: {
   gameCode: string;
-  server: RealtimeServer;
 }) =>
-  GameRedisService.withGameLock(input.gameCode, async () => {
-    const playerIds = await GameRedisService.listPlayerIds(input.gameCode);
+  withRoomLock(input.gameCode, async () => {
+    const playerIds = await PlayerService.listPlayerIds(input.gameCode);
     if (playerIds.length < 2) {
       throw new BadRequestException("Need at least 2 players to start");
     }
 
-    const settings = await GameSettingsService.getGameSettingsOrThrow(input.gameCode);
-    const movies = await GamePoolService.buildInitialPool({
+    const [meta, settings, preferences] = await Promise.all([
+      getGameMetaOrThrow(input.gameCode),
+      RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
+      PreferencesService.getGamePreferencesOrThrow(input.gameCode),
+    ]);
+
+    const movies = await RecommendationsService.generateInitialRecommendations({
       gameCode: input.gameCode,
+      poolSeed: meta.poolSeed,
       settings,
+      preferences,
     });
-    await GamePoolService.saveInitialPool(input.gameCode, movies);
+    await Promise.all([
+      MovieMetadataService.replaceRoomMovieMetadata(input.gameCode, movies),
+      PoolService.replacePool(
+        input.gameCode,
+        movies.map((movie) => movie.id),
+      ),
+    ]);
+    await MovieStateService.initializeMovieStates(
+      input.gameCode,
+      movies.map((movie) => movie.id),
+    );
 
-    for (const playerId of playerIds) {
-      await SwipeService.clearPlayerState(input.gameCode, playerId);
-      await SwipeService.refillPlayerQueue(input.gameCode, playerId);
-      await SwipeService.getCurrentOrNextMovie(input.gameCode, playerId);
-    }
-
-    const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
-    const previousStatus = meta.status;
-    await RoomMetaService.setGameMeta(input.gameCode, {
+    await setGameMeta(input.gameCode, {
       ...meta,
       status: "swiping",
       endedAt: null,
     });
-    await GameRedisService.touchRoomKeys(input.gameCode);
+
+    const gameCode = input.gameCode.trim().toUpperCase();
+    emitEvent("room.started", {
+      gameCode,
+    });
 
     return {
-      gameCode: input.gameCode.trim().toUpperCase(),
-      previousStatus,
+      gameCode,
+      previousStatus: meta.status,
       nextStatus: "swiping" as const,
       playerIds,
     };
-  }).then(async (result) => {
-    publishRoomStatusChanged(
-      input.server,
-      result.gameCode,
-      result.playerIds,
-      result.previousStatus,
-      result.nextStatus,
-    );
-    publishRoomStarted(input.server, result.gameCode);
-    await publishStateForGame(input.server, result.gameCode);
-    return result;
   });
 
 export const end = (input: {
   gameCode: string;
-  displayId: string;
-  sessionToken: string;
-  server: RealtimeServer;
 }) =>
-  GameRedisService.withGameLock(input.gameCode, async () => {
-    await RoomSessionService.verifyDisplaySession({
-      gameCode: input.gameCode,
-      displayId: input.displayId,
-      sessionToken: input.sessionToken,
-    });
-
-    const playerIds = await GameRedisService.listPlayerIds(input.gameCode);
-    const meta = await RoomMetaService.getGameMetaOrThrow(input.gameCode);
+  withRoomLock(input.gameCode, async () => {
+    const playerIds = await PlayerService.listPlayerIds(input.gameCode);
+    const meta = await getGameMetaOrThrow(input.gameCode);
     const endedAt = new Date().toISOString();
     const previousStatus = meta.status;
 
-    await RoomMetaService.setGameMeta(input.gameCode, {
+    await setGameMeta(input.gameCode, {
       ...meta,
       status: "completed",
       endedAt,
     });
-    await GameRedisService.touchRoomKeys(input.gameCode);
 
-    publishRoomStatusChanged(
-      input.server,
-      input.gameCode,
-      playerIds,
+    await Promise.all([
+      redisClient.del(roomKey(input.gameCode)),
+      PlayerService.deleteRoomPlayers(input.gameCode),
+      PresenceService.clearPresenceState(input.gameCode),
+    ]);
+
+    const gameCode = normalizeGameCode(input.gameCode);
+    emitEvent("room.deleted", {
+      gameCode,
+    });
+
+    return {
+      gameCode,
       previousStatus,
-      "completed",
-    );
-    publishRoomDeleted(input.server, input.gameCode, playerIds);
-
-    await GameRedisService.deleteRoomKeys(input.gameCode);
-    clearPresenceState(input.gameCode);
+      nextStatus: "completed" as const,
+      playerIds,
+    };
   });

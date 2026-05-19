@@ -32,29 +32,3 @@ export const authMiddleware = createMiddleware(async (c, next) => {
 
   await next();
 });
-
-/**
- * Optional auth middleware - sets user data if authenticated but doesn't require it.
- * Useful for routes that work differently for logged-in vs anonymous users.
- */
-export const optionalAuthMiddleware = createMiddleware(async (c, next) => {
-  const session = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  });
-
-  if (session) {
-    c.set("userId", session.user.id);
-    c.set("user", {
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name,
-      image: session.user.image,
-    });
-    c.set("session", {
-      id: session.session.id,
-      expiresAt: session.session.expiresAt,
-    });
-  }
-
-  await next();
-});

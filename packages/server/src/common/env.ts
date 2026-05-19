@@ -1,9 +1,9 @@
 import {z} from "zod";
 
-export const DEFAULT_DATABASE_URL =
+const DEFAULT_DATABASE_URL =
   "postgresql://postgres:postgres@localhost:15432/postgres";
-export const DEFAULT_REDIS_URL = "redis://localhost:16380";
-export const DEFAULT_APP_URL = "http://localhost:4173";
+const DEFAULT_REDIS_URL = "redis://localhost:16380";
+const DEFAULT_APP_URL = "http://localhost:4173";
 
 const firstNonEmpty = (...values: Array<string | undefined>) =>
   values.find((value) => value && value.trim() !== "");

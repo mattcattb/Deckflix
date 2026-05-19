@@ -1,29 +1,26 @@
 import {useState} from "react";
-import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
+import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
-import {GAME_CODE_LENGTH} from "@deckflix/shared";
+import {
+  createRandomRoomName,
+  createRandomUserName,
+  GAME_CODE_LENGTH,
+  PLAYER_DISPLAY_NAME_MAX_LENGTH,
+} from "@deckflix/shared";
 import {api, parseRpc} from "../lib/api";
+import {BrandMark} from "../components/common";
+import {CenteredPanel} from "../components/layout";
 import {Button, Input, Label, useToast} from "../components/ui";
 import {
-  activeRoomClientQueryOptions,
-  gameKeys,
-  getActiveRoomPath,
+  activeRoomSessionKeys,
   normalizeGameCode,
-} from "../lib/games";
+  storeDisplaySessionToken,
+  storePlayerSessionToken,
+} from "../features/room/room-session";
+import {requireNoActiveRoom} from "./room-route-guards";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: async ({context}) => {
-    const activeClient = await context.queryClient.ensureQueryData(
-      activeRoomClientQueryOptions,
-    );
-
-    if (activeClient.role !== "none") {
-      throw redirect({
-        to: getActiveRoomPath(activeClient),
-        replace: true,
-      });
-    }
-  },
+  beforeLoad: ({context}) => requireNoActiveRoom(context.activeClient),
   component: HomePage,
 });
 
@@ -34,6 +31,8 @@ function HomePage() {
   const queryClient = useQueryClient();
   const {notify} = useToast();
   const [mode, setMode] = useState<HomeMode>("play");
+  const [suggestedRoomName] = useState(() => createRandomRoomName());
+  const [suggestedDisplayName] = useState(() => createRandomUserName());
   const [roomName, setRoomName] = useState("");
   const [gameCode, setGameCode] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -43,12 +42,16 @@ function HomePage() {
       parseRpc(
         api.api.room.$post({
           json: {
-            roomName: roomName.trim() || undefined,
+            roomName: roomName.trim() || suggestedRoomName,
           },
         }),
       ),
-    onSuccess: () => {
-      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+    onSuccess: (result) => {
+      storeDisplaySessionToken(result.displaySession);
+      queryClient.removeQueries({
+        queryKey: activeRoomSessionKeys.activeClient,
+        exact: true,
+      });
       navigate({to: "/room"});
     },
     onError: (error) => {
@@ -66,12 +69,16 @@ function HomePage() {
         api.api.room[":gameCode"].join.$post({
           param: {gameCode: normalizeGameCode(gameCode)},
           json: {
-            displayName: displayName.trim(),
+            displayName: displayName.trim() || suggestedDisplayName,
           },
         }),
       ),
-    onSuccess: () => {
-      queryClient.removeQueries({queryKey: gameKeys.activeClient, exact: true});
+    onSuccess: (result) => {
+      storePlayerSessionToken(result.playerSession);
+      queryClient.removeQueries({
+        queryKey: activeRoomSessionKeys.activeClient,
+        exact: true,
+      });
       navigate({to: "/play"});
     },
     onError: (error) => {
@@ -84,14 +91,14 @@ function HomePage() {
   });
 
   return (
-    <div className="flex flex-1 items-center justify-center px-5 py-12">
+    <CenteredPanel>
       <div className="enter-rise relative w-full max-w-md overflow-hidden rounded-2xl border border-white/[0.06] bg-[linear-gradient(160deg,hsl(0_0%_8%)_0%,hsl(0_0%_4%)_100%)] shadow-[0_12px_48px_hsl(0_0%_0%/0.6)]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-15%,hsl(0_80%_48%/0.12),transparent_60%)]" />
 
         <div className="relative space-y-6 p-6 md:p-8">
           <div className="space-y-3 text-center">
-            <h1 className="text-5xl font-bold tracking-tight font-display">
-              DECK<span className="flame-text">FLIX</span>
+            <h1>
+              <BrandMark size="lg" uppercase />
             </h1>
             <p className="text-sm text-muted-foreground">
               Swipe right on movie night
@@ -129,13 +136,12 @@ function HomePage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 if (
-                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
-                  !displayName.trim()
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH
                 ) {
                   notify({
                     type: "error",
                     title: "Couldn’t join room",
-                    description: `Enter a ${GAME_CODE_LENGTH}-character room code and your name first.`,
+                    description: `Enter a ${GAME_CODE_LENGTH}-character room code first.`,
                   });
                   return;
                 }
@@ -161,9 +167,10 @@ function HomePage() {
                 <Label htmlFor="displayName">Your name</Label>
                 <Input
                   id="displayName"
+                  maxLength={PLAYER_DISPLAY_NAME_MAX_LENGTH}
                   value={displayName}
                   onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="What should the room call you?"
+                  placeholder={suggestedDisplayName}
                 />
               </div>
 
@@ -172,8 +179,7 @@ function HomePage() {
                 type="submit"
                 disabled={
                   joinGameMutation.isPending ||
-                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH ||
-                  !displayName.trim()
+                  normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH
                 }>
                 {joinGameMutation.isPending ? "Joining room..." : "Join room"}
               </Button>
@@ -191,7 +197,7 @@ function HomePage() {
                   id="roomName"
                   value={roomName}
                   onChange={(event) => setRoomName(event.target.value)}
-                  placeholder="Friday Night Picks"
+                  placeholder={suggestedRoomName}
                   autoFocus
                 />
               </div>
@@ -209,7 +215,7 @@ function HomePage() {
           )}
         </div>
       </div>
-    </div>
+    </CenteredPanel>
   );
 }
 

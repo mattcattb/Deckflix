@@ -7,6 +7,13 @@ import {
 import type {AppType} from "@deckflix/server/app";
 import {apiErrorResponseSchema, type ApiError} from "@deckflix/shared";
 
+const ROOM_SESSION_TOKEN_STORAGE_KEY = "deckflix_room_session_token";
+
+const getStoredRoomSessionToken = () =>
+  typeof window !== "undefined"
+    ? window.localStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY)
+    : null;
+
 const rawBaseUrl =
   import.meta.env.VITE_PUBLIC_API_URL ||
   import.meta.env.VITE_API_URL ||
@@ -19,6 +26,19 @@ export const API_BASE_URL = rawBaseUrl.startsWith("/")
   : `http://${rawBaseUrl}`;
 
 export const api = hc<AppType>(API_BASE_URL, {
+  fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+    const token = getStoredRoomSessionToken();
+    if (!token) {
+      return fetch(input, init);
+    }
+
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, {
+      ...init,
+      headers,
+    });
+  },
   init: {
     credentials: "include",
   },

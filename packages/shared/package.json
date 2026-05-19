@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "random-word-slugs": "^0.1.7",
     "zod": "catalog:"
   },
   "exports": {
@@ -13,6 +14,8 @@
     "./game-sessions": "./src/game-sessions.ts",
     "./game-snapshots": "./src/game-snapshots.ts",
     "./game-messages": "./src/game-messages.ts",
+    "./profiles": "./src/profiles.ts",
+    "./random-names": "./src/random-names.ts",
     "./movies": "./src/movies.ts"
   }
 }

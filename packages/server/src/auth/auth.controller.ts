@@ -17,6 +17,3 @@ import {auth} from "../lib/auth";
 export const authController = createRouter().all("/*", (c) => {
   return auth.handler(c.req.raw);
 });
-
-// Re-export auth for use in other modules
-export {auth};

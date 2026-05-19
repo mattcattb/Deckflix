@@ -27,6 +27,8 @@ export type MovieWatchProvider = {
   logoUrl: string;
 };
 
+export type MovieProvider = MovieWatchProvider;
+
 export type MovieGallery = {
   posters: string[];
   backdrops: string[];

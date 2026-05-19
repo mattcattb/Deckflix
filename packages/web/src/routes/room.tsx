@@ -1,35 +1,23 @@
-import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect} from "@tanstack/react-router";
-import {DisplayRoomShell} from "../features/room";
+import {DisplayRoomShell} from "../features/display/DisplayRoomView";
 import {
-  activeDisplayStateQueryOptions,
-  activeRoomClientQueryOptions,
-  clearActiveRoomSession,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
+} from "../features/room/room.queries";
+import {
+  activeGamePreferencesQueryOptions,
+  activeRoomSettingsQueryOptions,
+} from "../features/preferences/preferences.queries";
+import {
+  clearActiveRoomSession,
   isMissingRoomSessionError,
-} from "../lib/games";
-
-const getDisplayClient = async (queryClient: QueryClient) => {
-  const activeClient = await queryClient.ensureQueryData(
-    activeRoomClientQueryOptions,
-  );
-
-  if (activeClient.role === "none") {
-    throw redirect({to: "/", replace: true});
-  }
-
-  if (activeClient.role === "player") {
-    throw redirect({to: "/play", replace: true});
-  }
-
-  return activeClient;
-};
+} from "../features/room/room-session";
+import {requireDisplayRoom} from "./room-route-guards";
 
 export const Route = createFileRoute("/room")({
-  beforeLoad: ({context}) => getDisplayClient(context.queryClient),
+  beforeLoad: ({context}) => requireDisplayRoom(context.activeClient),
   loader: async ({context}) => {
-    const activeClient = await getDisplayClient(context.queryClient);
+    const activeClient = requireDisplayRoom(context.activeClient);
 
     try {
       await Promise.all([
@@ -40,12 +28,18 @@ export const Route = createFileRoute("/room")({
           activeRoomPlayersQueryOptions(activeClient.gameCode),
         ),
         context.queryClient.prefetchQuery(
-          activeDisplayStateQueryOptions(activeClient.gameCode),
+          activeRoomSettingsQueryOptions(activeClient.gameCode),
+        ),
+        context.queryClient.prefetchQuery(
+          activeGamePreferencesQueryOptions(activeClient.gameCode),
         ),
       ]);
     } catch (error) {
       if (isMissingRoomSessionError(error)) {
-        await clearActiveRoomSession(context.queryClient, activeClient.gameCode);
+        await clearActiveRoomSession(
+          context.queryClient,
+          activeClient.gameCode,
+        );
         throw redirect({to: "/", replace: true});
       }
 

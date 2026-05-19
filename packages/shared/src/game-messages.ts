@@ -1,1 +1,1 @@
-export * from "./events/messages";
+export * from "./events/ws-messages";
