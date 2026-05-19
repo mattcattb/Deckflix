@@ -14,7 +14,7 @@ import {
   normalizeGameCode,
   storePlayerSessionToken,
 } from "../features/room/room-session";
-import {requireNoActiveRoom} from "./room-route-guards";
+import {requireNoActiveRoom} from "./-room-route-guards";
 
 export const Route = createFileRoute("/join/$gameCode")({
   beforeLoad: ({context}) => requireNoActiveRoom(context.activeClient),

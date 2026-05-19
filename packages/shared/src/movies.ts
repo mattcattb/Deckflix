@@ -24,7 +24,7 @@ export type MovieVideo = {
 export type MovieWatchProvider = {
   id: number;
   name: string;
-  logoUrl: string;
+  logoUrl: string | null;
 };
 
 export type MovieProvider = MovieWatchProvider;
@@ -37,7 +37,7 @@ export type MovieGallery = {
 
 export type MovieWatchAvailability = {
   region: string;
-  link?: string;
+  link?: string | null;
   stream: MovieWatchProvider[];
   rent: MovieWatchProvider[];
   buy: MovieWatchProvider[];

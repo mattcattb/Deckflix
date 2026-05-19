@@ -1,4 +1,4 @@
-import {Slider} from "@base-ui/react/slider";
+import * as SliderPrimitive from "@radix-ui/react-slider";
 import {cn} from "../../lib/cn";
 import {Switch} from "./switch";
 
@@ -52,28 +52,22 @@ export function RangeSlider({
       </div>
 
       {enabled ? (
-        <Slider.Root
+        <SliderPrimitive.Root
           value={current}
           min={min}
           max={max}
           step={step}
-          minStepsBetweenValues={1}
+          minStepsBetweenThumbs={1}
           onValueChange={(next) =>
             onChange([next[0] ?? min, next[1] ?? max])
           }
-          className="mt-3">
-          <Slider.Control className="relative flex h-5 w-full items-center select-none touch-none">
-            <Slider.Track className="relative h-1.5 w-full rounded-full bg-white/[0.08]">
-              <Slider.Indicator className="absolute h-full rounded-full bg-gradient-to-r from-flame-start via-flame-mid to-flame-end" />
-              <Slider.Thumb
-                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-foreground shadow-[0_0_0_2px_hsl(4_90%_58%/0.6)] cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-              <Slider.Thumb
-                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-foreground shadow-[0_0_0_2px_hsl(4_90%_58%/0.6)] cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </Slider.Track>
-          </Slider.Control>
-        </Slider.Root>
+          className="relative mt-3 flex h-5 w-full touch-none select-none items-center">
+          <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-white/[0.08]">
+            <SliderPrimitive.Range className="absolute h-full bg-gradient-to-r from-flame-start via-flame-mid to-flame-end" />
+          </SliderPrimitive.Track>
+          <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full bg-foreground shadow-[0_0_0_2px_hsl(4_90%_58%/0.6)] cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          <SliderPrimitive.Thumb className="block h-4 w-4 rounded-full bg-foreground shadow-[0_0_0_2px_hsl(4_90%_58%/0.6)] cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        </SliderPrimitive.Root>
       ) : null}
     </div>
   );
