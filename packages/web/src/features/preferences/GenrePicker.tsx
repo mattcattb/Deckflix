@@ -1,5 +1,5 @@
 import {useState, type ReactNode} from "react";
-import {Popover} from "@base-ui/react/popover";
+import * as Popover from "@radix-ui/react-popover";
 import type {MovieWatchProvider} from "@deckflix/shared";
 import {Checkbox} from "../../components/ui";
 import {cn} from "../../lib/cn";
@@ -7,7 +7,7 @@ import {cn} from "../../lib/cn";
 type CatalogItem = {
   id: number;
   name: string;
-  logoUrl?: string;
+  logoUrl?: string | null;
 };
 
 type CatalogPickerTone = "include" | "exclude";
@@ -160,34 +160,33 @@ function CatalogPicker({
         )}
 
         <Popover.Root open={open} onOpenChange={setOpen}>
-          <Popover.Trigger
-            render={
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] text-muted-foreground hover:text-foreground hover:border-white/[0.24] transition"
-                aria-label={`Add ${label.toLowerCase()}`}>
-                +
-              </button>
-            }
-          />
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] text-muted-foreground hover:text-foreground hover:border-white/[0.24] transition"
+              aria-label={`Add ${label.toLowerCase()}`}>
+              +
+            </button>
+          </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Positioner sideOffset={6} align="start">
-              <Popover.Popup className="z-50 w-64 max-h-72 overflow-y-auto rounded-xl border border-white/[0.08] bg-surface/95 backdrop-blur p-2 shadow-xl outline-none">
-                <div className="grid grid-cols-1 gap-0.5">
-                  {items.map((item) => (
-                    <CatalogOption
-                      key={item.id}
-                      item={item}
-                      checked={selectedIds.includes(item.id)}
-                      icon={renderIcon(item)}
-                      onCheckedChange={(checked) =>
-                        onToggle(item.id, checked === true)
-                      }
-                    />
-                  ))}
-                </div>
-              </Popover.Popup>
-            </Popover.Positioner>
+            <Popover.Content
+              sideOffset={6}
+              align="start"
+              className="z-50 w-64 max-h-72 overflow-y-auto rounded-xl border border-white/[0.08] bg-surface/95 backdrop-blur p-2 shadow-xl outline-none">
+              <div className="grid grid-cols-1 gap-0.5">
+                {items.map((item) => (
+                  <CatalogOption
+                    key={item.id}
+                    item={item}
+                    checked={selectedIds.includes(item.id)}
+                    icon={renderIcon(item)}
+                    onCheckedChange={(checked) =>
+                      onToggle(item.id, checked === true)
+                    }
+                  />
+                ))}
+              </div>
+            </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
       </div>

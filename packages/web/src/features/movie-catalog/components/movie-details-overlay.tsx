@@ -213,6 +213,7 @@ function toFallbackMovieDetails(movie: MovieCandidate | null, region: string) {
     contentRating: "",
     watchProviders: {
       region,
+      link: null,
       stream: [],
       rent: [],
       buy: [],

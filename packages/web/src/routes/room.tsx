@@ -12,7 +12,7 @@ import {
   clearActiveRoomSession,
   isMissingRoomSessionError,
 } from "../features/room/room-session";
-import {requireDisplayRoom} from "./room-route-guards";
+import {requireDisplayRoom} from "./-room-route-guards";
 
 export const Route = createFileRoute("/room")({
   beforeLoad: ({context}) => requireDisplayRoom(context.activeClient),

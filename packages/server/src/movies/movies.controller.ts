@@ -54,7 +54,7 @@ const toWatchProviderAvailability = (
   movie: TmdbMovieDetailsWithAppends,
   region: string,
 ) => {
-  const watchProviderCatalog = movie["watch/providers"] as
+  const watchProviderCatalog = movie["watch/providers"] as unknown as
     | {
         results?: Record<
           string,

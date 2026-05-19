@@ -45,7 +45,7 @@ import {useRoomWebSocket} from "../features/room/use-room-websocket";
 import {SwipeControls} from "../features/swipe/SwipeControls";
 import {SwipeDeck} from "../features/swipe/SwipeDeck";
 import {getPlayerRoomViewMode} from "../features/room/room-view-modes";
-import {requirePlayerRoom} from "./room-route-guards";
+import {requirePlayerRoom} from "./-room-route-guards";
 
 const prefetchPlayerRoom = async (
   queryClient: QueryClient,
