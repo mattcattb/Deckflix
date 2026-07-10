@@ -1,6 +1,7 @@
 import {useState} from "react";
 import {createFileRoute, useNavigate} from "@tanstack/react-router";
 import {useMutation, useQueryClient} from "@tanstack/react-query";
+import {Loader2, MonitorPlay, Smartphone} from "lucide-react";
 import {
   createRandomRoomName,
   createRandomUserName,
@@ -10,7 +11,19 @@ import {
 import {api, parseRpc} from "../lib/api";
 import {BrandMark} from "../components/common";
 import {CenteredPanel} from "../components/layout";
-import {Button, Input, Label, useToast} from "../components/ui";
+import {
+  Button,
+  Input,
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+  Label,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  useToast,
+} from "../components/ui";
 import {
   activeRoomSessionKeys,
   normalizeGameCode,
@@ -105,32 +118,19 @@ function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1.5">
-            <button
-              type="button"
-              onClick={() => setMode("play")}
-              className={
-                mode === "play"
-                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
-                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
-              }>
-              <PhoneIcon />
-              Join
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("display")}
-              className={
-                mode === "display"
-                  ? "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-flame-start to-flame-mid px-4 py-2.5 text-sm font-semibold text-white shadow-[0_2px_12px_hsl(4_90%_58%/0.3)] transition-all"
-                  : "flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.04] hover:text-foreground"
-              }>
-              <TvIcon />
-              Display
-            </button>
-          </div>
+          <Tabs value={mode} onValueChange={(value) => setMode(value as HomeMode)}>
+            <TabsList className="grid h-auto w-full grid-cols-2 p-1.5">
+              <TabsTrigger className="gap-2 py-2.5" value="play">
+                <Smartphone />
+                Join
+              </TabsTrigger>
+              <TabsTrigger className="gap-2 py-2.5" value="display">
+                <MonitorPlay />
+                Display
+              </TabsTrigger>
+            </TabsList>
 
-          {mode === "play" ? (
+            <TabsContent value="play">
             <form
               className="space-y-4"
               onSubmit={(event) => {
@@ -150,17 +150,20 @@ function HomePage() {
               }}>
               <div className="space-y-2">
                 <Label htmlFor="gameCode">Room code</Label>
-                <Input
+                <InputOTP
                   id="gameCode"
-                  value={gameCode}
-                  onChange={(event) =>
-                    setGameCode(normalizeGameCode(event.target.value))
-                  }
-                  placeholder="ABCD"
                   maxLength={GAME_CODE_LENGTH}
-                  className="text-center text-xl font-mono tracking-[0.3em] uppercase"
+                  value={gameCode}
+                  onChange={(value) => setGameCode(normalizeGameCode(value))}
+                  containerClassName="justify-center"
                   autoFocus
-                />
+                >
+                  <InputOTPGroup>
+                    {Array.from({length: GAME_CODE_LENGTH}).map((_, index) => (
+                      <InputOTPSlot key={index} index={index} />
+                    ))}
+                  </InputOTPGroup>
+                </InputOTP>
               </div>
 
               <div className="space-y-2">
@@ -181,10 +184,19 @@ function HomePage() {
                   joinGameMutation.isPending ||
                   normalizeGameCode(gameCode).length !== GAME_CODE_LENGTH
                 }>
-                {joinGameMutation.isPending ? "Joining room..." : "Join room"}
+                {joinGameMutation.isPending ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Joining room...
+                  </>
+                ) : (
+                  "Join room"
+                )}
               </Button>
             </form>
-          ) : (
+            </TabsContent>
+
+            <TabsContent value="display">
             <form
               className="space-y-4"
               onSubmit={(event) => {
@@ -207,12 +219,18 @@ function HomePage() {
                 className="w-full"
                 type="submit"
                 disabled={createGameMutation.isPending}>
-                {createGameMutation.isPending
-                  ? "Creating room..."
-                  : "Create room"}
+                {createGameMutation.isPending ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Creating room...
+                  </>
+                ) : (
+                  "Create room"
+                )}
               </Button>
             </form>
-          )}
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </CenteredPanel>
@@ -230,39 +248,4 @@ function getErrorMessage(error: unknown) {
   }
 
   return "Unable to continue";
-}
-
-function TvIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round">
-      <rect x="3" y="5" width="18" height="12" rx="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-}
-
-function PhoneIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round">
-      <rect x="7" y="2" width="10" height="20" rx="2" />
-      <line x1="11" y1="18" x2="13" y2="18" />
-    </svg>
-  );
 }

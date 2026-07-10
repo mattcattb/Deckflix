@@ -82,8 +82,7 @@ type DisplayRoomContextValue = {
   movieProvidersLoading: boolean;
   movieProvidersError: string | null;
   players: GamePlayerPresence[];
-  saveSettings: () => void;
-  saveSettingsPending: boolean;
+  settingsSaveStatus: "idle" | "pending" | "saving" | "saved";
   setDraftPreferences: (preferences: GamePreferences) => void;
   setDraftSettings: (settings: GameSettings) => void;
   startGame: () => void;
@@ -107,10 +106,16 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const location = useLocation();
   const queryClient = useQueryClient();
   const didClearSessionRef = useRef(false);
+  const lastSavedSettingsRef = useRef<GameSettings | null>(null);
+  const lastSavedPreferencesRef = useRef<GamePreferences | null>(null);
+  const savedStatusTimeoutRef = useRef<number | null>(null);
   const [gameError, setGameError] = useState<string | null>(null);
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null);
   const [draftPreferences, setDraftPreferences] =
     useState<GamePreferences | null>(null);
+  const [settingsSaveStatus, setSettingsSaveStatus] = useState<
+    DisplayRoomContextValue["settingsSaveStatus"]
+  >("idle");
   const [lastDisplayMessage, setLastDisplayMessage] =
     useState<DisplayServerMessage | null>(null);
   const [playerVoteFlashById, setPlayerVoteFlashById] = useState<
@@ -152,12 +157,14 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
   useEffect(() => {
     if (settingsQuery.data) {
+      lastSavedSettingsRef.current = settingsQuery.data;
       setDraftSettings(settingsQuery.data);
     }
   }, [settingsQuery.data]);
 
   useEffect(() => {
     if (preferencesQuery.data) {
+      lastSavedPreferencesRef.current = preferencesQuery.data;
       setDraftPreferences(preferencesQuery.data);
     }
   }, [preferencesQuery.data]);
@@ -180,23 +187,31 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   ]);
 
   const settingsMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (input: {
+      settings: GameSettings;
+      preferences: GamePreferences;
+    }) => {
       const [meta, preferences] = await Promise.all([
         parseRpc(
           api.api.room.settings.$patch({
-            json: draftSettings ?? {},
+            json: input.settings,
           }),
         ),
         parseRpc(
           api.api.game.preferences.$patch({
-            json: draftPreferences ?? {},
+            json: input.preferences,
           }),
         ),
       ]);
 
       return {meta, preferences};
     },
+    onMutate: () => {
+      setSettingsSaveStatus("saving");
+    },
     onSuccess: ({meta, preferences}) => {
+      lastSavedSettingsRef.current = meta.settings;
+      lastSavedPreferencesRef.current = preferences;
       queryClient.setQueryData<GameMeta>(roomKeys.meta(gameCode), meta);
       queryClient.setQueryData<GameSettings>(
         preferenceKeys.roomSettings(gameCode),
@@ -207,6 +222,14 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         preferences,
       );
       setGameError(null);
+      setSettingsSaveStatus("saved");
+      if (savedStatusTimeoutRef.current) {
+        window.clearTimeout(savedStatusTimeoutRef.current);
+      }
+      savedStatusTimeoutRef.current = window.setTimeout(() => {
+        setSettingsSaveStatus("idle");
+        savedStatusTimeoutRef.current = null;
+      }, 1600);
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -217,11 +240,30 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       setGameError(
         error instanceof Error ? error.message : "Unable to save settings",
       );
+      setSettingsSaveStatus("pending");
     },
   });
 
   const startGameMutation = useMutation({
-    mutationFn: async () => parseRpc(api.api.room.start.$post()),
+    mutationFn: async () => {
+      if (
+        draftSettings &&
+        draftPreferences &&
+        hasUnsavedSettings(draftSettings, draftPreferences, {
+          settings: lastSavedSettingsRef.current,
+          preferences: lastSavedPreferencesRef.current,
+        })
+      ) {
+        const {meta, preferences} = await settingsMutation.mutateAsync({
+          settings: draftSettings,
+          preferences: draftPreferences,
+        });
+        lastSavedSettingsRef.current = meta.settings;
+        lastSavedPreferencesRef.current = preferences;
+      }
+
+      return parseRpc(api.api.room.start.$post());
+    },
     onSuccess: () => {
       setGameError(null);
       void metaQuery.refetch();
@@ -237,6 +279,53 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       );
     },
   });
+
+  useEffect(() => {
+    return () => {
+      if (savedStatusTimeoutRef.current) {
+        window.clearTimeout(savedStatusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftSettings || !draftPreferences) {
+      return;
+    }
+
+    if (
+      !hasUnsavedSettings(draftSettings, draftPreferences, {
+        settings: lastSavedSettingsRef.current,
+        preferences: lastSavedPreferencesRef.current,
+      })
+    ) {
+      if (settingsSaveStatus === "pending") {
+        setSettingsSaveStatus("idle");
+      }
+      return;
+    }
+
+    if (settingsMutation.isPending || startGameMutation.isPending) {
+      return;
+    }
+
+    setSettingsSaveStatus("pending");
+    const timeout = window.setTimeout(() => {
+      settingsMutation.mutate({
+        settings: draftSettings,
+        preferences: draftPreferences,
+      });
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    draftPreferences,
+    draftSettings,
+    settingsMutation,
+    settingsMutation.isPending,
+    settingsSaveStatus,
+    startGameMutation.isPending,
+  ]);
 
   const deleteRoomMutation = useMutation({
     mutationFn: async () => parseRpc(api.api.room.end.$post()),
@@ -453,8 +542,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     movieProvidersLoading: movieWatchProvidersQuery.isLoading,
     movieProvidersError: movieWatchProvidersError,
     players: playersQuery.data.players,
-    saveSettings: () => settingsMutation.mutate(),
-    saveSettingsPending: settingsMutation.isPending,
+    settingsSaveStatus,
     setDraftPreferences,
     setDraftSettings,
     startGame: () => startGameMutation.mutate(),
@@ -537,6 +625,24 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         </RoomScreenShell>
       </>
     </DisplayRoomContext.Provider>
+  );
+}
+
+function hasUnsavedSettings(
+  settings: GameSettings,
+  preferences: GamePreferences,
+  saved: {
+    settings: GameSettings | null;
+    preferences: GamePreferences | null;
+  },
+) {
+  if (!saved.settings || !saved.preferences) {
+    return false;
+  }
+
+  return (
+    JSON.stringify(settings) !== JSON.stringify(saved.settings) ||
+    JSON.stringify(preferences) !== JSON.stringify(saved.preferences)
   );
 }
 

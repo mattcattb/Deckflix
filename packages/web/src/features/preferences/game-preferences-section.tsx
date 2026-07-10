@@ -1,3 +1,4 @@
+import type {ReactNode} from "react";
 import type {
   GamePreferences,
   GameSettings,
@@ -5,7 +6,13 @@ import type {
   MovieWatchProvider,
 } from "@deckflix/shared";
 import {Eyebrow, StatusMessage} from "../../components/common";
-import {Input, Label, RangeSlider, Select} from "../../components/ui";
+import {
+  Button,
+  Input,
+  Label,
+  RangeSlider,
+  Skeleton,
+} from "../../components/ui";
 import {GenrePicker, ProviderPicker} from "./GenrePicker";
 
 type MovieGenre = {
@@ -108,16 +115,24 @@ export function GamePreferencesSection({
 
   return (
     <div className="space-y-5">
-      <GameplaySettingsPanel
-        settings={settings}
-        popularityPreset={preferences.popularityPreset}
-        onGameplayChange={updateGameplaySetting}
-        onPopularityPresetChange={(popularityPreset) =>
-          updateMoviePreference("popularityPreset", popularityPreset)
-        }
-      />
+      <div className="grid gap-5 xl:grid-cols-[minmax(22rem,0.85fr)_minmax(28rem,1.15fr)]">
+        <GameplaySettingsPanel
+          settings={settings}
+          popularityPreset={preferences.popularityPreset}
+          onGameplayChange={updateGameplaySetting}
+          onPopularityPresetChange={(popularityPreset) =>
+            updateMoviePreference("popularityPreset", popularityPreset)
+          }
+        />
 
-      <MovieFiltersPanel
+        <MovieRangeFiltersPanel
+          preferences={preferences}
+          onPreferencesChange={onPreferencesChange}
+          onMoviePreferenceChange={updateMoviePreference}
+        />
+      </div>
+
+      <MovieCatalogFiltersPanel
         preferences={preferences}
         movieGenres={movieGenres}
         movieGenresLoading={movieGenresLoading}
@@ -125,7 +140,6 @@ export function GamePreferencesSection({
         movieProviders={movieProviders}
         movieProvidersLoading={movieProvidersLoading}
         movieProvidersError={movieProvidersError}
-        onPreferencesChange={onPreferencesChange}
         onMoviePreferenceChange={updateMoviePreference}
         onToggleGenreId={toggleGenreId}
         onToggleProviderId={toggleProviderId}
@@ -149,99 +163,78 @@ function GameplaySettingsPanel({
   onPopularityPresetChange: (preset: MoviePopularityPreset) => void;
 }) {
   return (
-    <section className="space-y-3">
-      <Eyebrow as="h3" className="text-xs tracking-[0.18em]">
-        Gameplay
-      </Eyebrow>
-
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-3 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="maxMovies" className="text-sm">
-              Movies
-            </Label>
-            <Input
-              id="maxMovies"
-              type="number"
-              min={1}
-              max={500}
-              className="w-20 text-center"
-              value={settings.gameplay.maxMovies}
-              onChange={(event) =>
-                onGameplayChange(
-                  "maxMovies",
-                  Number.parseInt(event.target.value, 10) || 1,
-                )
-              }
-            />
-          </div>
-
-          <div className="ml-auto flex min-w-[12rem] items-center gap-2">
-            <Label htmlFor="popularityPreset" className="text-sm">
-              Popularity
-            </Label>
-            <Select
-              id="popularityPreset"
-              className="h-9 min-w-0 flex-1 px-2"
-              value={popularityPreset}
-              onChange={(event) =>
-                onPopularityPresetChange(event.target.value as MoviePopularityPreset)
-              }>
-              <option value="any">Any</option>
-              <option value="balanced">Balanced</option>
-              <option value="popular">Popular</option>
-              <option value="niche">Allison (Niche)</option>
-            </Select>
-          </div>
+    <SettingsSection
+      title="Gameplay"
+      description="Set the game size and the kind of movie mix the room should see.">
+      <div className="grid gap-4">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-3">
+          <Label htmlFor="maxMovies" className="text-sm">
+            Movies
+          </Label>
+          <Input
+            id="maxMovies"
+            type="number"
+            min={1}
+            max={500}
+            className="w-20 text-center"
+            value={settings.gameplay.maxMovies}
+            onChange={(event) =>
+              onGameplayChange(
+                "maxMovies",
+                Number.parseInt(event.target.value, 10) || 1,
+              )
+            }
+          />
         </div>
 
-        <p className="mt-2 text-xs text-muted-foreground">
-          {POPULARITY_PRESET_COPY[popularityPreset]}
-        </p>
+        <div className="space-y-2 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-3">
+          <Label className="text-sm">Popularity</Label>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
+            {POPULARITY_PRESETS.map((preset) => (
+              <Button
+                key={preset.value}
+                type="button"
+                variant={popularityPreset === preset.value ? "primary" : "secondary"}
+                size="sm"
+                className="px-2"
+                onClick={() => onPopularityPresetChange(preset.value)}>
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {POPULARITY_PRESET_COPY[popularityPreset]}
+          </p>
+        </div>
       </div>
 
-      <StatusMessage tone="success" className="px-3 py-2">
-        A match happens only when every player likes the same movie.
+      <StatusMessage tone="success" className="mt-4 px-3 py-2">
+        Strong group support creates finalists; nobody has to vote identically.
       </StatusMessage>
-    </section>
+    </SettingsSection>
   );
 }
 
-function MovieFiltersPanel({
+const POPULARITY_PRESETS: Array<{
+  value: MoviePopularityPreset;
+  label: string;
+}> = [
+  {value: "any", label: "Any"},
+  {value: "balanced", label: "Balanced"},
+  {value: "popular", label: "Popular"},
+  {value: "niche", label: "Niche"},
+];
+
+function MovieRangeFiltersPanel({
   preferences,
-  movieGenres,
-  movieGenresLoading,
-  movieGenresError,
-  movieProviders,
-  movieProvidersLoading,
-  movieProvidersError,
   onPreferencesChange,
   onMoviePreferenceChange,
-  onToggleGenreId,
-  onToggleProviderId,
 }: {
   preferences: GamePreferences;
-  movieGenres: MovieGenre[];
-  movieGenresLoading: boolean;
-  movieGenresError?: string | null;
-  movieProviders: MovieWatchProvider[];
-  movieProvidersLoading: boolean;
-  movieProvidersError?: string | null;
   onPreferencesChange: (preferences: GamePreferences) => void;
   onMoviePreferenceChange: <Key extends keyof GamePreferences>(
     key: Key,
     value: GamePreferences[Key],
-  ) => void;
-  onToggleGenreId: (
-    listKey: GenreListKey,
-    otherListKey: GenreListKey,
-    genreId: number,
-    checked: boolean,
-  ) => void;
-  onToggleProviderId: (
-    listKey: keyof Pick<GamePreferences, "preferredProviderIds">,
-    providerId: number,
-    checked: boolean,
   ) => void;
 }) {
   const ratingEnabled =
@@ -274,12 +267,10 @@ function MovieFiltersPanel({
   };
 
   return (
-    <section className="space-y-3">
-      <Eyebrow as="h3" className="text-xs tracking-[0.18em]">
-        Movie filters
-      </Eyebrow>
-
-      <div className="grid gap-2">
+    <SettingsSection
+      title="Movie filters"
+      description="Constrain the deck by rating, release window, and availability region.">
+      <div className="grid gap-3">
         <RangeSlider
           label="TMDB rating"
           min={0}
@@ -330,7 +321,7 @@ function MovieFiltersPanel({
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-4 py-3">
         <Label htmlFor="watchRegion" className="text-xs">
           Watch region
         </Label>
@@ -345,9 +336,69 @@ function MovieFiltersPanel({
           onBlur={(event) => updateWatchRegion(event.currentTarget.value)}
         />
       </div>
+      <div className="mt-3 space-y-2 rounded-xl border border-white/[0.06] bg-black/20 px-4 py-3">
+        <Label className="text-xs">Maximum runtime</Label>
+        <div className="grid grid-cols-4 gap-2">
+          {[90, 120, 150, null].map((minutes) => (
+            <Button
+              key={minutes ?? "any"}
+              type="button"
+              size="sm"
+              variant={preferences.runtimeMinutesLte === minutes ? "primary" : "secondary"}
+              onClick={() => onMoviePreferenceChange("runtimeMinutesLte", minutes)}>
+              {minutes ? `${minutes}m` : "Any"}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}
 
+function MovieCatalogFiltersPanel({
+  preferences,
+  movieGenres,
+  movieGenresLoading,
+  movieGenresError,
+  movieProviders,
+  movieProvidersLoading,
+  movieProvidersError,
+  onMoviePreferenceChange,
+  onToggleGenreId,
+  onToggleProviderId,
+}: {
+  preferences: GamePreferences;
+  movieGenres: MovieGenre[];
+  movieGenresLoading: boolean;
+  movieGenresError?: string | null;
+  movieProviders: MovieWatchProvider[];
+  movieProvidersLoading: boolean;
+  movieProvidersError?: string | null;
+  onMoviePreferenceChange: <Key extends keyof GamePreferences>(
+    key: Key,
+    value: GamePreferences[Key],
+  ) => void;
+  onToggleGenreId: (
+    listKey: GenreListKey,
+    otherListKey: GenreListKey,
+    genreId: number,
+    checked: boolean,
+  ) => void;
+  onToggleProviderId: (
+    listKey: keyof Pick<GamePreferences, "preferredProviderIds">,
+    providerId: number,
+    checked: boolean,
+  ) => void;
+}) {
+  return (
+    <SettingsSection
+      title="Catalog"
+      description="Choose genres and streaming providers from TMDB-backed lists.">
       {movieGenresLoading ? (
-        <p className="text-xs text-muted-foreground">Loading genres...</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
       ) : movieGenresError ? (
         <StatusMessage tone="danger" className="rounded-lg px-3 py-2 text-xs">
           {movieGenresError}
@@ -398,7 +449,7 @@ function MovieFiltersPanel({
       )}
 
       {movieProvidersLoading ? (
-        <p className="text-xs text-muted-foreground">Loading providers...</p>
+        <Skeleton className="h-20" />
       ) : movieProvidersError ? (
         <StatusMessage tone="danger" className="rounded-lg px-3 py-2 text-xs">
           {movieProvidersError}
@@ -420,6 +471,28 @@ function MovieFiltersPanel({
           onClear={() => onMoviePreferenceChange("preferredProviderIds", [])}
         />
       )}
+    </SettingsSection>
+  );
+}
+
+function SettingsSection({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <section className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
+      <div className="mb-4 space-y-1">
+        <Eyebrow as="h3" className="text-xs tracking-[0.18em]">
+          {title}
+        </Eyebrow>
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      {children}
     </section>
   );
 }

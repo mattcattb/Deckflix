@@ -14,6 +14,7 @@ import type {
   PlayerIconId,
   PlayerRoomState,
   SwipeChoice,
+  FinaleState,
 } from "@deckflix/shared";
 import {PLAYER_DISPLAY_NAME_MAX_LENGTH, playerAvatarIds} from "@deckflix/shared";
 import {PlayerAvatarImage, ProfileAvatar} from "../components/common";
@@ -29,6 +30,7 @@ import {
 import {
   activePlayerDeckQueryOptions,
   activePlayerRoomQueryOptions,
+  activeFinaleQueryOptions,
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
   activeRoomResultsQueryOptions,
@@ -46,6 +48,8 @@ import {SwipeControls} from "../features/swipe/SwipeControls";
 import {SwipeDeck} from "../features/swipe/SwipeDeck";
 import {getPlayerRoomViewMode} from "../features/room/room-view-modes";
 import {requirePlayerRoom} from "./-room-route-guards";
+import {PlayerTastePanel} from "../features/player/PlayerTastePanel";
+import {MovieSuggestionPanel} from "../features/player/MovieSuggestionPanel";
 
 const prefetchPlayerRoom = async (
   queryClient: QueryClient,
@@ -95,6 +99,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const didClearSessionRef = useRef(false);
   const lastDeckRefreshAtRef = useRef(0);
   const deckRefreshTimeoutScheduledRef = useRef(false);
+  const seenNotificationIdsRef = useRef(new Set<string>());
   const [gameError, setGameError] = useState<string | null>(null);
   const [playerState, setPlayerState] = useState<PlayerRoomState | null>(null);
   const [isDeckRefreshQueued, setIsDeckRefreshQueued] = useState(false);
@@ -105,10 +110,22 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     ...activePlayerDeckQueryOptions(gameCode),
     enabled: playerState?.summary.status === "swiping",
   });
+  const finaleQuery = useQuery({
+    ...activeFinaleQueryOptions(gameCode),
+    enabled:
+      playerState?.summary.status === "finale" ||
+      playerState?.summary.status === "completed",
+  });
+  const notificationsQuery = useQuery({
+    queryKey: ["room", gameCode, "notifications"],
+    queryFn: () => parseRpc(api.api.player.me.notifications.$get()),
+    refetchInterval: 4_000,
+  });
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
   const refetchPlayer = playerQuery.refetch;
   const refetchDeck = deckQuery.refetch;
+  const refetchFinale = finaleQuery.refetch;
 
   const resetRoomSession = useCallback(() => {
     if (didClearSessionRef.current) {
@@ -148,6 +165,14 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       setPlayerState(playerQuery.data);
     }
   }, [playerQuery.data]);
+
+  useEffect(() => {
+    for (const item of [...(notificationsQuery.data?.items ?? [])].reverse()) {
+      if (seenNotificationIdsRef.current.has(item.id)) continue;
+      seenNotificationIdsRef.current.add(item.id);
+      notify({type: "success", title: item.title, description: item.message});
+    }
+  }, [notificationsQuery.data?.items, notify]);
 
   useEffect(() => {
     const roomError =
@@ -210,12 +235,17 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   ]);
 
   const voteMutation = useMutation({
-    mutationFn: async (payload: {choice: SwipeChoice; movieId: string}) =>
+    mutationFn: async (payload: {
+      choice: SwipeChoice;
+      movieId: string;
+      actionId: string;
+    }) =>
       parseRpc(
         api.api.game.vote.$post({
           json: {
             movieId: payload.movieId,
             choice: payload.choice,
+            actionId: payload.actionId,
           },
         }),
       ),
@@ -227,6 +257,13 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       if (!result.statePatch.currentItem) {
         refreshDeck();
       }
+      if (result.suggestion) {
+        notify({
+          type: "info",
+          title: `Suggested by ${result.suggestion.suggestedByName}`,
+          description: "Your reaction is now helping the room decide.",
+        });
+      }
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -236,6 +273,22 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
 
       setGameError(
         error instanceof Error ? error.message : "Unable to record vote",
+      );
+      void refetchDeck();
+    },
+  });
+
+  const finaleVoteMutation = useMutation({
+    mutationFn: (movieId: string | null) =>
+      parseRpc(api.api.game.finale.vote.$post({json: {movieId}})),
+    onSuccess: (state) => {
+      queryClient.setQueryData(roomKeys.finale(gameCode), state);
+      void refetchMeta();
+      void refetchPlayer();
+    },
+    onError: (error) => {
+      setGameError(
+        error instanceof Error ? error.message : "Unable to record final vote",
       );
     },
   });
@@ -343,6 +396,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         if (message.type === "room.completed") {
           void refetchMeta();
           void refetchPlayer();
+          void refetchFinale();
           return;
         }
 
@@ -351,6 +405,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
           void refetchPlayers();
           void refetchPlayer();
           refreshDeck();
+          void refetchFinale();
           return;
         }
 
@@ -404,6 +459,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       [
         notify,
         refetchDeck,
+        refetchFinale,
         refetchMeta,
         refetchPlayer,
         refetchPlayers,
@@ -461,6 +517,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     voteMutation.mutate({
       choice,
       movieId: movieId ?? deckQuery.data.currentItem.movie.id,
+      actionId: crypto.randomUUID(),
     });
   };
 
@@ -515,6 +572,10 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
         profilePending={profileMutation.isPending}
         player={playerState}
+        finale={finaleQuery.data ?? null}
+        finaleVotePending={finaleVoteMutation.isPending}
+        onFinaleVote={(movieId) => finaleVoteMutation.mutate(movieId)}
+        onPlayerChanged={() => void refetchPlayer()}
         onProfileSubmit={(payload) => profileMutation.mutate(payload)}
         onVote={vote}
       />
@@ -530,6 +591,10 @@ function PlayerRoomBody({
   onVote,
   player,
   profilePending,
+  finale,
+  finaleVotePending,
+  onFinaleVote,
+  onPlayerChanged,
 }: {
   deck: PlayerDeckState | null;
   deckPending: boolean;
@@ -538,20 +603,44 @@ function PlayerRoomBody({
   onVote: (choice: SwipeChoice, movieId?: string) => void;
   player: PlayerRoomState;
   profilePending: boolean;
+  finale: FinaleState | null;
+  finaleVotePending: boolean;
+  onFinaleVote: (movieId: string | null) => void;
+  onPlayerChanged: () => void;
 }) {
   const viewMode = getPlayerRoomViewMode(player.summary.status);
 
   if (viewMode === "waiting") {
     return (
       <PlayerRoomBodyFrame>
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md space-y-4">
           <PlayerProfileEditor
             displayName={player.me.displayName}
             iconId={player.me.iconId}
             pending={profilePending}
             onSubmit={onProfileSubmit}
           />
+          <PlayerTastePanel
+            taste={player.me.taste}
+            onSaved={onPlayerChanged}
+          />
+          <MovieSuggestionPanel
+            remaining={player.me.suggestionRemaining}
+            onSuggested={onPlayerChanged}
+          />
         </div>
+      </PlayerRoomBodyFrame>
+    );
+  }
+
+  if (viewMode === "finale") {
+    return (
+      <PlayerRoomBodyFrame>
+        <FinaleVotePanel
+          finale={finale}
+          pending={finaleVotePending}
+          onVote={onFinaleVote}
+        />
       </PlayerRoomBodyFrame>
     );
   }
@@ -560,8 +649,8 @@ function PlayerRoomBody({
     return (
       <PlayerRoomBodyFrame>
         <PlayerStatusPanel
-          title="This round is complete"
-          body="Watch the display for the final board and matches."
+          title={finale?.winner ? `${finale.winner.title} wins` : "This round is complete"}
+          body={finale?.winner ? "That’s tonight’s pick. Check the display for details." : "Watch the display for the final board and matches."}
         />
       </PlayerRoomBodyFrame>
     );
@@ -589,6 +678,11 @@ function PlayerRoomBody({
   return (
     <PlayerRoomBodyFrame>
       <div className="w-full max-w-sm space-y-4">
+        {deck.currentItem.source === "suggestion" ? (
+          <div className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+            Player suggestion
+          </div>
+        ) : null}
         <SwipeDeck
           item={deck.currentItem}
           onSwipe={(choice, movieId) => onVote(choice, movieId)}
@@ -598,8 +692,77 @@ function PlayerRoomBody({
           onSwipe={(choice) => onVote(choice)}
           disabled={isVoting}
         />
+        <MovieSuggestionPanel
+          remaining={player.me.suggestionRemaining}
+          onSuggested={onPlayerChanged}
+        />
       </div>
     </PlayerRoomBodyFrame>
+  );
+}
+
+function FinaleVotePanel({
+  finale,
+  pending,
+  onVote,
+}: {
+  finale: FinaleState | null;
+  pending: boolean;
+  onVote: (movieId: string | null) => void;
+}) {
+  if (!finale) {
+    return (
+      <PlayerStatusPanel
+        title="Finalists incoming"
+        body="Watch the display for the reveal."
+      />
+    );
+  }
+
+  if (finale.myVote !== undefined && finale.totalVotes > 0) {
+    return (
+      <PlayerStatusPanel
+        title="Final vote locked in"
+        body={`${finale.totalVotes} of ${finale.totalPlayers} players have voted.`}
+      />
+    );
+  }
+
+  return (
+    <div className="w-full max-w-md space-y-4">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold">Choose tonight&apos;s movie</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          One private final vote.
+        </p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {finale.finalists.map((movie) => (
+          <button
+            key={movie.id}
+            type="button"
+            disabled={pending}
+            className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] text-left transition active:scale-95"
+            onClick={() => onVote(movie.id)}>
+            <img
+              src={movie.posterUrl}
+              alt=""
+              className="aspect-[2/3] w-full object-cover"
+            />
+            <span className="block truncate p-2 text-xs font-semibold">
+              {movie.title}
+            </span>
+          </button>
+        ))}
+      </div>
+      <Button
+        className="w-full"
+        variant="ghost"
+        disabled={pending}
+        onClick={() => onVote(null)}>
+        None of these
+      </Button>
+    </div>
   );
 }
 
@@ -790,7 +953,7 @@ function LeaveRoomIcon() {
 
 function PlayerRoomBodyFrame({children}: {children: ReactNode}) {
   return (
-    <div className="flex flex-1 items-center justify-center py-4">
+    <div className="flex flex-1 items-center justify-center py-2 sm:py-4">
       {children}
     </div>
   );

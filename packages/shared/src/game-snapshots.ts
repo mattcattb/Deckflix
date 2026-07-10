@@ -6,6 +6,7 @@ import {
   gameVoteSummarySchema,
   movieCandidateSchema,
   swipeChoiceSchema,
+  playerTasteSchema,
 } from "./game-core";
 import {gameCodeSchema} from "./game-sessions";
 import {
@@ -30,6 +31,8 @@ const gamePlayerProfileSchema = z.object({
   playerId: z.string().min(1),
   displayName: z.string().min(1).max(PLAYER_DISPLAY_NAME_MAX_LENGTH),
   iconId: playerIconIdSchema,
+  taste: playerTasteSchema,
+  suggestionRemaining: z.number().int().min(0),
 });
 
 const gamePlayerSelfSchema = gamePlayerProfileSchema.extend({
@@ -44,6 +47,8 @@ const gamePlayerDeckSelfSchema = z.object({
 
 const activeGameQueueItemSchema = z.object({
   movie: movieCandidateSchema,
+  source: z.enum(["discovery", "taste", "suggestion"]).optional(),
+  suggestedByName: z.string().optional(),
 });
 
 const gameSummarySchema = z.object({
@@ -123,6 +128,25 @@ export const playerProfileInputSchema = z.object({
 export const voteGamePayloadSchema = z.object({
   movieId: z.string().min(1),
   choice: swipeChoiceSchema,
+  actionId: z.string().uuid().optional(),
+});
+
+export const suggestMoviePayloadSchema = z.object({
+  movieId: z.string().min(1),
+});
+
+export const finaleVotePayloadSchema = z.object({
+  movieId: z.string().min(1).nullable(),
+});
+
+export const finaleStateSchema = z.object({
+  finalists: z.array(movieCandidateSchema),
+  voteCounts: z.record(z.string(), z.number().int().min(0)),
+  totalVotes: z.number().int().min(0),
+  totalPlayers: z.number().int().min(0),
+  myVote: z.string().nullable().optional(),
+  winner: movieCandidateSchema.nullable(),
+  completed: z.boolean(),
 });
 
 export type GamePlayerPresence = z.infer<typeof gamePlayerPresenceSchema>;
@@ -138,3 +162,4 @@ export type PlayerRoomState = z.infer<typeof playerRoomStateSchema>;
 export type PlayerDeckState = z.infer<typeof playerDeckStateSchema>;
 export type PlayerIconId = PlayerProfileIconId;
 export type PlayerProfileInput = z.infer<typeof playerProfileInputSchema>;
+export type FinaleState = z.infer<typeof finaleStateSchema>;

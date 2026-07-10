@@ -1,13 +1,13 @@
 import type {GameStatus} from "@deckflix/shared";
 
 export type DisplayRoomViewMode = "lobby" | "playing" | "completed";
-export type PlayerRoomViewMode = "waiting" | "swiping" | "completed";
+export type PlayerRoomViewMode = "waiting" | "swiping" | "finale" | "completed";
 export type DisplayRoomPath = "/room/lobby" | "/room/live" | "/room/results";
 
 export const getDisplayRoomViewMode = (
   status: GameStatus,
 ): DisplayRoomViewMode => {
-  if (status === "swiping") {
+  if (status === "swiping" || status === "finale") {
     return "playing";
   }
 

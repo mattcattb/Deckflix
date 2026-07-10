@@ -65,6 +65,7 @@ export const generateInitialRecommendations = async (input: {
   targetSize?: number;
   excludeMovieIds?: string[];
   selectionSalt?: string;
+  anchorMovieIds?: string[];
 }): Promise<MovieCandidate[]> => {
   const preferences =
     input.preferences ??
@@ -83,6 +84,7 @@ export const generateInitialRecommendations = async (input: {
     plan,
     settings,
     preferences,
+    anchorMovieIds: input.anchorMovieIds,
   });
   const excludedMovieIds = new Set(input.excludeMovieIds ?? []);
   const availableCandidates = fetchedCandidates.filter(

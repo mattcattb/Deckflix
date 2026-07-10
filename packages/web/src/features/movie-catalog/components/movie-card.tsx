@@ -31,8 +31,9 @@ export function MovieCard({
         <img
           src={movie.posterUrl}
           alt={movie.title}
-          className="h-[400px] w-full object-cover"
+          className="h-[min(50dvh,400px)] min-h-[280px] w-full object-cover sm:h-[400px]"
           draggable={false}
+          decoding="async"
         />
         {onDetailsClick ? (
           <button

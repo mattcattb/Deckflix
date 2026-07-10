@@ -8,7 +8,7 @@ export const SWIPE_CHOICES = [
   "skip",
 ] as const;
 
-export const gameStatuses = ["lobby", "swiping", "completed"] as const;
+export const gameStatuses = ["lobby", "swiping", "finale", "completed"] as const;
 export const MOVIE_POPULARITY_PRESETS = [
   "any",
   "balanced",
@@ -47,6 +47,7 @@ const gamePreferencesBaseSchema = z.object({
   primaryReleaseDateLte: isoDateSchema.nullable(),
   voteAverageGte: z.number().min(0).max(10).nullable(),
   voteAverageLte: z.number().min(0).max(10).nullable(),
+  runtimeMinutesLte: z.number().int().min(30).max(300).nullable(),
 });
 
 const addPreferenceIssues = (
@@ -58,6 +59,7 @@ const addPreferenceIssues = (
     primaryReleaseDateLte?: string | null;
     voteAverageGte?: number | null;
     voteAverageLte?: number | null;
+    runtimeMinutesLte?: number | null;
   },
   ctx: z.RefinementCtx,
 ) => {
@@ -115,6 +117,26 @@ export const movieCandidateSchema = z.object({
   rating: z.number(),
 });
 
+export const PLAYER_TASTE_MOODS = [
+  "funny",
+  "cozy",
+  "exciting",
+  "thoughtful",
+  "scary",
+  "romantic",
+  "weird",
+  "nostalgic",
+] as const;
+
+export const playerTasteSchema = z.object({
+  genreIds: z.array(z.number().int().positive()).max(3),
+  moods: z.array(z.enum(PLAYER_TASTE_MOODS)).max(3),
+  discovery: z.enum(["familiar", "balanced", "adventurous"]),
+  anchorMovieIds: z.array(z.string().min(1)).max(3),
+});
+
+export const playerTasteInputSchema = playerTasteSchema.partial();
+
 export const gameVoteSummarySchema = z.object({
   movieId: z.string().min(1),
   like: z.number().int().min(0),
@@ -149,3 +171,5 @@ export type GamePreferences = z.infer<typeof gamePreferencesSchema>;
 export type GamePreferencesPatch = z.infer<typeof gamePreferencesPatchSchema>;
 export type MovieCandidate = z.infer<typeof movieCandidateSchema>;
 export type GameVoteSummary = z.infer<typeof gameVoteSummarySchema>;
+export type PlayerTaste = z.infer<typeof playerTasteSchema>;
+export type PlayerTasteInput = z.infer<typeof playerTasteInputSchema>;

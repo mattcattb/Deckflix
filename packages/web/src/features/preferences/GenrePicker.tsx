@@ -1,7 +1,14 @@
-import {useState, type ReactNode} from "react";
-import * as Popover from "@radix-ui/react-popover";
+import {useMemo, useState, type ReactNode} from "react";
 import type {MovieWatchProvider} from "@deckflix/shared";
-import {Checkbox} from "../../components/ui";
+import {Check, Plus, X} from "lucide-react";
+import {
+  Badge,
+  Button,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../../components/ui";
 import {cn} from "../../lib/cn";
 
 type CatalogItem = {
@@ -41,28 +48,6 @@ type CatalogPickerProps = {
   tone?: CatalogPickerTone;
   emptyLabel?: string;
   renderIcon?: (item: CatalogItem) => ReactNode;
-};
-
-const genreIconsById: Record<number, string> = {
-  28: "🎬",
-  12: "🏞️",
-  16: "🎨",
-  35: "😂",
-  80: "🕵️",
-  99: "📚",
-  18: "🎭",
-  10751: "👨‍👩‍👧",
-  14: "🧙",
-  36: "📜",
-  27: "👻",
-  10402: "🎵",
-  9648: "🔍",
-  10749: "❤️",
-  878: "🚀",
-  10770: "📺",
-  53: "😨",
-  10752: "⚔️",
-  37: "🤠",
 };
 
 export function GenrePicker({
@@ -122,121 +107,140 @@ function CatalogPicker({
   renderIcon = () => null,
 }: CatalogPickerProps) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const selected = items.filter((item) => selectedIds.includes(item.id));
-  const badgeClass =
-    tone === "include"
-      ? "bg-primary/15 text-primary border-primary/30"
-      : "bg-danger/15 text-danger border-danger/30";
+  const badgeVariant = tone === "include" ? "primary" : "danger";
+  const actionLabel =
+    selected.length === 0 ? `Choose ${label.toLowerCase()}` : "Add";
+  const filteredItems = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    if (!normalizedSearch) {
+      return items;
+    }
+
+    return items.filter((item) =>
+      item.name.toLowerCase().includes(normalizedSearch),
+    );
+  }, [items, search]);
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {label}
         </span>
         {selected.length > 0 ? (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground transition"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
             onClick={onClear}>
             Clear
-          </button>
+          </Button>
         ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
         {selected.length === 0 ? (
-          <span className="text-xs text-muted-foreground italic">{emptyLabel}</span>
+          <span className="text-xs italic text-muted-foreground">
+            {emptyLabel}
+          </span>
         ) : (
           selected.map((item) => (
             <CatalogChip
               key={item.id}
               item={item}
               icon={renderIcon(item)}
-              className={badgeClass}
+              variant={badgeVariant}
               onRemove={() => onToggle(item.id, false)}
             />
           ))
         )}
 
-        <Popover.Root open={open} onOpenChange={setOpen}>
-          <Popover.Trigger asChild>
-            <button
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
               type="button"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.04] text-muted-foreground hover:text-foreground hover:border-white/[0.24] transition"
+              variant="outline"
+              size="sm"
+              className="h-7 rounded-full px-2.5 text-xs"
               aria-label={`Add ${label.toLowerCase()}`}>
-              +
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              sideOffset={6}
-              align="start"
-              className="z-50 w-64 max-h-72 overflow-y-auto rounded-xl border border-white/[0.08] bg-surface/95 backdrop-blur p-2 shadow-xl outline-none">
-              <div className="grid grid-cols-1 gap-0.5">
-                {items.map((item) => (
-                  <CatalogOption
-                    key={item.id}
-                    item={item}
-                    checked={selectedIds.includes(item.id)}
-                    icon={renderIcon(item)}
-                    onCheckedChange={(checked) =>
-                      onToggle(item.id, checked === true)
-                    }
-                  />
-                ))}
+              <Plus />
+              {actionLabel}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            sideOffset={8}
+            align="start"
+            className="w-[min(22rem,calc(100vw-2rem))] p-2">
+            <div className="space-y-2">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                placeholder={`Search ${label.toLowerCase()}...`}
+                className="h-9"
+                autoFocus
+              />
+              <div className="max-h-72 overflow-y-auto pr-1">
+                {filteredItems.length === 0 ? (
+                  <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                    {items.length === 0
+                      ? "No options are available."
+                      : "No results found."}
+                  </div>
+                ) : (
+                  <div className="grid gap-1">
+                    {filteredItems.map((item) => {
+                      const checked = selectedIds.includes(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground/90 transition hover:bg-white/[0.06]"
+                          onClick={() => onToggle(item.id, !checked)}>
+                          <span
+                            className={cn(
+                              "flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-white/20",
+                              checked &&
+                                "border-primary bg-primary text-primary-foreground",
+                            )}>
+                            {checked ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          {renderIcon(item)}
+                          <span className="truncate">{item.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
     </div>
   );
 }
 
 function CatalogChip({
-  className,
   icon,
   item,
   onRemove,
+  variant,
 }: {
-  className: string;
   icon: ReactNode;
   item: CatalogItem;
   onRemove: () => void;
+  variant: "danger" | "primary";
 }) {
   return (
-    <button
-      type="button"
-      onClick={onRemove}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition hover:brightness-110",
-        className,
-      )}>
-      {icon}
-      {item.name}
-      <span className="opacity-60">x</span>
-    </button>
-  );
-}
-
-function CatalogOption({
-  checked,
-  item,
-  icon,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  item: CatalogItem;
-  icon?: ReactNode;
-  onCheckedChange: (checked: boolean | "indeterminate") => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground/90 hover:bg-white/[0.06]">
-      <Checkbox checked={checked} onCheckedChange={onCheckedChange} />
-      {icon}
-      <span>{item.name}</span>
-    </div>
+    <Badge asChild variant={variant} className="max-w-full gap-1.5 py-1">
+      <button type="button" onClick={onRemove}>
+        {icon}
+        <span className="truncate">{item.name}</span>
+        <X className="h-3 w-3 opacity-65" />
+      </button>
+    </Badge>
   );
 }
 
@@ -252,19 +256,18 @@ function renderProviderIcon(provider: CatalogItem) {
   return (
     <img
       src={provider.logoUrl}
-      alt={provider.name}
+      alt=""
       className="h-4 w-4 rounded-full object-cover"
       aria-hidden="true"
     />
   );
 }
 
-function renderGenreIcon(genre: CatalogItem) {
-  const icon = genreIconsById[genre.id];
-  const fallback = genre.name.slice(0, 1);
+function renderGenreIcon() {
   return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white/10 text-[9px] uppercase text-white/70">
-      {icon ?? fallback}
-    </span>
+    <span
+      className="inline-flex h-2.5 w-2.5 rounded-full bg-white/25"
+      aria-hidden="true"
+    />
   );
 }

@@ -36,12 +36,19 @@ export const orderPoolEntriesForPlayer = (
   entries: PoolService.PoolEntry[],
   seed: string,
   playerId: string,
+  signals = new Map<string, number>(),
 ) =>
   [...entries].sort((left, right) => {
     const windowDelta =
       getQueueWindowIndex(left.order) - getQueueWindowIndex(right.order);
     if (windowDelta !== 0) {
       return windowDelta;
+    }
+
+    const signalDelta =
+      (signals.get(right.movieId) ?? 0) - (signals.get(left.movieId) ?? 0);
+    if (signalDelta !== 0) {
+      return signalDelta;
     }
 
     const leftSeed = queueSeedValue(`${seed}:${playerId}:${left.movieId}`);
@@ -91,29 +98,31 @@ export const refreshPlayerDeck = async (
   if (currentLength >= targetSize || cursor >= poolEntries.length) {
     return;
   }
+  const signals = await PoolService.getPoolSignals(
+    gameCode,
+    poolEntries.map((entry) => entry.movieId),
+  );
 
   const orderedEntries = orderPoolEntriesForPlayer(
     poolEntries,
     meta.poolSeed,
     playerId,
+    signals,
   );
   const needed = targetSize - currentLength;
-  const acceptedMovieIds: string[] = [];
-  let nextCursor = cursor;
-
-  while (
-    nextCursor < orderedEntries.length &&
-    acceptedMovieIds.length < needed &&
-    nextCursor - cursor < PLAYER_DECK_TOP_UP_SCAN_LIMIT
-  ) {
-    const movieId = orderedEntries[nextCursor].movieId;
-    nextCursor += 1;
-    if (
-      !(await redisClient.sIsMember(assignedKey(gameCode, playerId), movieId))
-    ) {
-      acceptedMovieIds.push(movieId);
-    }
-  }
+  const candidates = orderedEntries
+    .slice(0, PLAYER_DECK_TOP_UP_SCAN_LIMIT)
+    .map((entry) => entry.movieId);
+  const memberships = candidates.length
+    ? await redisClient.smIsMember(assignedKey(gameCode, playerId), candidates)
+    : [];
+  const acceptedMovieIds = candidates
+    .filter((_, index) => memberships[index] === 0)
+    .slice(0, needed);
+  const nextCursor = Math.min(
+    poolEntries.length,
+    cursor + acceptedMovieIds.length,
+  );
 
   const multi = redisClient.multi();
   if (acceptedMovieIds.length > 0) {
@@ -137,31 +146,31 @@ export const peekCurrentMovieId = async (
   return redisClient.lIndex(deckKey, 0);
 };
 
-const popDeck = async (
-  gameCode: string,
-  playerId: string,
-): Promise<string | null> => {
-  const deckKey = KEYS.DECK(gameCode, playerId);
-
-  const top = await redisClient.lPop(deckKey);
-
-  return top;
-};
-
 export const popCurrentMovieId = async (
   gameCode: string,
   playerId: string,
   expectedMovieId?: string,
 ) => {
-  const current = await peekCurrentMovieId(gameCode, playerId);
-  if (!current) {
+  const result = (await redisClient.eval(
+    `
+      local current = redis.call("LINDEX", KEYS[1], 0)
+      if not current then return {0, ""} end
+      if ARGV[1] ~= "" and current ~= ARGV[1] then return {1, current} end
+      redis.call("LPOP", KEYS[1])
+      return {2, current}
+    `,
+    {
+      keys: [KEYS.DECK(gameCode, playerId)],
+      arguments: [expectedMovieId ?? ""],
+    },
+  )) as [number, string];
+  const [status, current] = result;
+  if (status === 0) {
     return {status: "empty" as const};
   }
-  if (expectedMovieId && current !== expectedMovieId) {
+  if (status === 1) {
     return {status: "mismatch" as const, movieId: current};
   }
-
-  await popDeck(gameCode, playerId);
   return {status: "ok" as const, movieId: current};
 };
 

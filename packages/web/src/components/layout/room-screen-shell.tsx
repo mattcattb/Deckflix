@@ -93,9 +93,9 @@ export function RoomScreenShell({
   widthClassName = "max-w-[1600px]",
 }: RoomScreenShellProps) {
   return (
-    <div className="flex min-h-screen w-full flex-col bg-black text-white">
+    <div className="flex min-h-dvh w-full flex-col bg-black text-white">
       {header}
-      <div className="flex w-full flex-1 gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="flex w-full flex-1 gap-6 px-3 py-3 sm:px-6 sm:py-6 lg:px-8">
         {sidebar ? <aside className="hidden w-48 shrink-0 lg:block">{sidebar}</aside> : null}
         <main className="min-w-0 flex-1">
           <div className={`mx-auto w-full ${widthClassName}`}>

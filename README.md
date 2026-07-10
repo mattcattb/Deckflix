@@ -150,18 +150,35 @@ The current product language is roughly:
 
 That mix is the core idea behind Deckflix: a living-room movie game that feels social, visual, and quick to play.
 
-## Planned Features
+## V1 Game Loop
+
+Deckflix v1 now supports the complete anonymous room flow:
+
+- join by QR code or four-character code with mobile session restoration
+- configure provider, runtime, genre, rating, era, and discovery preferences
+- choose a room preset such as Cozy Night, Quick Laugh, or Hidden Gem
+- let each player contribute moods, genres, discovery appetite, and favorite-movie anchors
+- give each player one searchable TMDB movie suggestion
+- mix discovery, taste, suggestion, and group-affinity signals into personalized decks
+- keep suggestion attribution private until a player has reacted
+- notify suggesters when another player likes their pick
+- promote sufficiently tested movies into a private final vote
+- reveal a single winner and preserve the broader match history
+
+Room state remains ephemeral in Redis. Accounts and persistent taste profiles are intentionally outside the v1 boundary.
+
+## Post-v1 Features
 
 Near-term product ideas currently in scope:
 
 - `Watchlist signals`
   Let users add movies to a watchlist, then use those titles as recommendation signals for future pool generation.
-- `Profile icon selection`
-  Give each player a Netflix-style profile tile on their device, with a randomly assigned icon first and manual selection before the game starts.
-- `Player preference inputs`
-  While waiting in the lobby, let players choose favorite genres, eras, tone, rating ranges, or a few liked movies, then feed that into pool selection.
-- `Smarter caching`
-  Improve caching around movie provider reads, recommendation inputs, derived pool candidates, and repeated room lookups so the experience feels faster and more stable.
+- `Persistent profiles`
+  Carry a player's icon, taste history, watchlist, and prior group signals across rooms after optional account creation.
+- `Suggestion economy`
+  Build earned suggestion or champion tokens on top of the v1 suggestion provenance and engagement signals without changing the core pool model.
+- `Distributed cache coordination`
+  Extend the current Redis cache and in-process request coalescing across multiple server instances when traffic requires it.
 
 Additional areas worth building into:
 

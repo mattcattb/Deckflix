@@ -19,6 +19,8 @@ export const roomKeys = {
     ["room", normalizeGameCode(gameCode), "player"] as const,
   playerDeck: (gameCode: string) =>
     ["room", normalizeGameCode(gameCode), "player-deck"] as const,
+  finale: (gameCode: string) =>
+    ["room", normalizeGameCode(gameCode), "finale"] as const,
 };
 
 export const activeRoomMetaQueryOptions = (gameCode: string) =>
@@ -67,4 +69,10 @@ export const activePlayerDeckQueryOptions = (gameCode: string) =>
   queryOptions({
     queryKey: roomKeys.playerDeck(gameCode),
     queryFn: () => parseRpc(api.api.game.deck.$get()),
+  });
+
+export const activeFinaleQueryOptions = (gameCode: string) =>
+  queryOptions({
+    queryKey: roomKeys.finale(gameCode),
+    queryFn: () => parseRpc(api.api.game.finale.$get()),
   });

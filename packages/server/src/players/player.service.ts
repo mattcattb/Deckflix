@@ -9,7 +9,7 @@ import {
   type PlayerProfileInput,
 } from "@deckflix/shared";
 import {emitEvent} from "../common/app-events";
-import {NotFoundException} from "../common/errors";
+import {ConflictException, NotFoundException} from "../common/errors";
 import {parseJson} from "../lib/json";
 import * as PresenceService from "../presence/presence.service";
 import {redisClient} from "../redis/redis";
@@ -34,6 +34,8 @@ type PlayerRecord = Omit<
 > & {
   iconId: PlayerIconId;
 };
+
+export const MAX_ROOM_PLAYERS = 12;
 
 const parsePlayer = (raw: string, label: string) => {
   const player = parseJson(raw, storedPlayerRecordSchema, label);
@@ -206,6 +208,9 @@ export const join = async (input: {
   const displayName = resolveUserName(input.displayName);
 
   await withRoomLock(input.gameCode, async () => {
+    if ((await countPlayers(input.gameCode)) >= MAX_ROOM_PLAYERS) {
+      throw new ConflictException("This room is full");
+    }
     await setPlayerRecord(input.gameCode, playerId, {
       id: playerId,
       displayName,

@@ -20,6 +20,8 @@ import {requestPoolExpansion} from "../pool/pool-events";
 import * as PlayerService from "../players/player.service";
 import * as RoomsService from "./rooms.service";
 import * as RoomSettingsService from "./room-settings.service";
+import * as PlayerTasteService from "../players/player-taste.service";
+import * as SuggestionService from "../gameplay/suggestion.service";
 
 export const getGameSummary = async (
   gameCode: string,
@@ -256,9 +258,11 @@ export const getPlayerRoomState = async (input: {
     throw new UnauthorizedException("Player not found");
   }
 
-  const settings = await RoomSettingsService.getGameSettingsOrThrow(
-    input.gameCode,
-  );
+  const [settings, taste, suggestionRemaining] = await Promise.all([
+    RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
+    PlayerTasteService.getPlayerTaste(input.gameCode, input.playerId),
+    SuggestionService.getSuggestionRemaining(input.gameCode, input.playerId),
+  ]);
   const summary = await getGameSummary(input.gameCode, settings);
 
   return {
@@ -268,6 +272,8 @@ export const getPlayerRoomState = async (input: {
       playerId: player.id,
       displayName: player.displayName,
       iconId: player.iconId,
+      taste,
+      suggestionRemaining,
     },
   };
 };
@@ -277,24 +283,27 @@ const getPlayerDeckStateFromCurrent = async (input: {
   playerId: string;
   currentMovieId: string | null;
 }): Promise<PlayerDeckState> => {
-  const player = await PlayerService.getPlayerRecord(
-    input.gameCode,
-    input.playerId,
-  );
+  const [player, deckStatus, currentMovie, source] = await Promise.all([
+    PlayerService.getPlayerRecord(input.gameCode, input.playerId),
+    DeckService.getPlayerDeckStatus(input.gameCode, input.playerId),
+    input.currentMovieId
+      ? MovieMetadataService.getRoomMovieMetadataOrThrow(
+          input.gameCode,
+          input.currentMovieId,
+        )
+      : null,
+    input.currentMovieId
+      ? PoolService.getPoolSource(input.gameCode, input.currentMovieId)
+      : null,
+  ]);
   if (!player) {
     throw new UnauthorizedException("Player not found");
   }
-
-  const deckStatus = await DeckService.getPlayerDeckStatus(
-    input.gameCode,
-    input.playerId,
-  );
-  const currentItem = input.currentMovieId
+  const currentItem = currentMovie
     ? {
-        movie: await MovieMetadataService.getRoomMovieMetadataOrThrow(
-          input.gameCode,
-          input.currentMovieId,
-        ),
+        movie: currentMovie,
+        source: source?.source ?? "discovery",
+        suggestedByName: source?.suggestedByName,
       }
     : null;
 

@@ -68,6 +68,7 @@ const TMDB_LIST_CACHE_TTL_SECONDS = 60 * 60;
 const TMDB_RELATED_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const TMDB_MOVIE_DETAILS_CACHE_TTL_SECONDS = 60 * 60 * 12;
 const TMDB_MOVIE_PROVIDERS_CACHE_TTL_SECONDS = 60 * 60 * 12;
+const pendingLoads = new Map<string, Promise<unknown>>();
 
 const stableStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -103,9 +104,21 @@ const getCached = async <T>(
     return JSON.parse(cached.toString()) as T;
   }
 
-  const value = await load();
-  await redisClient.set(key, JSON.stringify(value), {EX: ttlSeconds});
-  return value;
+  const pending = pendingLoads.get(key);
+  if (pending) {
+    return pending as Promise<T>;
+  }
+
+  const next = load().then(async (value) => {
+    await redisClient.set(key, JSON.stringify(value), {EX: ttlSeconds});
+    return value;
+  });
+  pendingLoads.set(key, next);
+  try {
+    return await next;
+  } finally {
+    pendingLoads.delete(key);
+  }
 };
 
 const handleTmdbError = (error: unknown, fallbackMessage: string): never => {

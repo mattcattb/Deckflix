@@ -11,7 +11,8 @@ const ROOM_SESSION_TOKEN_STORAGE_KEY = "deckflix_room_session_token";
 
 const getStoredRoomSessionToken = () =>
   typeof window !== "undefined"
-    ? window.localStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY)
+    ? window.sessionStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY) ??
+      window.localStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY)
     : null;
 
 const rawBaseUrl =

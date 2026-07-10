@@ -103,6 +103,8 @@
         transparent 55%
       );
     min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
   }
 
   h1,
@@ -176,6 +178,19 @@
   100% {
     background-position: 200% 0;
   }
+}
+
+@keyframes caret-blink {
+  0%, 70%, 100% {
+    opacity: 1;
+  }
+  20%, 50% {
+    opacity: 0;
+  }
+}
+
+.animate-caret-blink {
+  animation: caret-blink 1.2s ease-out infinite;
 }
 
 @keyframes pulse-glow {
@@ -379,4 +394,15 @@
 
 .match-overlay-badge {
   animation: match-badge-flash 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

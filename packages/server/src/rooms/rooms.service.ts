@@ -16,6 +16,7 @@ import * as PoolService from "../pool/pool.service";
 
 import {
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from "../common/errors";
 import {redisClient} from "../redis/redis";
@@ -23,6 +24,7 @@ import * as RoomSettingsService from "./room-settings.service";
 import {parseJson} from "../lib/json";
 import {generateGameCode} from "../lib/gen";
 import * as PlayerService from "../players/player.service";
+import * as PlayerTasteService from "../players/player-taste.service";
 export {
   normalizeGameCode,
   roomKey,
@@ -159,6 +161,31 @@ const setGameMeta = async (gameCode: string, meta: GameMetaRecord) => {
   await multi.exec();
 };
 
+export const transitionStatus = (
+  gameCode: string,
+  expectedStatus: GameMetaRecord["status"],
+  nextStatus: GameMetaRecord["status"],
+) =>
+  withRoomLock(gameCode, async () => {
+    const meta = await getGameMetaOrThrow(gameCode);
+    if (meta.status !== expectedStatus) {
+      throw new ConflictException(`Game must be ${expectedStatus}`);
+    }
+    await setGameMeta(gameCode, {
+      ...meta,
+      status: nextStatus,
+      endedAt: nextStatus === "completed" ? new Date().toISOString() : null,
+    });
+    emitEvent("room.status_changed", {
+      gameCode: normalizeGameCode(gameCode),
+      previousStatus: expectedStatus,
+      nextStatus,
+    });
+    if (nextStatus === "completed") {
+      emitEvent("room.completed", {gameCode: normalizeGameCode(gameCode)});
+    }
+  });
+
 export const updateSettings = async (input: {
   gameCode: string;
   settings: GameSettingsInput;
@@ -227,18 +254,34 @@ export const start = async (input: {
       throw new BadRequestException("Need at least 2 players to start");
     }
 
-    const [meta, settings, preferences] = await Promise.all([
+    const [meta, settings, roomPreferences, tastes, existingMovieIds] = await Promise.all([
       getGameMetaOrThrow(input.gameCode),
       RoomSettingsService.getGameSettingsOrThrow(input.gameCode),
       PreferencesService.getGamePreferencesOrThrow(input.gameCode),
+      PlayerTasteService.listPlayerTastes(input.gameCode),
+      PoolService.listPoolMovieIds(input.gameCode),
     ]);
+    const preferences = PlayerTasteService.applyPlayerTastes(roomPreferences, tastes);
+    const targetSize = Math.max(0, settings.gameplay.maxMovies - existingMovieIds.length);
 
-    const movies = await RecommendationsService.generateInitialRecommendations({
-      gameCode: input.gameCode,
-      poolSeed: meta.poolSeed,
-      settings,
-      preferences,
-    });
+    const recommendedMovies = targetSize > 0
+      ? await RecommendationsService.generateInitialRecommendations({
+          gameCode: input.gameCode,
+          poolSeed: meta.poolSeed,
+          settings,
+          preferences,
+          targetSize,
+          excludeMovieIds: existingMovieIds,
+          anchorMovieIds: PlayerTasteService.listTasteAnchorMovieIds(tastes),
+        })
+      : [];
+    const existingMovies = existingMovieIds.length
+      ? [...(await MovieMetadataService.getRoomMovieMetadataMap(
+          input.gameCode,
+          existingMovieIds,
+        )).values()]
+      : [];
+    const movies = [...existingMovies, ...recommendedMovies];
     await Promise.all([
       MovieMetadataService.replaceRoomMovieMetadata(input.gameCode, movies),
       PoolService.replacePool(

@@ -6,7 +6,17 @@ export type PoolEntry = {
   order: number;
 };
 
+export type PoolSource = {
+  source: "discovery" | "taste" | "suggestion";
+  suggestedByPlayerId?: string;
+  suggestedByName?: string;
+};
+
 const poolKey = (gameCode: string) => `${roomPrefix(gameCode)}pool`;
+const poolSignalsKey = (gameCode: string) =>
+  `${roomPrefix(gameCode)}pool_signals`;
+const poolSourcesKey = (gameCode: string) =>
+  `${roomPrefix(gameCode)}pool_sources`;
 
 export const replacePool = async (gameCode: string, movieIds: string[]) => {
   const pool = poolKey(gameCode);
@@ -57,4 +67,46 @@ export const listPoolMovieIds = async (gameCode: string) => {
 
 export const getPoolSize = async (gameCode: string) => {
   return redisClient.lLen(poolKey(normalizeGameCode(gameCode)));
+};
+
+export const getPoolSignals = async (gameCode: string, movieIds: string[]) => {
+  if (movieIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const scores = await redisClient.zmScore(poolSignalsKey(gameCode), movieIds);
+  return new Map(
+    movieIds.map((movieId, index) => [movieId, scores[index] ?? 0] as const),
+  );
+};
+
+export const addPoolSignal = async (
+  gameCode: string,
+  movieId: string,
+  weight: number,
+) => {
+  const key = poolSignalsKey(gameCode);
+  await redisClient
+    .multi()
+    .zIncrBy(key, weight, movieId)
+    .expire(key, ROOM_TTL_SECONDS)
+    .exec();
+};
+
+export const setPoolSource = async (
+  gameCode: string,
+  movieId: string,
+  source: PoolSource,
+) => {
+  const key = poolSourcesKey(gameCode);
+  await redisClient
+    .multi()
+    .hSet(key, movieId, JSON.stringify(source))
+    .expire(key, ROOM_TTL_SECONDS)
+    .exec();
+};
+
+export const getPoolSource = async (gameCode: string, movieId: string) => {
+  const raw = await redisClient.hGet(poolSourcesKey(gameCode), movieId);
+  return raw ? (JSON.parse(raw) as PoolSource) : {source: "discovery" as const};
 };

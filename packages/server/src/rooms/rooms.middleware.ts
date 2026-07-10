@@ -161,3 +161,8 @@ export const requireStartedGame = requireRoomStatus(
   ["swiping"],
   "Game must be started",
 );
+
+export const requireFinale = requireRoomStatus(
+  ["finale"],
+  "Game must be in the final round",
+);

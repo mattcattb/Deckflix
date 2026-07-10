@@ -28,7 +28,8 @@ const canUseBrowserStorage = () => typeof window !== "undefined";
 
 export const getStoredRoomSessionToken = () =>
   canUseBrowserStorage()
-    ? window.localStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY)
+    ? window.sessionStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY) ??
+      window.localStorage.getItem(ROOM_SESSION_TOKEN_STORAGE_KEY)
     : null;
 
 const storeRoomSessionToken = (session: RoomSession) => {
@@ -36,10 +37,11 @@ const storeRoomSessionToken = (session: RoomSession) => {
     return;
   }
 
-  window.localStorage.setItem(
+  window.sessionStorage.setItem(
     ROOM_SESSION_TOKEN_STORAGE_KEY,
     encodeRoomSessionToken(session),
   );
+  window.localStorage.removeItem(ROOM_SESSION_TOKEN_STORAGE_KEY);
 };
 
 export const storeDisplaySessionToken = (session: DisplaySession) => {
@@ -65,6 +67,7 @@ export const clearStoredRoomSessionToken = () => {
     return;
   }
 
+  window.sessionStorage.removeItem(ROOM_SESSION_TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(ROOM_SESSION_TOKEN_STORAGE_KEY);
 };
 

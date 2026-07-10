@@ -252,13 +252,6 @@ const createSourceHit = (
   ...(anchorMovieId ? {anchorMovieId} : {}),
 });
 
-const toRelaxedDiscoveryFilters = (filters: MovieQueryOptions): MovieQueryOptions => {
-  const relaxed = {...filters};
-  delete relaxed.with_watch_providers;
-  delete relaxed.watch_region;
-  return relaxed;
-};
-
 const toCandidateRecord = (
   movie: MovieSourceCandidate,
   sourceHit: RecommendationSourceHit,
@@ -1063,12 +1056,16 @@ export const fetchRecommendationCandidates = async (input: {
   plan: RecommendationPlan;
   settings: GameSettings;
   preferences: PreferencesService.GamePreferences;
+  anchorMovieIds?: string[];
 }) => {
   const {plan, settings, preferences} = input;
   const candidates = new Map<string, RecommendationCandidateRecord>();
-  const baseStrategies = listBaseStrategies(plan);
-  const hasProviderBias =
-    preferences.preferredProviderIds.length > 0;
+  const hardDiscoveryFilters =
+    preferences.preferredProviderIds.length > 0 ||
+    preferences.runtimeMinutesLte != null;
+  const baseStrategies = listBaseStrategies(plan).filter(
+    (strategy) => !hardDiscoveryFilters || strategy.source === "discover",
+  );
   const baseResults = await Promise.allSettled(
     baseStrategies.map(async (strategy) => ({
       strategy,
@@ -1079,13 +1076,11 @@ export const fetchRecommendationCandidates = async (input: {
     })),
   );
   let discoverSuccessCount = 0;
-  let discoveredCandidateCount = 0;
   const baseDiscoverSuccessCount = baseResults.reduce((count, result) => {
     if (result.status !== "fulfilled") {
       return count;
     }
 
-    const beforeCount = candidates.size;
     for (const pageResult of result.value.pageResults) {
       mergeCandidates(
         candidates,
@@ -1094,55 +1089,47 @@ export const fetchRecommendationCandidates = async (input: {
         pageResult.page,
       );
     }
-    if (result.value.strategy.source === "discover") {
-      discoveredCandidateCount += candidates.size - beforeCount;
-    }
-
     return result.value.strategy.source === "discover" ? count + 1 : count;
   }, 0);
   discoverSuccessCount = baseDiscoverSuccessCount;
-  const minimumDiscoverPool = Math.max(settings.gameplay.maxMovies * 2, 30);
-
-  if (
-    hasProviderBias &&
-    discoveredCandidateCount < minimumDiscoverPool
-  ) {
-    const relaxedDiscoverPass = await Promise.allSettled(
-      baseStrategies.map(async (strategy) => {
-        if (strategy.source !== "discover" || !strategy.filters) {
-          return {
-            strategy,
-            pageResults: [],
-          };
-        }
-
-        const relaxedFilters = toRelaxedDiscoveryFilters(strategy.filters);
-        return {
-          strategy,
-          pageResults: await fetchDiscoverStrategy(
-            strategy,
-            plan.seed,
-            relaxedFilters,
-          ),
-        };
-      }),
-    );
-
-    for (const result of relaxedDiscoverPass) {
-      if (result.status !== "fulfilled") {
-        continue;
-      }
-
-      for (const pageResult of result.value.pageResults) {
-        const beforeCount = candidates.size;
-        mergeCandidates(
-          candidates,
-          pageResult.items,
-          result.value.strategy,
-          pageResult.page,
-        );
-        discoveredCandidateCount += candidates.size - beforeCount;
-      }
+  const tasteAnchorResults = await Promise.allSettled(
+    (hardDiscoveryFilters ? [] : input.anchorMovieIds ?? [])
+      .slice(0, 6)
+      .flatMap((anchorMovieId) => [
+      fetchRecommendationStrategy(anchorMovieId).then((pageResults) => ({
+        anchorMovieId,
+        pageResults,
+        strategy: {
+          id: "taste-recommendation",
+          label: "Player Taste",
+          source: "recommendation",
+          sourceFamily: "recommendation",
+          weight: 0.28,
+        } satisfies RecommendationStrategy,
+      })),
+      fetchSimilarStrategy(anchorMovieId).then((pageResults) => ({
+        anchorMovieId,
+        pageResults,
+        strategy: {
+          id: "taste-similar",
+          label: "Player Taste",
+          source: "similar",
+          sourceFamily: "similar",
+          weight: 0.22,
+        } satisfies RecommendationStrategy,
+      })),
+      ]),
+  );
+  for (const result of tasteAnchorResults) {
+    if (result.status !== "fulfilled") continue;
+    for (const pageResult of result.value.pageResults) {
+      mergeCandidates(
+        candidates,
+        pageResult.items,
+        result.value.strategy,
+        pageResult.page,
+        result.value.anchorMovieId,
+      );
     }
   }
 
@@ -1152,7 +1139,7 @@ export const fetchRecommendationCandidates = async (input: {
   );
 
   const expansionResults = await Promise.allSettled(
-    listExpansionStrategies(plan).flatMap((strategy) =>
+    (hardDiscoveryFilters ? [] : listExpansionStrategies(plan)).flatMap((strategy) =>
       provisionalAnchors
         .slice(0, strategy.anchorLimit ?? 3)
         .map(async (anchor) => ({
@@ -1187,6 +1174,7 @@ export const fetchRecommendationCandidates = async (input: {
       candidates.size < settings.gameplay.maxMovies)
   ) {
     try {
+      if (hardDiscoveryFilters) throw new Error("Hard filters returned no movies");
       const fallback = await fetchPopularFallback(1);
       const popularStrategy: RecommendationStrategy = {
         id: "popular-fallback",

@@ -2,6 +2,7 @@ import type {SwipeChoice} from "@deckflix/shared";
 import {BadRequestException} from "../common/errors";
 import {emitEvent} from "../common/app-events";
 import {redisClient} from "../redis/redis";
+import * as PoolService from "../pool/pool.service";
 import * as MovieStateService from "./movie-state.service";
 import * as PlayerService from "../players/player.service";
 import {
@@ -40,12 +41,27 @@ export const recordVote = async (input: {
     ROOM_TTL_SECONDS,
   );
 
-  await MovieStateService.incrementMovieVoteState({
-    gameCode: input.gameCode,
-    movieId: input.movieId,
-    countField: getVoteCountField(input.choice),
-    votedAt,
-  });
+  const signalWeight = {
+    dislike: -1.5,
+    like: 2,
+    maybe: 0.4,
+    skip: -0.25,
+    super_like: 3.5,
+  }[input.choice];
+
+  await Promise.all([
+    MovieStateService.incrementMovieVoteState({
+      gameCode: input.gameCode,
+      movieId: input.movieId,
+      countField: getVoteCountField(input.choice),
+      votedAt,
+    }),
+    PoolService.addPoolSignal(
+      input.gameCode,
+      input.movieId,
+      signalWeight,
+    ),
+  ]);
 
   return {
     votedAt,

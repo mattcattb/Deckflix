@@ -6,6 +6,8 @@ import * as PoolService from "./pool.service";
 
 const usedGameCodes: string[] = [];
 const poolKey = (gameCode: string) => `${roomPrefix(gameCode)}pool`;
+const poolSignalsKey = (gameCode: string) =>
+  `${roomPrefix(gameCode)}pool_signals`;
 
 const createGameCode = () => {
   const gameCode = randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase();
@@ -15,7 +17,10 @@ const createGameCode = () => {
 
 afterEach(async () => {
   if (usedGameCodes.length > 0) {
-    await redisClient.del(usedGameCodes.map(poolKey));
+    await redisClient.del([
+      ...usedGameCodes.map(poolKey),
+      ...usedGameCodes.map(poolSignalsKey),
+    ]);
     usedGameCodes.length = 0;
   }
 });
@@ -48,5 +53,22 @@ describe("pool.service", () => {
       {movieId: "movie-1", order: 0},
       {movieId: "movie-2", order: 1},
     ]);
+  });
+
+  test("stores weighted recommendation signals in one sorted set", async () => {
+    const gameCode = createGameCode();
+    await PoolService.addPoolSignal(gameCode, "movie-1", 2);
+    await PoolService.addPoolSignal(gameCode, "movie-1", 0.4);
+    await PoolService.addPoolSignal(gameCode, "movie-2", -1.5);
+
+    await expect(
+      PoolService.getPoolSignals(gameCode, ["movie-1", "movie-2", "new"]),
+    ).resolves.toEqual(
+      new Map([
+        ["movie-1", 2.4],
+        ["movie-2", -1.5],
+        ["new", 0],
+      ]),
+    );
   });
 });

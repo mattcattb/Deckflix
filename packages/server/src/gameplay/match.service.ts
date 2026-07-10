@@ -29,18 +29,19 @@ export const resolveMovieState = (input: {
     matchedAt: input.state.matchedAt ?? null,
   };
 
-  const positiveVotes = state.likeCount + state.superLikeCount;
-  const hasBlockingVote =
-    state.dislikeCount > 0 || state.maybeCount > 0 || state.skipCount > 0;
+  const positiveScore =
+    state.likeCount + state.superLikeCount * 1.35 + state.maybeCount * 0.35;
+  const supportRatio = positiveScore / Math.max(1, state.totalVotes);
+  const enoughVotes =
+    state.totalVotes >=
+    (input.totalPlayers <= 2
+      ? input.totalPlayers
+      : Math.ceil(input.totalPlayers * 0.75));
+  const acceptableOpposition =
+    state.dislikeCount <= Math.floor(input.totalPlayers * 0.25);
 
-  if (
-    input.totalPlayers > 0 &&
-    state.totalVotes === input.totalPlayers &&
-    positiveVotes === input.totalPlayers
-  ) {
+  if (enoughVotes && supportRatio >= 0.7 && acceptableOpposition) {
     state.status = "matched";
-  } else if (hasBlockingVote) {
-    state.status = "rejected";
   } else if (input.totalPlayers > 0 && state.totalVotes === input.totalPlayers) {
     state.status = "rejected";
   } else {

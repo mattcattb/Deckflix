@@ -118,15 +118,15 @@ export const initializeMissingMovieStates = async (
   movieIds: string[],
 ) => {
   const initialState = createInitialMovieState();
-  const existingStates = await Promise.all(
-    movieIds.map(async (movieId) => [
-      movieId,
-      await redisClient.hGet(movieStateKey(gameCode, movieId), "status"),
-    ] as const),
-  );
+  const reads = redisClient.multi();
+  for (const movieId of movieIds) {
+    reads.hGet(movieStateKey(gameCode, movieId), "status");
+  }
+  const statuses = await reads.exec();
   const multi = redisClient.multi();
 
-  for (const [movieId, status] of existingStates) {
+  for (const [index, movieId] of movieIds.entries()) {
+    const status = statuses[index];
     if (!status) {
       queueSetMovieState(multi, gameCode, movieId, initialState);
     }
@@ -147,18 +147,21 @@ export const getMovieStateOrThrow = async (
 };
 
 export const getMovieStates = async (gameCode: string, movieIds: string[]) => {
-  const entries = await Promise.all(
-    movieIds.map(
-      async (movieId) =>
-        [
+  const multi = redisClient.multi();
+  for (const movieId of movieIds) {
+    multi.hGetAll(movieStateKey(gameCode, movieId));
+  }
+  const states = await multi.exec();
+  const entries = movieIds.map(
+    (movieId, index) =>
+      [
+        movieId,
+        parseMovieState(
+          states[index] as unknown as Record<string, string>,
+          gameCode,
           movieId,
-          parseMovieState(
-            await redisClient.hGetAll(movieStateKey(gameCode, movieId)),
-            gameCode,
-            movieId,
-          ),
-        ] as const,
-    ),
+        ),
+      ] as const,
   );
 
   return new Map(entries);

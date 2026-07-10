@@ -27,6 +27,7 @@ export const DEFAULT_GAME_PREFERENCES: GamePreferences = {
   primaryReleaseDateLte: null,
   voteAverageGte: null,
   voteAverageLte: null,
+  runtimeMinutesLte: null,
 };
 
 const preferencesKey = (gameCode: string) =>
@@ -135,4 +136,5 @@ export const buildMovieDiscoveryOptions = (
   "primary_release_date.lte": preferences.primaryReleaseDateLte ?? undefined,
   "vote_average.gte": preferences.voteAverageGte ?? undefined,
   "vote_average.lte": preferences.voteAverageLte ?? undefined,
+  "with_runtime.lte": preferences.runtimeMinutesLte ?? undefined,
 });
