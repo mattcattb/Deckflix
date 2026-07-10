@@ -1,136 +1,114 @@
-import {beforeEach, describe, expect, mock, test} from "bun:test";
+import {afterEach, beforeEach, describe, expect, test} from "bun:test";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
+import * as PoolService from "../pool/pool.service";
 import {redisClient} from "../redis/redis";
+import {roomPrefix} from "../rooms/room-keys";
+import * as RoomsService from "../rooms/rooms.service";
+import * as DeckService from "./deck.service";
+import * as GameService from "./game.service";
+import * as MovieStateService from "./movie-state.service";
 
-const popCurrentMovieId = mock();
-const peekCurrentMovieId = mock();
-const getPlayerDeckStatus = mock();
-const refreshPlayerDeck = mock();
-const recordVote = mock();
-const requestPoolExpansion = mock();
+let gameCode: string;
+const playerId = "player-1";
 
-mock.module(new URL("./deck.service.ts", import.meta.url).href, () => ({
-  popCurrentMovieId,
-  peekCurrentMovieId,
-  getPlayerDeckStatus,
-  refreshPlayerDeck,
-}));
-
-mock.module(new URL("./vote.service.ts", import.meta.url).href, () => ({
-  recordVote,
-}));
-
-mock.module(new URL("../pool/pool-events.ts", import.meta.url).href, () => ({
-  requestPoolExpansion,
-}));
-
-const GameService = await import("./game.service");
-
-beforeEach(() => {
-  popCurrentMovieId.mockReset();
-  peekCurrentMovieId.mockReset();
-  getPlayerDeckStatus.mockReset();
-  refreshPlayerDeck.mockReset();
-  recordVote.mockReset();
-  requestPoolExpansion.mockReset();
+beforeEach(async () => {
+  gameCode = (await RoomsService.create({})).gameCode;
 });
 
-describe("swipe.service", () => {
-  test("rejects stale client movie ids without voting", async () => {
-    popCurrentMovieId.mockResolvedValue({
-      status: "mismatch",
-      movieId: "movie-2",
-    });
+afterEach(async () => {
+  const keys = await redisClient.keys(`${roomPrefix(gameCode)}*`);
+  if (keys.length) await redisClient.del(keys);
+});
+
+const arrangeDeck = async (size: number) => {
+  const movies = Array.from({length: size}, (_, index) => ({
+    id: `movie-${index + 1}`,
+    title: `Movie ${index + 1}`,
+    year: 2026,
+    overview: "",
+    posterUrl: "",
+    rating: 7,
+  }));
+  const movieIds = movies.map((movie) => movie.id);
+  await Promise.all([
+    PoolService.replacePool(gameCode, movieIds),
+    MovieMetadataService.replaceRoomMovieMetadata(gameCode, movies),
+    MovieStateService.initializeMovieStates(gameCode, movieIds),
+  ]);
+  await DeckService.refreshPlayerDeck(gameCode, playerId);
+  return DeckService.peekCurrentMovieId(gameCode, playerId);
+};
+
+describe("swipe service", () => {
+  test("rejects stale client movie ids without advancing or voting", async () => {
+    const currentMovieId = await arrangeDeck(3);
 
     await expect(
       GameService.recordSwipe({
-        gameCode: "ABCD",
-        playerId: "player-1",
-        movieId: "movie-1",
+        gameCode,
+        playerId,
+        movieId: "not-the-current-movie",
         choice: "like",
       }),
     ).rejects.toThrow("Vote does not match the deck head");
+
+    expect(await DeckService.peekCurrentMovieId(gameCode, playerId)).toBe(
+      currentMovieId,
+    );
+    expect((await MovieStateService.getMovieStateOrThrow(gameCode, currentMovieId!)).totalVotes).toBe(0);
   });
 
-  test("returns a waiting state when no next deck item is immediately available", async () => {
-    popCurrentMovieId.mockResolvedValue({
-      status: "ok",
-      movieId: "movie-1",
-    });
-    recordVote.mockResolvedValue({
-      votedAt: "2026-05-12T00:00:00.000Z",
-    });
-    peekCurrentMovieId.mockResolvedValue(null);
-    getPlayerDeckStatus.mockResolvedValue({
-      currentIndex: 10,
-      completed: true,
-      remainingCount: 0,
-    });
+  test("returns a completed state after voting on the final movie", async () => {
+    const currentMovieId = await arrangeDeck(1);
 
     await expect(
       GameService.recordSwipe({
-        gameCode: "ABCD",
-        playerId: "player-1",
-        movieId: "movie-1",
+        gameCode,
+        playerId,
+        movieId: currentMovieId!,
         choice: "like",
       }),
     ).resolves.toMatchObject({
-      movieId: "movie-1",
+      movieId: currentMovieId,
       statePatch: {
         currentItem: null,
         remainingCount: 0,
+        me: {completed: true},
       },
-    });
-    expect(requestPoolExpansion).toHaveBeenCalledWith({
-      gameCode: "ABCD",
-      reason: "swipe_recorded",
     });
   });
 
   test("tops up the player deck as part of a successful swipe", async () => {
-    popCurrentMovieId.mockResolvedValue({status: "ok", movieId: "movie-1"});
-    recordVote.mockResolvedValue({votedAt: "2026-05-12T00:00:00.000Z"});
-    peekCurrentMovieId.mockResolvedValue(null);
-    getPlayerDeckStatus.mockResolvedValue({
-      currentIndex: 1,
-      completed: false,
-      remainingCount: 3,
-    });
+    const currentMovieId = await arrangeDeck(4);
 
-    await GameService.recordSwipe({
-      gameCode: "ABCD",
-      playerId: "player-1",
-      movieId: "movie-1",
+    const result = await GameService.recordSwipe({
+      gameCode,
+      playerId,
+      movieId: currentMovieId!,
       choice: "like",
     });
 
-    expect(refreshPlayerDeck).toHaveBeenCalledWith("ABCD", "player-1");
+    expect(result.statePatch.currentItem?.movie.id).not.toBe(currentMovieId);
+    expect(result.statePatch.remainingCount).toBe(3);
   });
 
   test("returns the cached result when a swipe action is retried", async () => {
-    const actionId = "171bb596-6e9f-4539-a91f-ef35ec304e17";
-    await redisClient.del("game:IDEM:swipe_actions:player-1");
-    popCurrentMovieId.mockResolvedValue({status: "ok", movieId: "movie-1"});
-    recordVote.mockResolvedValue({votedAt: "2026-05-12T00:00:00.000Z"});
-    peekCurrentMovieId.mockResolvedValue(null);
-    getPlayerDeckStatus.mockResolvedValue({
-      currentIndex: 1,
-      completed: false,
-      remainingCount: 0,
-    });
-
+    const currentMovieId = await arrangeDeck(2);
     const input = {
-      gameCode: "IDEM",
-      playerId: "player-1",
-      movieId: "movie-1",
+      gameCode,
+      playerId,
+      movieId: currentMovieId!,
       choice: "like" as const,
-      actionId,
+      actionId: "171bb596-6e9f-4539-a91f-ef35ec304e17",
     };
+
     const first = await GameService.recordSwipe(input);
     const second = await GameService.recordSwipe(input);
 
     expect(second).toEqual(first);
-    expect(popCurrentMovieId).toHaveBeenCalledTimes(1);
-    expect(recordVote).toHaveBeenCalledTimes(1);
-    await redisClient.del("game:IDEM:swipe_actions:player-1");
+    expect(
+      (await MovieStateService.getMovieStateOrThrow(gameCode, currentMovieId!))
+        .totalVotes,
+    ).toBe(1);
   });
 });
