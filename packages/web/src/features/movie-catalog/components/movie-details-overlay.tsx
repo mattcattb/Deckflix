@@ -1,8 +1,13 @@
 import {useQuery} from "@tanstack/react-query";
 import type {MovieCandidate, MovieWatchProvider} from "@deckflix/shared";
-import {Eyebrow, StatusMessage} from "../../../components/common";
+import {
+  DataAttribution,
+  Eyebrow,
+  StatusMessage,
+} from "../../../components/common";
 import {ModalShell} from "../../../components/layout";
 import {movieDetailsQueryOptions} from "../movie-catalog.queries";
+import {getRpcErrorMessage} from "../../../lib/api";
 
 type MovieDetailsOverlayProps = {
   movie: MovieCandidate | null;
@@ -135,6 +140,7 @@ export function MovieDetailsOverlay({
                 No watch providers were found for this region.
               </StatusMessage>
             )}
+            <DataAttribution className="mt-3" includeJustWatch />
           </section>
 
           {detailsQuery.isLoading ? (
@@ -142,9 +148,10 @@ export function MovieDetailsOverlay({
           ) : null}
           {detailsQuery.error ? (
             <StatusMessage tone="danger" className="rounded-lg">
-              {detailsQuery.error instanceof Error
-                ? detailsQuery.error.message
-                : "Unable to load movie details"}
+              {getRpcErrorMessage(
+                detailsQuery.error,
+                "Unable to load movie details",
+              )}
             </StatusMessage>
           ) : null}
         </div>

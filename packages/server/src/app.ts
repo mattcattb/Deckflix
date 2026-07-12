@@ -12,6 +12,7 @@ import {playerController} from "./players/player.controller";
 import {roomController} from "./rooms/room.controller";
 import {gameController} from "./gameplay/game.controller";
 import {wsController} from "./ws/ws.controller";
+import {telemetryController} from "./common/telemetry.controller";
 
 export const protectedProjectsRoutes = createRouter().use("*", authMiddleware);
 
@@ -20,6 +21,7 @@ addGlobalMiddlewares(baseApp);
 addGlobalErrorHandling(baseApp);
 
 export const app = baseApp
+  .route("/api/telemetry", telemetryController)
   .route("/api/auth", authController)
   .route("/api/movies", moviesController)
   .route("/api/player", playerController)

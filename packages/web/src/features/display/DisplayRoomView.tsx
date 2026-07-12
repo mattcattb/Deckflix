@@ -17,7 +17,7 @@ import type {
   MovieWatchProvider,
   DisplayServerMessage,
 } from "@deckflix/shared";
-import {api, parseRpc} from "../../lib/api";
+import {api, getRpcErrorMessage, parseRpc} from "../../lib/api";
 import {
   activeRoomMetaQueryOptions,
   activeRoomPlayersQueryOptions,
@@ -53,6 +53,7 @@ import {
   SocketStatusDot,
 } from "../../components/layout";
 import {useRoomWebSocket} from "../room/use-room-websocket";
+import {captureProductEvent} from "../../lib/telemetry";
 
 type PlayerVoteFlashTone = "positive" | "negative";
 
@@ -127,9 +128,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
   const preferencesQuery = useQuery(activeGamePreferencesQueryOptions(gameCode));
   const movieGenresQuery = useQuery(movieGenresQueryOptions());
   const movieGenresError = movieGenresQuery.error
-    ? movieGenresQuery.error instanceof Error
-      ? movieGenresQuery.error.message
-      : "Unable to load genres"
+    ? getRpcErrorMessage(movieGenresQuery.error, "Unable to load genres")
     : null;
   const movieWatchProvidersQuery = useQuery(
     movieWatchProvidersQueryOptions(
@@ -138,9 +137,10 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     ),
   );
   const movieWatchProvidersError = movieWatchProvidersQuery.error
-    ? movieWatchProvidersQuery.error instanceof Error
-      ? movieWatchProvidersQuery.error.message
-      : "Unable to load watch providers"
+    ? getRpcErrorMessage(
+        movieWatchProvidersQuery.error,
+        "Unable to load watch providers",
+      )
     : null;
   const refetchMeta = metaQuery.refetch;
   const refetchPlayers = playersQuery.refetch;
@@ -237,9 +237,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to save settings",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to save settings"));
       setSettingsSaveStatus("pending");
     },
   });
@@ -265,6 +263,9 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
       return parseRpc(api.api.room.start.$post());
     },
     onSuccess: () => {
+      captureProductEvent("game_started", {
+        playerCount: playersQuery.data?.players.length ?? 0,
+      });
       setGameError(null);
       void metaQuery.refetch();
     },
@@ -274,9 +275,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to start game",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to start game"));
     },
   });
 
@@ -343,9 +342,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to end room",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to end room"));
     },
   });
 
@@ -367,9 +364,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to remove player",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to remove player"));
     },
   });
 
@@ -510,17 +505,13 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
 
     return (
       <RoomUnavailable
-        message={
-          settingsQuery.error instanceof Error
-            ? settingsQuery.error.message
-            : preferencesQuery.error instanceof Error
-              ? preferencesQuery.error.message
-              : metaQuery.error instanceof Error
-                ? metaQuery.error.message
-                : playersQuery.error instanceof Error
-                  ? playersQuery.error.message
-                  : "This room is not available."
-        }
+        message={getRpcErrorMessage(
+          settingsQuery.error ??
+            preferencesQuery.error ??
+            metaQuery.error ??
+            playersQuery.error,
+          "This room is not available.",
+        )}
       />
     );
   }

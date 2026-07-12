@@ -59,12 +59,44 @@ export const getFinaleState = async (
   const movies = movieIds.length
     ? await MovieMetadataService.getRoomMovieMetadataMap(gameCode, movieIds)
     : new Map();
+  const [states, sources] = movieIds.length
+    ? await Promise.all([
+        MovieStateService.getMovieStates(gameCode, movieIds),
+        Promise.all(
+          movieIds.map((movieId) => PoolService.getPoolSource(gameCode, movieId)),
+        ),
+      ])
+    : [new Map<string, MovieStateService.MovieState>(), []];
   const voteCounts = Object.fromEntries(movieIds.map((movieId) => [movieId, 0]));
   for (const movieId of Object.values(votes)) {
     if (movieId && movieId in voteCounts) voteCounts[movieId] += 1;
   }
   return {
     finalists: movieIds.map((movieId) => movies.get(movieId)!),
+    finalistReasons: Object.fromEntries(
+      movieIds.map((movieId, index) => {
+        const state = states.get(movieId)!;
+        const source = sources[index];
+        const positiveVotes = state.likeCount + state.superLikeCount;
+        const reasons: string[] = [];
+
+        if (source?.source === "suggestion" && source.suggestedByName) {
+          reasons.push(`Suggested by ${source.suggestedByName}`);
+        }
+        if (positiveVotes >= totalPlayers && totalPlayers > 0) {
+          reasons.push("Everyone responded positively");
+        } else if (positiveVotes > 0) {
+          reasons.push(`${positiveVotes} positive ${positiveVotes === 1 ? "vote" : "votes"}`);
+        }
+        if (state.superLikeCount > 0) {
+          reasons.push(
+            `${state.superLikeCount} super ${state.superLikeCount === 1 ? "like" : "likes"}`,
+          );
+        }
+
+        return [movieId, reasons.length ? reasons.slice(0, 2) : ["Strong group match"]];
+      }),
+    ),
     voteCounts,
     totalVotes: Object.keys(votes).length,
     totalPlayers,

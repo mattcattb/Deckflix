@@ -8,7 +8,7 @@ import {
 import {BrandMark, StatusMessage} from "../components/common";
 import {CenteredPanel} from "../components/layout";
 import {Button, Card, CardContent, Input, Label} from "../components/ui";
-import {api, parseRpc} from "../lib/api";
+import {api, getRpcErrorMessage, parseRpc} from "../lib/api";
 import {
   activeRoomSessionKeys,
   normalizeGameCode,
@@ -99,9 +99,10 @@ function JoinRoomView({gameCode}: {gameCode: string}) {
 
             {joinGameMutation.error ? (
               <StatusMessage tone="danger" className="rounded-lg px-3 py-2">
-                {joinGameMutation.error instanceof Error
-                  ? joinGameMutation.error.message
-                  : "Unable to join game"}
+                {getRpcErrorMessage(
+                  joinGameMutation.error,
+                  "Unable to join game",
+                )}
               </StatusMessage>
             ) : null}
           </CardContent>

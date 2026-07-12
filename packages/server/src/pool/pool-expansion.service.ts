@@ -60,10 +60,14 @@ export const getPoolExpansionStatus = async (input: {
   };
 };
 
-export const ensurePoolHasBuffer = async (input: {
-  gameCode: string;
-  reason?: string;
-}) => {
+export const ensurePoolHasBuffer = async (
+  input: {
+    gameCode: string;
+    reason?: string;
+  },
+  generateRecommendationExpansion =
+    RecommendationsService.generateRecommendationExpansion,
+) => {
   const gameCode = normalizeGameCode(input.gameCode);
   const status = await getPoolExpansionStatus({gameCode});
   if (!status.shouldExpand) {
@@ -93,8 +97,7 @@ export const ensurePoolHasBuffer = async (input: {
             PoolService.listPoolMovieIds(gameCode),
           ]);
 
-        const movies =
-          await RecommendationsService.generateRecommendationExpansion({
+        const movies = await generateRecommendationExpansion({
           gameCode,
           poolSeed: meta.poolSeed,
           settings,

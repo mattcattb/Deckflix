@@ -19,7 +19,7 @@ import type {
 import {PLAYER_DISPLAY_NAME_MAX_LENGTH, playerAvatarIds} from "@deckflix/shared";
 import {PlayerAvatarImage, ProfileAvatar} from "../components/common";
 import {Button, Input, Label, useToast} from "../components/ui";
-import {api, parseRpc} from "../lib/api";
+import {api, getRpcErrorMessage, parseRpc} from "../lib/api";
 import {RoomUnavailable} from "../features/room/room-unavailable";
 import {PlayerStatusPanel} from "../features/player/PlayerStatusPanel";
 import {
@@ -101,11 +101,11 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const deckRefreshTimeoutScheduledRef = useRef(false);
   const seenNotificationIdsRef = useRef(new Set<string>());
   const [gameError, setGameError] = useState<string | null>(null);
-  const [playerState, setPlayerState] = useState<PlayerRoomState | null>(null);
   const [isDeckRefreshQueued, setIsDeckRefreshQueued] = useState(false);
   const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
   const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
   const playerQuery = useQuery(activePlayerRoomQueryOptions(gameCode));
+  const playerState = playerQuery.data;
   const deckQuery = useQuery({
     ...activePlayerDeckQueryOptions(gameCode),
     enabled: playerState?.summary.status === "swiping",
@@ -152,19 +152,11 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to refresh deck",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to refresh deck"));
     },
   });
   const refreshDeck = refreshDeckMutation.mutate;
   const refreshDeckPending = refreshDeckMutation.isPending;
-
-  useEffect(() => {
-    if (playerQuery.data) {
-      setPlayerState(playerQuery.data);
-    }
-  }, [playerQuery.data]);
 
   useEffect(() => {
     for (const item of [...(notificationsQuery.data?.items ?? [])].reverse()) {
@@ -271,9 +263,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to record vote",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to record vote"));
       void refetchDeck();
     },
   });
@@ -287,9 +277,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       void refetchPlayer();
     },
     onError: (error) => {
-      setGameError(
-        error instanceof Error ? error.message : "Unable to record final vote",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to record final vote"));
     },
   });
 
@@ -309,9 +297,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to leave game",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to leave game"));
     },
   });
 
@@ -337,7 +323,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
               },
             }
           : current;
-      setPlayerState((current) => updatePlayerProfile(current) ?? null);
       queryClient.setQueryData<PlayerRoomState | null>(
         roomKeys.player(gameCode),
         updatePlayerProfile,
@@ -350,9 +335,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         return;
       }
 
-      setGameError(
-        error instanceof Error ? error.message : "Unable to update profile",
-      );
+      setGameError(getRpcErrorMessage(error, "Unable to update profile"));
     },
   });
 
@@ -379,7 +362,10 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
 
         if (message.type === "player.snapshot") {
-          setPlayerState(message.payload);
+          queryClient.setQueryData<PlayerRoomState>(
+            roomKeys.player(gameCode),
+            message.payload,
+          );
           void refetchMeta();
           void refetchPlayers();
           return;
@@ -425,20 +411,22 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
 
         if (message.type === "player.updated") {
-          setPlayerState((current) =>
-            current
-              ? {
-                  ...current,
-                  me:
-                    message.player.id === current.me.playerId
-                      ? {
-                          ...current.me,
-                          displayName: message.player.displayName,
-                          iconId: message.player.iconId,
-                        }
-                      : current.me,
-                }
-              : current,
+          queryClient.setQueryData<PlayerRoomState | undefined>(
+            roomKeys.player(gameCode),
+            (current) =>
+              current
+                ? {
+                    ...current,
+                    me:
+                      message.player.id === current.me.playerId
+                        ? {
+                            ...current.me,
+                            displayName: message.player.displayName,
+                            iconId: message.player.iconId,
+                          }
+                        : current.me,
+                  }
+                : current,
           );
           void refetchPlayers();
           return;
@@ -457,7 +445,9 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         }
       },
       [
+        gameCode,
         notify,
+        queryClient,
         refetchDeck,
         refetchFinale,
         refetchMeta,
@@ -495,15 +485,10 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
 
     return (
       <RoomUnavailable
-        message={
-          playerQuery.error instanceof Error
-            ? playerQuery.error.message
-            : metaQuery.error instanceof Error
-              ? metaQuery.error.message
-              : playersQuery.error instanceof Error
-                ? playersQuery.error.message
-                : "This room is not available."
-        }
+        message={getRpcErrorMessage(
+          playerQuery.error ?? metaQuery.error ?? playersQuery.error,
+          "This room is not available.",
+        )}
       />
     );
   }
@@ -751,6 +736,9 @@ function FinaleVotePanel({
             />
             <span className="block truncate p-2 text-xs font-semibold">
               {movie.title}
+            </span>
+            <span className="block px-2 pb-2 text-[10px] leading-snug text-primary">
+              {finale.finalistReasons[movie.id]?.[0] ?? "Strong group match"}
             </span>
           </button>
         ))}

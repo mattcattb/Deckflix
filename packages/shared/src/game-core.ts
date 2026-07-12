@@ -128,6 +128,77 @@ export const PLAYER_TASTE_MOODS = [
   "nostalgic",
 ] as const;
 
+export const MOVIE_NIGHT_MODES = [
+  {
+    id: "crowd-pleaser",
+    label: "Crowd Pleaser",
+    description: "Familiar favorites with the strongest chance of group agreement.",
+    preferences: {
+      popularityPreset: "popular",
+      includedGenreIds: [],
+      runtimeMinutesLte: 150,
+    },
+  },
+  {
+    id: "cozy-night",
+    label: "Cozy Night",
+    description: "Warm comedies and romances for an easygoing night.",
+    preferences: {
+      popularityPreset: "balanced",
+      includedGenreIds: [35, 10749],
+      runtimeMinutesLte: 120,
+    },
+  },
+  {
+    id: "quick-laugh",
+    label: "Quick Laugh",
+    description: "Popular comedies that keep the night under 100 minutes.",
+    preferences: {
+      popularityPreset: "popular",
+      includedGenreIds: [35],
+      runtimeMinutesLte: 100,
+    },
+  },
+  {
+    id: "hidden-gem",
+    label: "Hidden Gem",
+    description: "Less obvious picks with room for a great discovery.",
+    preferences: {
+      popularityPreset: "niche",
+      includedGenreIds: [],
+      runtimeMinutesLte: 150,
+    },
+  },
+  {
+    id: "family-night",
+    label: "Family Night",
+    description: "Accessible family movies with a comfortable runtime.",
+    preferences: {
+      popularityPreset: "balanced",
+      includedGenreIds: [10751],
+      runtimeMinutesLte: 120,
+    },
+  },
+  {
+    id: "wildcard",
+    label: "Wildcard",
+    description: "Open the discovery range and let the room surprise you.",
+    preferences: {
+      popularityPreset: "any",
+      includedGenreIds: [],
+      runtimeMinutesLte: null,
+    },
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  description: string;
+  preferences: Pick<
+    GamePreferences,
+    "popularityPreset" | "includedGenreIds" | "runtimeMinutesLte"
+  >;
+}>;
+
 export const playerTasteSchema = z.object({
   genreIds: z.array(z.number().int().positive()).max(3),
   moods: z.array(z.enum(PLAYER_TASTE_MOODS)).max(3),

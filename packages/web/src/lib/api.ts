@@ -69,6 +69,15 @@ export const hasRpcErrorCode = <Code extends RpcError["code"]>(
   typeof (error as {code?: unknown}).code === "string" &&
   codes.includes((error as {code: Code}).code);
 
+export const getRpcErrorMessage = (error: unknown, fallback: string) =>
+  typeof error === "object" &&
+  error !== null &&
+  "message" in error &&
+  typeof error.message === "string" &&
+  error.message.trim()
+    ? error.message
+    : fallback;
+
 const translateRpcError = (error: unknown): RpcError => {
   if (error instanceof DetailedError) {
     const parsed = apiErrorResponseSchema.safeParse(error.detail?.data);
@@ -121,16 +130,5 @@ export const parseRpc = async <TResponse extends ClientResponse<any, any, any>>(
     return (await parseResponse(rpc)) as RpcData<TResponse>;
   } catch (error) {
     throw translateRpcError(error);
-  }
-};
-
-export const callRpc = async <TResponse extends ClientResponse<any, any, any>>(
-  rpc: Promise<TResponse> | TResponse,
-): Promise<[RpcError, null] | [null, RpcData<TResponse> | null]> => {
-  try {
-    const data = await parseRpc(rpc);
-    return [null, data === undefined ? null : data];
-  } catch (error) {
-    return [translateRpcError(error), null];
   }
 };

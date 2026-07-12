@@ -11,7 +11,8 @@ import {
   activeFinaleQueryOptions,
 } from "../features/room/room.queries";
 import {Button} from "../components/ui";
-import {api, parseRpc} from "../lib/api";
+import {api, getRpcErrorMessage, parseRpc} from "../lib/api";
+import {captureProductEvent} from "../lib/telemetry";
 
 export const Route = createFileRoute("/room/live")({
   component: DisplayRoomLiveView,
@@ -31,6 +32,7 @@ function DisplayRoomLiveView() {
   const startFinale = useMutation({
     mutationFn: () => parseRpc(api.api.game.finale.start.$post()),
     onSuccess: (state) => {
+      captureProductEvent("finale_started", {finalistCount: state.finalists.length});
       queryClient.setQueryData(activeFinaleQueryOptions(gameCode).queryKey, state);
       void queryClient.invalidateQueries({queryKey: ["room", gameCode]});
     },
@@ -90,6 +92,7 @@ function DisplayRoomLiveView() {
       {meta.summary.status === "finale" ? (
         <FinaleBoard
           finalists={finaleQuery.data?.finalists ?? []}
+          finalistReasons={finaleQuery.data?.finalistReasons ?? {}}
           totalPlayers={finaleQuery.data?.totalPlayers ?? meta.summary.playerCount}
           totalVotes={finaleQuery.data?.totalVotes ?? 0}
         />
@@ -109,7 +112,10 @@ function DisplayRoomLiveView() {
           </Button>
           {startFinale.error ? (
             <p className="w-full text-sm text-warning">
-              {startFinale.error instanceof Error ? startFinale.error.message : "Keep swiping a little longer."}
+              {getRpcErrorMessage(
+                startFinale.error,
+                "Keep swiping a little longer.",
+              )}
             </p>
           ) : null}
         </div>
@@ -139,10 +145,12 @@ function DisplayRoomLiveView() {
 
 function FinaleBoard({
   finalists,
+  finalistReasons,
   totalPlayers,
   totalVotes,
 }: {
   finalists: MovieCandidate[];
+  finalistReasons: Record<string, string[]>;
   totalPlayers: number;
   totalVotes: number;
 }) {
@@ -156,7 +164,18 @@ function FinaleBoard({
         {finalists.map((movie) => (
           <article key={movie.id} className="overflow-hidden rounded-2xl border border-white/12 bg-black/55 text-left">
             <img src={movie.posterUrl} alt="" className="aspect-[2/3] w-full object-cover" />
-            <div className="p-3 font-semibold">{movie.title}</div>
+            <div className="p-3">
+              <div className="font-semibold">{movie.title}</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(finalistReasons[movie.id] ?? []).map((reason) => (
+                  <span
+                    key={reason}
+                    className="rounded-full bg-primary/15 px-2 py-1 text-[10px] font-semibold text-primary">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </div>
           </article>
         ))}
       </div>

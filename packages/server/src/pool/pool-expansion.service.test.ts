@@ -1,63 +1,14 @@
-import {afterEach, beforeEach, describe, expect, mock, test} from "bun:test";
+import {afterEach, describe, expect, mock, test} from "bun:test";
+import * as MovieStateService from "../gameplay/movie-state.service";
+import * as MovieMetadataService from "../movies/movie-metadata.service";
+import * as PlayerService from "../players/player.service";
+import * as RecommendationsService from "../recommendations/recommendations.service";
 import {redisClient} from "../redis/redis";
-import {roomPrefix} from "../rooms/room-keys";
+import * as RoomsService from "../rooms/rooms.service";
+import * as PoolExpansionService from "./pool-expansion.service";
 import * as PoolService from "./pool.service";
 
-const getPlayerPoolCursor = mock();
-const initializeMissingMovieStates = mock();
-const upsertRoomMovieMetadata = mock();
-const getGamePreferencesOrThrow = mock();
-const listPlayerIds = mock();
-const generateRecommendationExpansion = mock();
-const getGameMetaOrThrow = mock();
-const getGameSettingsOrThrow = mock();
-
-mock.module(new URL("../gameplay/deck.service.ts", import.meta.url).href, () => ({
-  getPlayerPoolCursor,
-}));
-
-mock.module(
-  new URL("../gameplay/movie-state.service.ts", import.meta.url).href,
-  () => ({
-    initializeMissingMovieStates,
-  }),
-);
-
-mock.module(
-  new URL("../movies/movie-metadata.service.ts", import.meta.url).href,
-  () => ({
-    upsertRoomMovieMetadata,
-  }),
-);
-
-mock.module(new URL("../rooms/room-preferences.service.ts", import.meta.url).href, () => ({
-  getGamePreferencesOrThrow,
-}));
-
-mock.module(new URL("../players/player.service.ts", import.meta.url).href, () => ({
-  listPlayerIds,
-}));
-
-mock.module(
-  new URL("../recommendations/recommendations.service.ts", import.meta.url).href,
-  () => ({
-    generateRecommendationExpansion,
-  }),
-);
-
-mock.module(new URL("../rooms/rooms.service.ts", import.meta.url).href, () => ({
-  getGameMetaOrThrow,
-}));
-
-mock.module(
-  new URL("../rooms/room-settings.service.ts", import.meta.url).href,
-  () => ({
-    getGameSettingsOrThrow,
-  }),
-);
-
-const PoolExpansionService = await import("./pool-expansion.service");
-
+const gameCodes: string[] = [];
 const movie = {
   id: "movie-3",
   title: "Three",
@@ -66,58 +17,30 @@ const movie = {
   posterUrl: "",
   rating: 7,
 };
-const preferences = {
-  popularityPreset: "balanced",
-  includedGenreIds: [],
-  excludedGenreIds: [],
-  primaryReleaseDateGte: null,
-  primaryReleaseDateLte: null,
-  voteAverageGte: null,
-  voteAverageLte: null,
-};
-const settings = {
-  gameplay: {
-    maxMovies: 100,
-    allowMaybe: true,
-    allowSuperLike: true,
-  },
-};
 
-beforeEach(() => {
-  getPlayerPoolCursor.mockReset();
-  initializeMissingMovieStates.mockReset();
-  upsertRoomMovieMetadata.mockReset();
-  getGamePreferencesOrThrow.mockReset();
-  listPlayerIds.mockReset();
-  generateRecommendationExpansion.mockReset();
-  getGameMetaOrThrow.mockReset();
-  getGameSettingsOrThrow.mockReset();
-
-  listPlayerIds.mockResolvedValue(["player-1"]);
-  getPlayerPoolCursor.mockResolvedValue(0);
-  getGameMetaOrThrow.mockResolvedValue({poolSeed: "seed-1"});
-  getGameSettingsOrThrow.mockResolvedValue(settings);
-  getGamePreferencesOrThrow.mockResolvedValue(preferences);
-  generateRecommendationExpansion.mockResolvedValue([movie]);
-  upsertRoomMovieMetadata.mockResolvedValue(undefined);
-  initializeMissingMovieStates.mockResolvedValue(undefined);
-});
+const createRoomWithPlayer = async () => {
+  const {gameCode} = await RoomsService.create({roomName: "Expansion test"});
+  gameCodes.push(gameCode);
+  await PlayerService.join({gameCode, displayName: "Player one"});
+  return gameCode;
+};
 
 afterEach(async () => {
-  await redisClient.del(
-    ["ABCD", "LOCK"].flatMap((gameCode) => [
-      `${roomPrefix(gameCode)}pool`,
-      `${roomPrefix(gameCode)}pool_expansion_lock`,
-    ]),
-  );
+  for (const gameCode of gameCodes.splice(0)) {
+    const keys = await redisClient.keys(`game:${gameCode}:*`);
+    if (keys.length > 0) {
+      await redisClient.del(keys);
+    }
+  }
 });
 
 describe("pool-expansion.service", () => {
   test("requests expansion when a player cursor is near the pool end", async () => {
-    await PoolService.replacePool("ABCD", ["movie-1", "movie-2"]);
+    const gameCode = await createRoomWithPlayer();
+    await PoolService.replacePool(gameCode, ["movie-1", "movie-2"]);
 
     await expect(
-      PoolExpansionService.getPoolExpansionStatus({gameCode: "ABCD"}),
+      PoolExpansionService.getPoolExpansionStatus({gameCode}),
     ).resolves.toMatchObject({
       shouldExpand: true,
       poolSize: 2,
@@ -126,56 +49,91 @@ describe("pool-expansion.service", () => {
   });
 
   test("does not expand when enough pool entries remain", async () => {
+    const gameCode = await createRoomWithPlayer();
     await PoolService.replacePool(
-      "ABCD",
+      gameCode,
       Array.from({length: 100}, (_, index) => `movie-${index + 1}`),
     );
-    getPlayerPoolCursor.mockResolvedValue(40);
+    const generateRecommendations = mock(
+      async (
+        _input: Parameters<
+          typeof RecommendationsService.generateRecommendationExpansion
+        >[0],
+      ) => [movie],
+    );
 
     await expect(
-      PoolExpansionService.ensurePoolHasBuffer({gameCode: "ABCD"}),
+      PoolExpansionService.ensurePoolHasBuffer(
+        {gameCode},
+        generateRecommendations,
+      ),
     ).resolves.toEqual({expanded: false, appendedMovieIds: []});
-    expect(generateRecommendationExpansion).not.toHaveBeenCalled();
+    expect(generateRecommendations).not.toHaveBeenCalled();
   });
 
-  test("expands with existing ids excluded and initializes appended movie state", async () => {
-    await PoolService.replacePool("ABCD", ["movie-1", "movie-2"]);
+  test("persists expanded movies and initializes their state", async () => {
+    const gameCode = await createRoomWithPlayer();
+    await PoolService.replacePool(gameCode, ["movie-1", "movie-2"]);
+    const generateRecommendations = mock(
+      async (
+        _input: Parameters<
+          typeof RecommendationsService.generateRecommendationExpansion
+        >[0],
+      ) => [movie],
+    );
 
     await expect(
-      PoolExpansionService.ensurePoolHasBuffer({gameCode: "ABCD"}),
+      PoolExpansionService.ensurePoolHasBuffer(
+        {gameCode},
+        generateRecommendations,
+      ),
     ).resolves.toEqual({expanded: true, appendedMovieIds: [movie.id]});
 
-    expect(generateRecommendationExpansion).toHaveBeenCalledWith({
-      gameCode: "ABCD",
-      poolSeed: "seed-1",
-      settings,
-      preferences,
+    expect(generateRecommendations).toHaveBeenCalledTimes(1);
+    expect(generateRecommendations.mock.calls[0]?.[0]).toMatchObject({
+      gameCode,
       existingMovieIds: ["movie-1", "movie-2"],
       targetSize: 20,
     });
-    expect(upsertRoomMovieMetadata).toHaveBeenCalledWith("ABCD", [movie]);
-    expect(initializeMissingMovieStates).toHaveBeenCalledWith("ABCD", [
-      movie.id,
-    ]);
-    await expect(PoolService.listPoolMovieIds("ABCD")).resolves.toEqual([
+    await expect(PoolService.listPoolMovieIds(gameCode)).resolves.toEqual([
       "movie-1",
       "movie-2",
       movie.id,
     ]);
+    await expect(
+      MovieMetadataService.getRoomMovieMetadataOrThrow(gameCode, movie.id),
+    ).resolves.toEqual(movie);
+    await expect(
+      MovieStateService.getMovieStateOrThrow(gameCode, movie.id),
+    ).resolves.toMatchObject({status: "pending", totalVotes: 0});
   });
 
   test("lock prevents duplicate concurrent expansion work", async () => {
-    await PoolService.replacePool("LOCK", ["movie-1", "movie-2"]);
-    generateRecommendationExpansion.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve([movie]), 50)),
+    const gameCode = await createRoomWithPlayer();
+    await PoolService.replacePool(gameCode, ["movie-1", "movie-2"]);
+    const generateRecommendations = mock(
+      (
+        _input: Parameters<
+          typeof RecommendationsService.generateRecommendationExpansion
+        >[0],
+      ) =>
+        new Promise<typeof movie[]>((resolve) =>
+          setTimeout(() => resolve([movie]), 50),
+        ),
     );
 
     const [first, second] = await Promise.all([
-      PoolExpansionService.ensurePoolHasBuffer({gameCode: "LOCK"}),
-      PoolExpansionService.ensurePoolHasBuffer({gameCode: "LOCK"}),
+      PoolExpansionService.ensurePoolHasBuffer(
+        {gameCode},
+        generateRecommendations,
+      ),
+      PoolExpansionService.ensurePoolHasBuffer(
+        {gameCode},
+        generateRecommendations,
+      ),
     ]);
 
     expect([first, second].filter((result) => result.expanded)).toHaveLength(1);
-    expect(generateRecommendationExpansion).toHaveBeenCalledTimes(1);
+    expect(generateRecommendations).toHaveBeenCalledTimes(1);
   });
 });

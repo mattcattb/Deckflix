@@ -55,5 +55,6 @@ describe("finale service", () => {
     expect(result.completed).toBe(true);
     expect(result.winner?.id).toBe("2");
     expect(result.voteCounts).toEqual({"1": 1, "2": 2, "3": 0});
+    expect(result.finalistReasons["2"]).toContain("2 positive votes");
   });
 });

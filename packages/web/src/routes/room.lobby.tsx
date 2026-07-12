@@ -1,7 +1,8 @@
 import {createFileRoute} from "@tanstack/react-router";
 import {useEffect, useRef} from "react";
+import {MOVIE_NIGHT_MODES} from "@deckflix/shared";
 import QRCode from "qrcode";
-import {Check, Clock, Copy, Loader2, Play} from "lucide-react";
+import {Check, ChevronDown, Clock, Copy, Loader2, Play} from "lucide-react";
 import {Eyebrow} from "../components/common";
 import {Button, useToast} from "../components/ui";
 import {GamePreferencesSection} from "../features/preferences/game-preferences-section";
@@ -65,46 +66,74 @@ function DisplayRoomLobbyView() {
       </div>
       <div className="py-6">
         <div className="mb-6">
-          <Eyebrow className="text-white/45">Tonight&apos;s vibe</Eyebrow>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {[
-              {label: "Crowd Pleaser", popularityPreset: "popular" as const, genres: [], runtime: 150},
-              {label: "Cozy Night", popularityPreset: "balanced" as const, genres: [35, 10749], runtime: 120},
-              {label: "Quick Laugh", popularityPreset: "popular" as const, genres: [35], runtime: 100},
-              {label: "Hidden Gem", popularityPreset: "niche" as const, genres: [], runtime: 150},
-              {label: "Family Night", popularityPreset: "balanced" as const, genres: [10751], runtime: 120},
-              {label: "Surprise Us", popularityPreset: "any" as const, genres: [], runtime: null},
-            ].map((preset) => (
-              <Button
-                key={preset.label}
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  setDraftPreferences({
-                    ...draftPreferences,
-                    popularityPreset: preset.popularityPreset,
-                    includedGenreIds: preset.genres,
-                    runtimeMinutesLte: preset.runtime,
-                  })
-                }>
-                {preset.label}
-              </Button>
-            ))}
+          <Eyebrow className="text-white/45">Choose a movie-night mode</Eyebrow>
+          <h1 className="mt-2 text-2xl font-bold">What kind of night is this?</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Pick a starting point. Deckflix combines it with everyone&apos;s taste check.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {MOVIE_NIGHT_MODES.map((mode) => {
+              const selected =
+                draftPreferences.popularityPreset ===
+                  mode.preferences.popularityPreset &&
+                draftPreferences.runtimeMinutesLte ===
+                  mode.preferences.runtimeMinutesLte &&
+                mode.preferences.includedGenreIds.every((genreId) =>
+                  draftPreferences.includedGenreIds.includes(genreId),
+                ) &&
+                draftPreferences.includedGenreIds.length ===
+                  mode.preferences.includedGenreIds.length;
+
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  aria-pressed={selected}
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    selected
+                      ? "border-primary/70 bg-primary/12 shadow-[0_0_24px_hsl(var(--primary)/0.1)]"
+                      : "border-white/10 bg-white/[0.035] hover:border-white/25 hover:bg-white/[0.06]"
+                  }`}
+                  onClick={() =>
+                    setDraftPreferences({
+                      ...draftPreferences,
+                      ...mode.preferences,
+                    })
+                  }>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{mode.label}</span>
+                    {selected ? (
+                      <Check className="h-4 w-4 text-primary" />
+                    ) : null}
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                    {mode.description}
+                  </p>
+                </button>
+              );
+            })}
           </div>
         </div>
-        <GamePreferencesSection
-          settings={draftSettings}
-          preferences={draftPreferences}
-          onChange={setDraftSettings}
-          onPreferencesChange={setDraftPreferences}
-          movieGenres={movieGenres}
-          movieGenresLoading={movieGenresLoading}
-          movieGenresError={movieGenresError}
-          movieProviders={movieProviders}
-          movieProvidersLoading={movieProvidersLoading}
-          movieProvidersError={movieProvidersError}
-        />
+        <details className="group rounded-2xl border border-white/10 bg-white/[0.025]">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 font-semibold">
+            Fine-tune tonight&apos;s picks
+            <ChevronDown className="h-4 w-4 text-muted-foreground transition group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-white/10 p-4">
+            <GamePreferencesSection
+              settings={draftSettings}
+              preferences={draftPreferences}
+              onChange={setDraftSettings}
+              onPreferencesChange={setDraftPreferences}
+              movieGenres={movieGenres}
+              movieGenresLoading={movieGenresLoading}
+              movieGenresError={movieGenresError}
+              movieProviders={movieProviders}
+              movieProvidersLoading={movieProvidersLoading}
+              movieProvidersError={movieProvidersError}
+            />
+          </div>
+        </details>
       </div>
       <div className="sticky bottom-0 -mx-4 flex justify-end gap-3 border-t border-white/10 bg-black/92 px-4 py-4 backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:pt-5">
         <AutosaveStatus status={settingsSaveStatus} />

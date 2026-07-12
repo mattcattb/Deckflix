@@ -9,6 +9,7 @@ import {
   activeFinaleQueryOptions,
 } from "../features/room/room.queries";
 import {movieDetailsQueryOptions} from "../features/movie-catalog/movie-catalog.queries";
+import {DataAttribution} from "../components/common";
 
 export const Route = createFileRoute("/room/results")({
   component: DisplayRoomResultsView,
@@ -90,6 +91,7 @@ function DisplayRoomResultsView() {
         tone="stinker"
         watchRegion={draftPreferences.watchRegion}
       />
+      <DataAttribution includeJustWatch />
     </div>
   );
 }

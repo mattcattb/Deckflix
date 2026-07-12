@@ -1,7 +1,7 @@
 import {useDeferredValue, useState} from "react";
 import {useMutation, useQuery} from "@tanstack/react-query";
 import {Button, Input} from "../../components/ui";
-import {api, parseRpc} from "../../lib/api";
+import {api, getRpcErrorMessage, parseRpc} from "../../lib/api";
 
 export function MovieSuggestionPanel({
   remaining,
@@ -77,7 +77,11 @@ export function MovieSuggestionPanel({
           </button>
         ))}
       </div>
-      {mutation.error ? <p className="text-sm text-danger">{mutation.error instanceof Error ? mutation.error.message : "Unable to suggest that movie"}</p> : null}
+      {mutation.error ? (
+        <p className="text-sm text-danger">
+          {getRpcErrorMessage(mutation.error, "Unable to suggest that movie")}
+        </p>
+      ) : null}
     </section>
   );
 }

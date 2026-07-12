@@ -141,6 +141,7 @@ export const finaleVotePayloadSchema = z.object({
 
 export const finaleStateSchema = z.object({
   finalists: z.array(movieCandidateSchema),
+  finalistReasons: z.record(z.string(), z.array(z.string().min(1))),
   voteCounts: z.record(z.string(), z.number().int().min(0)),
   totalVotes: z.number().int().min(0),
   totalPlayers: z.number().int().min(0),
