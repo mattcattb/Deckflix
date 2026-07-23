@@ -331,8 +331,6 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     mutationFn: async () => parseRpc(api.api.room.end.$post()),
     onSuccess: () => {
       clearStoredRoomSessionToken();
-      queryClient.removeQueries({queryKey: ["room", gameCode]});
-      queryClient.removeQueries({queryKey: ["preferences", gameCode]});
       queryClient.setQueryData<ActiveRoomClient>(
         activeRoomSessionKeys.activeClient,
         {role: "none"},
