@@ -96,6 +96,13 @@ export const ensurePoolHasBuffer = async (
             PreferencesService.getGamePreferencesOrThrow(gameCode),
             PoolService.listPoolMovieIds(gameCode),
           ]);
+        const remainingCapacity = Math.max(
+          0,
+          settings.gameplay.maxMovies - existingMovieIds.length,
+        );
+        if (remainingCapacity === 0) {
+          return {expanded: false as const, appendedMovieIds: []};
+        }
 
         const movies = await generateRecommendationExpansion({
           gameCode,
@@ -103,7 +110,7 @@ export const ensurePoolHasBuffer = async (
           settings,
           preferences,
           existingMovieIds,
-          targetSize: POOL_EXPANSION_BATCH_SIZE,
+          targetSize: Math.min(POOL_EXPANSION_BATCH_SIZE, remainingCapacity),
         });
         const appendedMovieIds = await PoolService.appendPoolMovieIds(
           gameCode,

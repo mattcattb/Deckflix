@@ -8,9 +8,9 @@ import {
   MonitorPlay,
   Smartphone,
   Sparkles,
-  Users,
 } from "lucide-react";
 import {
+  type ActiveRoomClient,
   createRandomRoomName,
   createRandomUserName,
   GAME_CODE_LENGTH,
@@ -76,10 +76,14 @@ function HomePage() {
     onSuccess: (result) => {
       captureProductEvent("room_create_succeeded");
       storeDisplaySessionToken(result.displaySession);
-      queryClient.removeQueries({
-        queryKey: activeRoomSessionKeys.activeClient,
-        exact: true,
-      });
+      queryClient.setQueryData<ActiveRoomClient>(
+        activeRoomSessionKeys.activeClient,
+        {
+          role: "display",
+          gameCode: result.gameCode,
+          roomName: roomName.trim() || suggestedRoomName,
+        },
+      );
       navigate({to: "/room"});
     },
     onError: (error) => {
@@ -105,9 +109,15 @@ function HomePage() {
       captureProductEvent("room_join_succeeded");
       storePlayerSessionToken(result.playerSession);
       queryClient.removeQueries({
-        queryKey: activeRoomSessionKeys.activeClient,
-        exact: true,
+        queryKey: ["room", normalizeGameCode(result.gameCode)],
       });
+      queryClient.removeQueries({
+        queryKey: ["preferences", normalizeGameCode(result.gameCode)],
+      });
+      queryClient.setQueryData<ActiveRoomClient>(
+        activeRoomSessionKeys.activeClient,
+        {role: "player", gameCode: result.gameCode, roomName: null},
+      );
       navigate({to: "/play"});
     },
     onError: (error) => {
@@ -150,8 +160,7 @@ function HomePage() {
             <span className="mt-2 block flame-text">Start agreeing.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-white/60 sm:text-xl">
-            Everyone swipes on their own phone. Deckflix learns the room,
-            surfaces the strongest matches, and helps your group make the final call.
+            Everyone swipes. Deckflix finds the movies your group can agree on.
           </p>
           <div className="mt-7 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/65">
             {[
@@ -297,29 +306,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="border-y border-white/[0.07] bg-white/[0.025] px-5 py-20 sm:px-8">
-        <div className="mx-auto max-w-6xl text-center">
-          <div className="text-xs font-bold uppercase tracking-[0.25em] text-primary">Built for actual groups</div>
-          <h2 className="mx-auto mt-3 max-w-2xl text-3xl font-bold sm:text-5xl">
-            Recommendations that understand the room—not just one person.
-          </h2>
-          <div className="mt-12 grid gap-4 text-left md:grid-cols-3">
-            {[
-              {icon: Users, title: "Private taste check", body: "Everyone shares moods, genres, and a few favorites without negotiating in front of the group."},
-              {icon: Sparkles, title: "Adaptive discovery", body: "Strong signals move through the room while every player still gets a varied, personal order."},
-              {icon: MonitorPlay, title: "A confident finale", body: "The TV reveals a well-tested shortlist and explains why each movie earned its place."},
-            ].map(({icon: Icon, title, body}) => (
-              <article key={title} className="rounded-2xl border border-white/10 bg-black p-6">
-                <Icon className="h-6 w-6 text-primary" />
-                <h3 className="mt-5 text-xl font-bold">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-white/50">{body}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <footer className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-10 sm:px-8 md:flex-row md:items-end md:justify-between">
+      <footer className="mx-auto flex w-full max-w-7xl flex-col gap-4 border-t border-white/[0.07] px-5 py-8 sm:px-8 md:flex-row md:items-end md:justify-between">
         <div>
           <BrandMark size="sm" />
           <p className="mt-2 text-sm text-white/45">Swipe right on movie night.</p>

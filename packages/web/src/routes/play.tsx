@@ -6,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import {useMutation, useQuery, useQueryClient} from "@tanstack/react-query";
-import type {QueryClient} from "@tanstack/react-query";
 import {createFileRoute, redirect, useNavigate} from "@tanstack/react-router";
 import type {
   ActiveRoomClient,
@@ -24,6 +23,7 @@ import {RoomUnavailable} from "../features/room/room-unavailable";
 import {PlayerStatusPanel} from "../features/player/PlayerStatusPanel";
 import {
   RoomHeader,
+  RoomLoadingScreen,
   RoomScreenShell,
   SocketStatusDot,
 } from "../components/layout";
@@ -31,9 +31,6 @@ import {
   activePlayerDeckQueryOptions,
   activePlayerRoomQueryOptions,
   activeFinaleQueryOptions,
-  activeRoomMetaQueryOptions,
-  activeRoomPlayersQueryOptions,
-  activeRoomResultsQueryOptions,
   roomKeys,
 } from "../features/room/room.queries";
 import {
@@ -44,24 +41,11 @@ import {
 } from "../features/room/room-session";
 import {parsePlayerServerMessage} from "../features/room/room.ws";
 import {useRoomWebSocket} from "../features/room/use-room-websocket";
-import {SwipeControls} from "../features/swipe/SwipeControls";
 import {SwipeDeck} from "../features/swipe/SwipeDeck";
 import {getPlayerRoomViewMode} from "../features/room/room-view-modes";
 import {requirePlayerRoom} from "./-room-route-guards";
 import {PlayerTastePanel} from "../features/player/PlayerTastePanel";
 import {MovieSuggestionPanel} from "../features/player/MovieSuggestionPanel";
-
-const prefetchPlayerRoom = async (
-  queryClient: QueryClient,
-  gameCode: string,
-) => {
-  await Promise.all([
-    queryClient.prefetchQuery(activeRoomMetaQueryOptions(gameCode)),
-    queryClient.prefetchQuery(activeRoomPlayersQueryOptions(gameCode)),
-    queryClient.prefetchQuery(activeRoomResultsQueryOptions(gameCode)),
-    queryClient.prefetchQuery(activePlayerRoomQueryOptions(gameCode)),
-  ]);
-};
 
 export const Route = createFileRoute("/play")({
   beforeLoad: ({context}) => requirePlayerRoom(context.activeClient),
@@ -69,7 +53,9 @@ export const Route = createFileRoute("/play")({
     const activeClient = requirePlayerRoom(context.activeClient);
 
     try {
-      await prefetchPlayerRoom(context.queryClient, activeClient.gameCode);
+      await context.queryClient.prefetchQuery(
+        activePlayerRoomQueryOptions(activeClient.gameCode),
+      );
     } catch (error) {
       if (isMissingRoomSessionError(error)) {
         await clearActiveRoomSession(
@@ -102,8 +88,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   const seenNotificationIdsRef = useRef(new Set<string>());
   const [gameError, setGameError] = useState<string | null>(null);
   const [isDeckRefreshQueued, setIsDeckRefreshQueued] = useState(false);
-  const metaQuery = useQuery(activeRoomMetaQueryOptions(gameCode));
-  const playersQuery = useQuery(activeRoomPlayersQueryOptions(gameCode));
   const playerQuery = useQuery(activePlayerRoomQueryOptions(gameCode));
   const playerState = playerQuery.data;
   const deckQuery = useQuery({
@@ -121,8 +105,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     queryFn: () => parseRpc(api.api.player.me.notifications.$get()),
     refetchInterval: 4_000,
   });
-  const refetchMeta = metaQuery.refetch;
-  const refetchPlayers = playersQuery.refetch;
   const refetchPlayer = playerQuery.refetch;
   const refetchDeck = deckQuery.refetch;
   const refetchFinale = finaleQuery.refetch;
@@ -167,19 +149,13 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   }, [notificationsQuery.data?.items, notify]);
 
   useEffect(() => {
-    const roomError =
-      metaQuery.error ??
-      playersQuery.error ??
-      playerQuery.error ??
-      deckQuery.error;
+    const roomError = playerQuery.error ?? deckQuery.error;
     if (roomError && isMissingRoomSessionError(roomError)) {
       resetRoomSession();
     }
   }, [
     deckQuery.error,
-    metaQuery.error,
     playerQuery.error,
-    playersQuery.error,
     resetRoomSession,
   ]);
 
@@ -273,7 +249,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
       parseRpc(api.api.game.finale.vote.$post({json: {movieId}})),
     onSuccess: (state) => {
       queryClient.setQueryData(roomKeys.finale(gameCode), state);
-      void refetchMeta();
       void refetchPlayer();
     },
     onError: (error) => {
@@ -285,6 +260,8 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     mutationFn: async () => parseRpc(api.api.player.leave.$post()),
     onSuccess: () => {
       clearStoredRoomSessionToken();
+      queryClient.removeQueries({queryKey: ["room", gameCode]});
+      queryClient.removeQueries({queryKey: ["preferences", gameCode]});
       queryClient.setQueryData<ActiveRoomClient>(
         activeRoomSessionKeys.activeClient,
         {role: "none"},
@@ -327,7 +304,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         roomKeys.player(gameCode),
         updatePlayerProfile,
       );
-      void refetchPlayers();
     },
     onError: (error) => {
       if (isMissingRoomSessionError(error)) {
@@ -344,15 +320,11 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
     onInvalidSession: resetRoomSession,
     onOpen: useCallback(() => {
       setGameError(null);
-      void refetchMeta();
-      void refetchPlayers();
       void refetchPlayer();
       void refetchDeck();
     }, [
       refetchDeck,
-      refetchMeta,
       refetchPlayer,
-      refetchPlayers,
     ]),
     onMessage: useCallback(
       (event: MessageEvent<string>) => {
@@ -366,29 +338,22 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
             roomKeys.player(gameCode),
             message.payload,
           );
-          void refetchMeta();
-          void refetchPlayers();
           return;
         }
 
         if (message.type === "room.started") {
-          void refetchMeta();
-          void refetchPlayers();
           void refetchPlayer();
           refreshDeck();
           return;
         }
 
         if (message.type === "room.completed") {
-          void refetchMeta();
           void refetchPlayer();
           void refetchFinale();
           return;
         }
 
         if (message.type === "room.status_changed") {
-          void refetchMeta();
-          void refetchPlayers();
           void refetchPlayer();
           refreshDeck();
           void refetchFinale();
@@ -428,7 +393,6 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
                   }
                 : current,
           );
-          void refetchPlayers();
           return;
         }
 
@@ -450,9 +414,7 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
         queryClient,
         refetchDeck,
         refetchFinale,
-        refetchMeta,
         refetchPlayer,
-        refetchPlayers,
         refreshDeck,
         resetRoomSession,
       ],
@@ -460,33 +422,21 @@ function PlayerRoomView({gameCode}: {gameCode: string}) {
   });
 
   if (
-    metaQuery.isLoading ||
-    playersQuery.isLoading ||
     playerQuery.isLoading ||
     !playerState
   ) {
-    return null;
+    return <RoomLoadingScreen />;
   }
 
-  if (
-    metaQuery.error ||
-    playersQuery.error ||
-    playerQuery.error ||
-    !metaQuery.data ||
-    !playersQuery.data
-  ) {
-    if (
-      isMissingRoomSessionError(metaQuery.error) ||
-      isMissingRoomSessionError(playersQuery.error) ||
-      isMissingRoomSessionError(playerQuery.error)
-    ) {
+  if (playerQuery.error || !playerQuery.data) {
+    if (isMissingRoomSessionError(playerQuery.error)) {
       return null;
     }
 
     return (
       <RoomUnavailable
         message={getRpcErrorMessage(
-          playerQuery.error ?? metaQuery.error ?? playersQuery.error,
+          playerQuery.error,
           "This room is not available.",
         )}
       />
@@ -671,10 +621,6 @@ function PlayerRoomBody({
         <SwipeDeck
           item={deck.currentItem}
           onSwipe={(choice, movieId) => onVote(choice, movieId)}
-          disabled={isVoting}
-        />
-        <SwipeControls
-          onSwipe={(choice) => onVote(choice)}
           disabled={isVoting}
         />
         <MovieSuggestionPanel

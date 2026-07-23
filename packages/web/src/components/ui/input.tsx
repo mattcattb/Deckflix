@@ -24,7 +24,7 @@ const inputStyles = cva(
   },
 );
 
-export type InputProps = React.InputHTMLAttributes<HTMLInputElement> &
+type InputProps = React.InputHTMLAttributes<HTMLInputElement> &
   VariantProps<typeof inputStyles>;
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(

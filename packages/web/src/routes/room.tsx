@@ -1,4 +1,5 @@
 import {createFileRoute, redirect} from "@tanstack/react-router";
+import type {GameSettings} from "@deckflix/shared";
 import {DisplayRoomShell} from "../features/display/DisplayRoomView";
 import {
   activeRoomMetaQueryOptions,
@@ -20,20 +21,21 @@ export const Route = createFileRoute("/room")({
     const activeClient = requireDisplayRoom(context.activeClient);
 
     try {
-      await Promise.all([
-        context.queryClient.prefetchQuery(
+      const [meta] = await Promise.all([
+        context.queryClient.fetchQuery(
           activeRoomMetaQueryOptions(activeClient.gameCode),
         ),
         context.queryClient.prefetchQuery(
           activeRoomPlayersQueryOptions(activeClient.gameCode),
         ),
         context.queryClient.prefetchQuery(
-          activeRoomSettingsQueryOptions(activeClient.gameCode),
-        ),
-        context.queryClient.prefetchQuery(
           activeGamePreferencesQueryOptions(activeClient.gameCode),
         ),
       ]);
+      context.queryClient.setQueryData<GameSettings>(
+        activeRoomSettingsQueryOptions(activeClient.gameCode).queryKey,
+        meta.settings,
+      );
     } catch (error) {
       if (isMissingRoomSessionError(error)) {
         await clearActiveRoomSession(

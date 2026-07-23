@@ -12,6 +12,7 @@ type SwipeDeckProps = {
 };
 
 const SWIPE_THRESHOLD_PX = 120;
+const SWIPE_EXIT_DURATION_MS = 220;
 
 export function SwipeDeck({
   item,
@@ -22,19 +23,57 @@ export function SwipeDeck({
   const [dragX, setDragX] = useState(0);
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isEntering, setIsEntering] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const [displayedItem, setDisplayedItem] = useState(item);
   const [selectedMovieId, setSelectedMovieId] = useState<string | null>(null);
   const startRef = useRef<{x: number; y: number} | null>(null);
+  const swipeTimerRef = useRef<number | null>(null);
 
-  const rotate = useMemo(() => Math.max(-10, Math.min(10, dragX / 14)), [dragX]);
+  const rotate = useMemo(() => Math.max(-12, Math.min(12, dragX / 14)), [dragX]);
   const swipeHint = useMemo(() => {
     if (dragX > 24) return "LIKE";
     if (dragX < -24) return "NOPE";
     return null;
   }, [dragX]);
 
+  const interactionLocked = disabled || isEntering || isExiting;
+
+  useEffect(
+    () => () => {
+      if (swipeTimerRef.current !== null) {
+        window.clearTimeout(swipeTimerRef.current);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
+    if (item?.movie.id === displayedItem?.movie.id) {
+      if (!disabled && isExiting) {
+        setIsExiting(false);
+        setDragX(0);
+        setDragY(0);
+      }
+      return;
+    }
+
+    setDisplayedItem(item);
     setSelectedMovieId(null);
-  }, [item?.movie.id]);
+    setIsDragging(false);
+    setIsExiting(false);
+    setIsEntering(Boolean(item));
+    setDragX(0);
+    setDragY(0);
+    startRef.current = null;
+
+    if (!item) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => setIsEntering(false));
+    return () => window.cancelAnimationFrame(frame);
+  }, [disabled, item, item?.movie.id]);
 
   const resetDrag = () => {
     setIsDragging(false);
@@ -43,17 +82,26 @@ export function SwipeDeck({
     startRef.current = null;
   };
 
-  const commitSwipe = (direction: "left" | "right") => {
-    if (!item) {
+  const commitSwipe = (choice: SwipeChoice) => {
+    if (!displayedItem || interactionLocked) {
       return;
     }
 
-    onSwipe(direction === "right" ? "like" : "dislike", item.movie.id);
-    resetDrag();
+    const direction = choice === "like" || choice === "super_like" ? 1 : -1;
+    setIsDragging(false);
+    setIsExiting(true);
+    setDragX(direction * Math.max(window.innerWidth * 0.85, 520));
+    setDragY(-24);
+    startRef.current = null;
+    const movieId = displayedItem.movie.id;
+    swipeTimerRef.current = window.setTimeout(() => {
+      swipeTimerRef.current = null;
+      onSwipe(choice, movieId);
+    }, SWIPE_EXIT_DURATION_MS);
   };
 
   const onPointerDown = (event: ReactPointerEvent) => {
-    if (disabled || !item) {
+    if (interactionLocked || !displayedItem) {
       return;
     }
 
@@ -77,19 +125,19 @@ export function SwipeDeck({
     }
 
     if (dragX > SWIPE_THRESHOLD_PX) {
-      commitSwipe("right");
+      commitSwipe("like");
       return;
     }
 
     if (dragX < -SWIPE_THRESHOLD_PX) {
-      commitSwipe("left");
+      commitSwipe("dislike");
       return;
     }
 
     resetDrag();
   };
 
-  if (!item) {
+  if (!displayedItem) {
     return (
       <div className="flex h-[300px] items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02] text-sm text-muted-foreground">
         No remaining movies in this queue.
@@ -100,7 +148,7 @@ export function SwipeDeck({
   return (
     <div className="relative mx-auto w-full">
       <MovieDetailsOverlay
-        movie={selectedMovieId ? item.movie : null}
+        movie={selectedMovieId ? displayedItem.movie : null}
         movieId={selectedMovieId}
         watchRegion={watchRegion}
         onClose={() => setSelectedMovieId(null)}
@@ -112,13 +160,24 @@ export function SwipeDeck({
         onPointerUp={onPointerUp}
         onPointerCancel={resetDrag}>
         <MovieCard
-          movie={item.movie}
+          key={displayedItem.movie.id}
+          movie={displayedItem.movie}
           active
-          className="relative z-10 transition-transform duration-150"
+          className="relative z-10"
           style={{
-            transform: `translate(${dragX}px, ${dragY * 0.25}px) rotate(${rotate}deg)`,
+            opacity: isExiting || isEntering ? 0 : 1,
+            transform: isEntering
+              ? "translate3d(0, 14px, 0) scale(0.985)"
+              : `translate3d(${dragX}px, ${dragY * 0.2}px, 0) rotate(${rotate}deg)`,
+            transition: isDragging
+              ? "none"
+              : "transform 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out",
+            willChange:
+              isDragging || isEntering || isExiting
+                ? "transform, opacity"
+                : undefined,
           }}
-          onDetailsClick={() => setSelectedMovieId(item.movie.id)}
+          onDetailsClick={() => setSelectedMovieId(displayedItem.movie.id)}
         />
         {swipeHint ? (
           <div
@@ -130,6 +189,43 @@ export function SwipeDeck({
             {swipeHint}
           </div>
         ) : null}
+      </div>
+      <div className="mt-4 flex items-center justify-center gap-5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <button
+          type="button"
+          disabled={interactionLocked}
+          onClick={() => commitSwipe("dislike")}
+          aria-label="Pass on this movie"
+          className="flex h-16 w-16 touch-manipulation items-center justify-center rounded-full border border-danger/35 bg-danger/10 text-danger shadow-[0_10px_30px_hsl(0_0%_0%/0.35)] transition-[transform,background-color,opacity] duration-150 hover:bg-danger/20 active:scale-90 disabled:opacity-35">
+          <svg
+            aria-hidden="true"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          disabled={interactionLocked}
+          onClick={() => commitSwipe("like")}
+          aria-label="Like this movie"
+          className="flex h-16 w-16 touch-manipulation items-center justify-center rounded-full border border-success/35 bg-success/10 text-success shadow-[0_10px_30px_hsl(0_0%_0%/0.35)] transition-[transform,background-color,opacity] duration-150 hover:bg-success/20 active:scale-90 disabled:opacity-35">
+          <svg
+            aria-hidden="true"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="currentColor">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+        </button>
       </div>
     </div>
   );

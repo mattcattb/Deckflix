@@ -113,6 +113,22 @@ export function RoomScreenShell({
   );
 }
 
+export function RoomLoadingScreen() {
+  return (
+    <main
+      className="grid min-h-dvh place-items-center bg-black px-6 text-center"
+      aria-label="Loading room"
+      aria-live="polite">
+      <div>
+        <BrandMark size="md" />
+        <div className="mx-auto mt-5 h-1 w-24 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-1/2 animate-[shimmer_1s_ease-in-out_infinite] rounded-full bg-primary" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export function RoomSidebarSection({
   children,
   title,

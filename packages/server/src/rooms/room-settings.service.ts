@@ -12,7 +12,7 @@ const roomKey = (gameCode: string) =>
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   gameplay: {
-    maxMovies: 100,
+    maxMovies: 40,
     allowMaybe: true,
     allowSuperLike: true,
   },

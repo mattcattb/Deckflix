@@ -58,6 +58,8 @@ const gameStatusRecordSchema = z.object({
   endedAt: z.string().datetime().nullable(),
 });
 
+const INITIAL_MOVIE_POOL_SIZE = 30;
+
 type DisplayRecord = z.infer<typeof displayRecordSchema>;
 export type GameMetaRecord = z.infer<typeof gameMetaRecordSchema>;
 
@@ -262,7 +264,14 @@ export const start = async (input: {
       PoolService.listPoolMovieIds(input.gameCode),
     ]);
     const preferences = PlayerTasteService.applyPlayerTastes(roomPreferences, tastes);
-    const targetSize = Math.max(0, settings.gameplay.maxMovies - existingMovieIds.length);
+    const remainingCapacity = Math.max(
+      0,
+      settings.gameplay.maxMovies - existingMovieIds.length,
+    );
+    const targetSize = Math.min(
+      Math.max(0, INITIAL_MOVIE_POOL_SIZE - existingMovieIds.length),
+      remainingCapacity,
+    );
 
     const recommendedMovies = targetSize > 0
       ? await RecommendationsService.generateInitialRecommendations({

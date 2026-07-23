@@ -48,6 +48,7 @@ import {
 } from "../room/room-view-modes";
 import {
   RoomHeader,
+  RoomLoadingScreen,
   RoomScreenShell,
   RoomSidebarSection,
   SocketStatusDot,
@@ -330,6 +331,8 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     mutationFn: async () => parseRpc(api.api.room.end.$post()),
     onSuccess: () => {
       clearStoredRoomSessionToken();
+      queryClient.removeQueries({queryKey: ["room", gameCode]});
+      queryClient.removeQueries({queryKey: ["preferences", gameCode]});
       queryClient.setQueryData<ActiveRoomClient>(
         activeRoomSessionKeys.activeClient,
         {role: "none"},
@@ -483,7 +486,7 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
     !draftSettings ||
     !draftPreferences
   ) {
-    return null;
+    return <RoomLoadingScreen />;
   }
 
   if (
@@ -590,27 +593,31 @@ export function DisplayRoomShell({gameCode}: {gameCode: string}) {
             </RoomSidebarSection>
           }
           mobileSidebar={
-            <div className="mb-5 space-y-3 lg:hidden">
-              <Eyebrow className="text-white/45">Who&apos;s Playing</Eyebrow>
-              <div className="flex gap-4 overflow-x-auto border-b border-white/10 pb-3">
-                {playersQuery.data.players.map((player) => {
-                  return (
-                    <div key={player.id} className="w-56 shrink-0">
-                      <PlayerSidebarRow
-                        player={player}
-                        canKick={viewMode === "lobby"}
-                        flashTone={playerVoteFlashById[player.id]}
-                        kickPending={
-                          kickPlayerMutation.isPending &&
-                          kickPlayerMutation.variables === player.id
-                        }
-                        onKick={(playerId) => kickPlayerMutation.mutate(playerId)}
-                      />
-                    </div>
-                  );
-                })}
+            playersQuery.data.players.length > 0 ? (
+              <div className="mb-5 space-y-3 lg:hidden">
+                <Eyebrow className="text-white/45">Who&apos;s Playing</Eyebrow>
+                <div className="flex gap-4 overflow-x-auto border-b border-white/10 pb-3">
+                  {playersQuery.data.players.map((player) => {
+                    return (
+                      <div key={player.id} className="w-56 shrink-0">
+                        <PlayerSidebarRow
+                          player={player}
+                          canKick={viewMode === "lobby"}
+                          flashTone={playerVoteFlashById[player.id]}
+                          kickPending={
+                            kickPlayerMutation.isPending &&
+                            kickPlayerMutation.variables === player.id
+                          }
+                          onKick={(playerId) =>
+                            kickPlayerMutation.mutate(playerId)
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : null
           }>
           <Outlet />
         </RoomScreenShell>

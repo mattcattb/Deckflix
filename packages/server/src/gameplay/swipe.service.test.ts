@@ -111,4 +111,26 @@ describe("swipe service", () => {
         .totalVotes,
     ).toBe(1);
   });
+
+  test("coalesces concurrent retries of the same swipe action", async () => {
+    const currentMovieId = await arrangeDeck(2);
+    const input = {
+      gameCode,
+      playerId,
+      movieId: currentMovieId!,
+      choice: "like" as const,
+      actionId: "9ca3b621-88c8-459d-a147-bf4fa7cf4dba",
+    };
+
+    const [first, second] = await Promise.all([
+      GameService.recordSwipe(input),
+      GameService.recordSwipe(input),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(
+      (await MovieStateService.getMovieStateOrThrow(gameCode, currentMovieId!))
+        .totalVotes,
+    ).toBe(1);
+  });
 });

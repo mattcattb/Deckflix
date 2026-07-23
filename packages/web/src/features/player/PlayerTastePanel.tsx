@@ -15,7 +15,11 @@ export function PlayerTastePanel({
   taste: PlayerTaste;
   onSaved: (taste: PlayerTaste) => void;
 }) {
-  const genres = useQuery(movieGenresQueryOptions());
+  const [open, setOpen] = useState(false);
+  const genres = useQuery({
+    ...movieGenresQueryOptions(),
+    enabled: open,
+  });
   const [draft, setDraft] = useState(taste);
   const [movieSearch, setMovieSearch] = useState("");
   const deferredMovieSearch = useDeferredValue(movieSearch.trim());
@@ -27,7 +31,7 @@ export function PlayerTastePanel({
           query: {q: deferredMovieSearch, page: 1},
         }),
       ),
-    enabled: deferredMovieSearch.length >= 2,
+    enabled: open && deferredMovieSearch.length >= 2,
     staleTime: 60_000,
   });
   const mutation = useMutation({
@@ -43,13 +47,33 @@ export function PlayerTastePanel({
         ? [...values, value]
         : values;
 
+  if (!open) {
+    return (
+      <Button
+        className="w-full"
+        variant="secondary"
+        onClick={() => setOpen(true)}>
+        Tune my picks <span className="text-white/45">Optional</span>
+      </Button>
+    );
+  }
+
   return (
     <section className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-      <div>
-        <h2 className="text-lg font-semibold">What sounds good tonight?</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Optional. Pick up to three of each and we’ll tune the room.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Tune my picks</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Pick up to three of each.
+          </p>
+        </div>
+        <Button
+          aria-label="Close taste settings"
+          variant="ghost"
+          size="sm"
+          onClick={() => setOpen(false)}>
+          Close
+        </Button>
       </div>
       <div className="flex flex-wrap gap-2">
         {PLAYER_TASTE_MOODS.map((mood) => (

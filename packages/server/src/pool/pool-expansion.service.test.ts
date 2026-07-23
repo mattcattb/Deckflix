@@ -71,6 +71,31 @@ describe("pool-expansion.service", () => {
     expect(generateRecommendations).not.toHaveBeenCalled();
   });
 
+  test("does not expand past the host's movie limit", async () => {
+    const {gameCode} = await RoomsService.create({
+      roomName: "Bounded expansion",
+      settings: {gameplay: {maxMovies: 2}},
+    });
+    gameCodes.push(gameCode);
+    await PlayerService.join({gameCode, displayName: "Player one"});
+    await PoolService.replacePool(gameCode, ["movie-1", "movie-2"]);
+    const generateRecommendations = mock(
+      async (
+        _input: Parameters<
+          typeof RecommendationsService.generateRecommendationExpansion
+        >[0],
+      ) => [movie],
+    );
+
+    await expect(
+      PoolExpansionService.ensurePoolHasBuffer(
+        {gameCode},
+        generateRecommendations,
+      ),
+    ).resolves.toEqual({expanded: false, appendedMovieIds: []});
+    expect(generateRecommendations).not.toHaveBeenCalled();
+  });
+
   test("persists expanded movies and initializes their state", async () => {
     const gameCode = await createRoomWithPlayer();
     await PoolService.replacePool(gameCode, ["movie-1", "movie-2"]);

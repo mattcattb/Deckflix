@@ -22,17 +22,17 @@ const getRecentHistoryTimestamps = async (movieIds: string[]) => {
     Date.now() - RECENT_HISTORY_TTL_MS,
   );
 
-  const scores = await Promise.all(
-    movieIds.map(async (movieId) => {
-      const value = await redisClient.zScore(
-        recentRecommendationHistoryKey(),
-        movieId,
-      );
-      return [movieId, value == null ? null : Number(value)] as const;
-    }),
+  const scores = await redisClient.zmScore(
+    recentRecommendationHistoryKey(),
+    movieIds,
   );
 
-  return new Map(scores);
+  return new Map(
+    movieIds.map(
+      (movieId, index) =>
+        [movieId, scores[index] == null ? null : Number(scores[index])] as const,
+    ),
+  );
 };
 
 const updateRecentRecommendationHistory = async (movies: MovieCandidate[]) => {

@@ -160,17 +160,6 @@
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 }
 
-@keyframes riseIn {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -214,13 +203,11 @@
 @keyframes railCardEnter {
   0% {
     opacity: 0;
-    transform: scale(0.96);
-    margin-left: -3rem;
+    transform: translate3d(-18px, 0, 0) scale(0.98);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
-    margin-left: 0;
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
@@ -278,61 +265,6 @@
   }
 }
 
-@keyframes match-card-pop {
-  0% {
-    opacity: 0;
-    transform: scale(0.9) translateY(24px);
-  }
-  18% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-@keyframes match-badge-flash {
-  0%, 100% {
-    box-shadow: 0 0 0 hsl(145 65% 42% / 0);
-  }
-  50% {
-    box-shadow: 0 0 30px hsl(145 65% 42% / 0.28);
-  }
-}
-
-.enter-rise {
-  animation: riseIn 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.enter-delay-1 {
-  animation-delay: 80ms;
-}
-
-.enter-delay-2 {
-  animation-delay: 160ms;
-}
-
-.enter-delay-3 {
-  animation-delay: 240ms;
-}
-
-/* Netflix-red shimmer on text */
-.shimmer-text {
-  background: linear-gradient(
-    90deg,
-    hsl(var(--foreground)) 0%,
-    hsl(0 80% 48%) 40%,
-    hsl(4 90% 58%) 60%,
-    hsl(var(--foreground)) 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: shimmer 3s linear infinite;
-}
-
 /* Netflix red wordmark accent */
 .flame-text {
   color: hsl(357 92% 47%);
@@ -386,14 +318,6 @@
   animation: voteFlashNegative 620ms ease-out both;
   outline: 2px solid hsl(357 92% 47% / 0.95);
   outline-offset: 2px;
-}
-
-.match-overlay-card {
-  animation: match-card-pop 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.match-overlay-badge {
-  animation: match-badge-flash 1.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
